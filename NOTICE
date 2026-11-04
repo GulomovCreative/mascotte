@@ -1,0 +1,9 @@
+Mascotte includes source code from Zdog, a pseudo-3D engine.
+
+  Project:    https://github.com/metafizzy/zdog
+  Copied:     js/ directory, commit dde8684 -> src/core/
+  Copyright:  Copyright 2020 Metafizzy
+  License:    MIT (as stated in the upstream package.json and README)
+
+The copied files keep their original headers. Changes made by this project
+are documented in the git history of this repository.
