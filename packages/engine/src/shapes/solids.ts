@@ -1,6 +1,5 @@
 import { TAU, type Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
-import type { SortMode } from '../scene/node.ts';
 import type { ParamSchema } from './params.ts';
 import { Ellipse, Rect } from './primitives.ts';
 import type { ShapeStyle } from './style.ts';
@@ -287,14 +286,15 @@ export type SolidOptions = StyledOptions;
  * и положение, поэтому менять их напрямую не нужно. Перспектива всех частей считается
  * по глубине начала самой фигуры, чтобы части не расходились.
  *
- * По умолчанию фигура сортируется как группа. Боковые части (купол, бок цилиндра,
- * поверхность конуса) имеют `zBias = -Infinity` и внутри группы рисуются первыми,
- * основания и грани — по глубине, как в Zdog.
+ * Фигура всегда сортируется как группа, её `sortMode` задаёт только место группы.
+ * Боковые части (купол, бок цилиндра, поверхность конуса) имеют `zBias = -Infinity`
+ * и внутри группы рисуются первыми, как в Zdog; основания цилиндра и грани коробки —
+ * по глубине. К составной фигуре можно прикреплять декали.
  */
 export abstract class Solid<S extends ParamSchema = ParamSchema> extends Styled<S> {
   static override readonly defaultStyle = { fill: true };
-  /** Составная фигура сортируется как одно целое, части — внутри неё. */
-  static override readonly defaultSortMode: SortMode = 'group';
+  /** Составная фигура всегда сортируется как одно целое, части — внутри неё. */
+  static override readonly sortsAsGroup = true;
 
   protected override onStyleChanged(): void {
     this.markAppearanceChanged();
