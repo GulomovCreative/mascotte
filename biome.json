@@ -33,7 +33,7 @@
   },
   "overrides": [
     {
-      "includes": ["packages/math/src/mat3x4.ts"],
+      "includes": ["packages/math/src/mat3x4.ts", "packages/engine/src/scene/camera.ts"],
       "linter": {
         "rules": {
           "style": {
