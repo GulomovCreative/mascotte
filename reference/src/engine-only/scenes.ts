@@ -145,5 +145,91 @@ const layersOpacity: EngineScene = {
   },
 };
 
+/** Точка на сфере радиуса `radius` в направлении (x, y) с лицевой стороны (z > 0). */
+function onSphere(x: number, y: number, radius: number): { x: number; y: number; z: number } {
+  return { x, y, z: Math.sqrt(Math.max(0, radius * radius - x * x - y * y)) };
+}
+
+/** Та же точка, отодвинутая от центра сферы на расстояние `distance`. */
+function along(p: { x: number; y: number; z: number }, distance: number) {
+  const length = Math.hypot(p.x, p.y, p.z) || 1;
+  return {
+    x: (p.x / length) * distance,
+    y: (p.y / length) * distance,
+    z: (p.z / length) * distance,
+  };
+}
+
+const mascot3d: EngineScene = {
+  id: 'engine-mascot-3d',
+  title: 'Маскот в 3D',
+  width: 240,
+  height: 240,
+  background: '#e8f1f2',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ zoom: 1.5 });
+    const radius = 40;
+    const head = new Sphere({
+      id: 'head',
+      diameter: radius * 2,
+      style: { color: '#f6a623', stroke: 0 },
+    });
+    for (const side of [-1, 1]) {
+      // Ухо растёт из головы: основание внутри сферы.
+      head.add(
+        new PathShape({
+          path: [
+            { type: 'move', point: { x: side * 20, y: -20, z: 0 } },
+            { type: 'line', point: { x: side * 32, y: -52, z: 0 } },
+          ],
+          style: { stroke: 16, color: '#e0861a' },
+        }),
+      );
+      // Глазное яблоко сидит на поверхности головы и выступает из неё.
+      const surface = onSphere(side * 14, -6, radius);
+      head.add(
+        new Sphere({
+          diameter: 14,
+          position: along(surface, radius - 2),
+          style: { color: '#ffffff', stroke: 0 },
+        }),
+      );
+      // Зрачок — на поверхности глазного яблока.
+      head.add(
+        new Sphere({
+          diameter: 6,
+          position: along(surface, radius - 2 + 5),
+          style: { color: '#222222', stroke: 0 },
+        }),
+      );
+    }
+    // Рот — трубка точно по поверхности головы: улыбка из точек на сфере.
+    const mouth = [];
+    for (let i = 0; i <= 8; i++) {
+      const x = -9 + (18 * i) / 8;
+      const y = 12 + (1 - (x / 9) ** 2) * 5;
+      mouth.push({
+        type: i === 0 ? ('move' as const) : ('line' as const),
+        point: onSphere(x, y, radius),
+      });
+    }
+    head.add(new PathShape({ path: mouth, closed: false, style: { stroke: 4, color: '#8a3b12' } }));
+    root.add(head);
+    root.add(
+      new Sphere({
+        diameter: 44,
+        position: { x: 0, y: 62, z: 0 },
+        style: { color: '#e0861a', stroke: 0 },
+      }),
+    );
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    // Голова поворачивается почти до профиля, чтобы глаза выходили за её силуэт.
+    root.setRotationFromEuler(euler.create(-0.15, Math.sin(time * 0.8) * 1.3, 0));
+  },
+};
+
 /** Сцены только для нового ядра. */
-export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity];
+export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity, mascot3d];
