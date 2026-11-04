@@ -9,7 +9,9 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@mascotte/reference": "workspace:*"
+    "@mascotte/engine": "workspace:*",
+    "@mascotte/reference": "workspace:*",
+    "@mascotte/zdog-reference": "workspace:*"
   },
   "devDependencies": {
     "vite": "8.3.5"

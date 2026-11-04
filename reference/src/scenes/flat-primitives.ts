@@ -1,4 +1,5 @@
 import Zdog from '@mascotte/zdog-reference';
+import { flatPrimitivesEngine } from '../engine/flat-primitives.ts';
 import type { ReferenceScene } from '../scene.ts';
 
 /** Плоские примитивы: прямоугольники, эллипсы, многоугольник, путь с дугой и безье, точка, линия. */
@@ -90,4 +91,5 @@ export const flatPrimitives: ReferenceScene = {
   pose(root, time) {
     root.rotate.y = 0.5 + time * 0.6;
   },
+  engine: flatPrimitivesEngine,
 };

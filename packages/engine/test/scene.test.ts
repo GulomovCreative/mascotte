@@ -52,6 +52,9 @@ describe('служебный доступ закрыт', () => {
         'DepthSorter',
         'getSortSettingsVersion',
         'isDrawable',
+        'CanvasRenderer',
+        'DisplayItem',
+        'DisplayList',
       ].sort(),
     );
     const scene = new Scene();

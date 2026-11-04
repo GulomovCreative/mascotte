@@ -1,4 +1,13 @@
+import type { Node } from '@mascotte/engine';
 import type { Anchor, CanvasContext } from '@mascotte/zdog-reference';
+
+/** Та же сцена на новом ядре. Повороты Zdog {x, y, z} переводятся в {x, -y, z}. */
+export interface EngineVersion {
+  /** Строит корень сцены. */
+  build(): Node;
+  /** Положение сцены в момент `time`, как `pose` у версии Zdog. */
+  pose(root: Node, time: number): void;
+}
 
 /** Эталонная сцена: строится копией Zdog и служит образцом картинки для нового ядра. */
 export interface ReferenceScene {
@@ -14,6 +23,8 @@ export interface ReferenceScene {
   build(): Anchor;
   /** Положение сцены в момент `time` (секунды). Для снимков используется `time = 0`. */
   pose?(root: Anchor, time: number): void;
+  /** Та же сцена на новом ядре: её кадр сравнивается со снимком Zdog. */
+  readonly engine: EngineVersion;
 }
 
 /** Двумерный контекст, общий для браузерного canvas и canvas в Node. */

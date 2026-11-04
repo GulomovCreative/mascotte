@@ -8,6 +8,8 @@
     "./snapshot": "./src/snapshot.ts"
   },
   "dependencies": {
+    "@mascotte/engine": "workspace:*",
+    "@mascotte/math": "workspace:*",
     "@mascotte/zdog-reference": "workspace:*"
   },
   "devDependencies": {

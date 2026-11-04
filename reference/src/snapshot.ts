@@ -2,6 +2,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { Camera, CanvasRenderer, Scene } from '@mascotte/engine';
 import type { Anchor } from '@mascotte/zdog-reference';
 import { createCanvas } from '@napi-rs/canvas';
 import pixelmatch from 'pixelmatch';
@@ -24,6 +25,26 @@ export function renderSceneToPng(
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
   renderScene(scene, sceneRoot, canvas.getContext('2d'), options);
+  return canvas.toBuffer('image/png');
+}
+
+/** Рисует версию сцены на новом ядре в canvas Node и возвращает PNG того же размера, что у Zdog. */
+export function renderEngineToPng(scene: ReferenceScene, options: RenderOptions = {}): Buffer {
+  const pixelRatio = options.pixelRatio ?? 1;
+  const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
+  const root = scene.engine.build();
+  scene.engine.pose(root, options.time ?? 0);
+  new CanvasRenderer().render(
+    canvas.getContext('2d'),
+    new Scene(root),
+    new Camera({ zoom: scene.zoom }),
+    {
+      width: scene.width,
+      height: scene.height,
+      pixelRatio,
+      background: scene.background,
+    },
+  );
   return canvas.toBuffer('image/png');
 }
 

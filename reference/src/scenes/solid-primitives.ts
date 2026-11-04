@@ -1,4 +1,5 @@
 import Zdog from '@mascotte/zdog-reference';
+import { solidPrimitivesEngine } from '../engine/solid-primitives.ts';
 import type { ReferenceScene } from '../scene.ts';
 
 /** Объёмные примитивы: полусфера, цилиндр, конус, коробка и сфера из точки. */
@@ -56,4 +57,5 @@ export const solidPrimitives: ReferenceScene = {
   pose(root, time) {
     root.rotate.y = 0.6 + time * 0.6;
   },
+  engine: solidPrimitivesEngine,
 };
