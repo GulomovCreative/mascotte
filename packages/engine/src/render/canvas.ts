@@ -4,8 +4,8 @@ import { DisplayList } from './display-list.ts';
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 
 /**
- * Методы двумерного контекста, которые использует отрисовка. Подходит и браузерный
- * `CanvasRenderingContext2D` (в том числе `OffscreenCanvas`), и canvas в Node.
+ * Методы двумерного контекста, которые использует отрисовка. Подходят браузерный
+ * `CanvasRenderingContext2D`, контекст `OffscreenCanvas` и canvas в Node.
  */
 export type CanvasTarget = Pick<
   CanvasRenderingContext2D,
@@ -41,22 +41,22 @@ export interface Viewport {
 
 /**
  * Отрисовка сцены в Canvas 2D. Строит список отрисовки и рисует его: центр кадра —
- * начало координат камеры. Состояние контекста (цвета, толщина, концы линий,
- * прозрачность) переключается только при изменении.
+ * начало координат камеры. В пределах кадра состояние контекста (цвета, толщина,
+ * концы линий, прозрачность) переключается только при изменении.
  */
 export class CanvasRenderer {
   readonly list = new DisplayList();
 
   render(ctx: CanvasTarget, scene: Scene, camera: Camera, viewport: Viewport): void {
-    const ratio = viewport.pixelRatio ?? 1;
+    const ratio = checkViewport(viewport);
     const width = viewport.width * ratio;
     const height = viewport.height * ratio;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
+    // Очистка обязательна и при фоне: полупрозрачный фон иначе копился бы поверх прошлых кадров.
+    ctx.clearRect(0, 0, width, height);
     if (viewport.background) {
       ctx.fillStyle = viewport.background;
       ctx.fillRect(0, 0, width, height);
-    } else {
-      ctx.clearRect(0, 0, width, height);
     }
     ctx.setTransform(ratio, 0, 0, ratio, width / 2, height / 2);
     ctx.lineJoin = 'round';
@@ -100,6 +100,23 @@ export class CanvasRenderer {
     }
     ctx.globalAlpha = 1;
   }
+}
+
+/** Проверяет размеры кадра и возвращает devicePixelRatio. */
+function checkViewport(viewport: Viewport): number {
+  const ratio = viewport.pixelRatio ?? 1;
+  const ok = (value: number) => value >= 0 && Number.isFinite(value);
+  if (!ok(viewport.width) || !ok(viewport.height)) {
+    throw new RangeError(
+      `Размеры кадра должны быть конечными и неотрицательными: ${viewport.width}×${viewport.height}.`,
+    );
+  }
+  if (!(ratio > 0 && Number.isFinite(ratio))) {
+    throw new RangeError(
+      `pixelRatio должен быть положительным конечным числом, получено ${ratio}.`,
+    );
+  }
+  return ratio;
 }
 
 /** Повторяет экранный путь в контексте. */
