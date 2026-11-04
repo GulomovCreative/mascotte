@@ -1,4 +1,5 @@
 import Zdog from '@mascotte/zdog-reference';
+import { backfaceGroupsEngine } from '../engine/backface-groups.ts';
 import type { ReferenceScene } from '../scene.ts';
 
 /** Скрытие и подмена цвета обратных граней, а также сортировка внутри групп. */
@@ -38,4 +39,5 @@ export const backfaceGroups: ReferenceScene = {
   pose(root, time) {
     root.rotate.y = Zdog.TAU / 2 + 0.4 + time * 0.8;
   },
+  engine: backfaceGroupsEngine,
 };

@@ -181,9 +181,15 @@ importers:
 
   apps/playground:
     dependencies:
+      '@mascotte/engine':
+        specifier: workspace:*
+        version: link:../../packages/engine
       '@mascotte/reference':
         specifier: workspace:*
         version: link:../../reference
+      '@mascotte/zdog-reference':
+        specifier: workspace:*
+        version: link:../../src/core
     devDependencies:
       vite:
         specifier: 8.3.5
@@ -210,6 +216,12 @@ importers:
 
   reference:
     dependencies:
+      '@mascotte/engine':
+        specifier: workspace:*
+        version: link:../packages/engine
+      '@mascotte/math':
+        specifier: workspace:*
+        version: link:../packages/math
       '@mascotte/zdog-reference':
         specifier: workspace:*
         version: link:../src/core

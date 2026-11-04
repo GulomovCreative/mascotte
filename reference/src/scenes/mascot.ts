@@ -1,4 +1,5 @@
 import Zdog from '@mascotte/zdog-reference';
+import { mascotEngine } from '../engine/mascot.ts';
 import type { ReferenceScene } from '../scene.ts';
 
 /**
@@ -47,4 +48,5 @@ export const mascot: ReferenceScene = {
     root.rotate.y = -0.6 + Math.sin(time * 1.2) * 0.9;
     root.rotate.x = -0.2 + Math.sin(time * 0.8) * 0.15;
   },
+  engine: mascotEngine,
 };

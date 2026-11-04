@@ -1,3 +1,4 @@
+import { Camera, CanvasRenderer, Scene } from '@mascotte/engine';
 import { type ReferenceScene, referenceScenes, renderScene } from '@mascotte/reference';
 
 /** Пример в playground: монтируется в контейнер и возвращает функцию очистки. */
@@ -38,52 +39,92 @@ function watchPixelRatio(callback: () => void): () => void {
   return () => query?.removeEventListener('change', onChange);
 }
 
+type Draw = (ctx: CanvasRenderingContext2D, pixelRatio: number, time: number) => void;
+
+/** Холст с циклом кадров и учётом devicePixelRatio. */
+function mountCanvas(
+  container: HTMLElement,
+  controls: ExampleControls,
+  scene: ReferenceScene,
+  draw: Draw,
+): () => void {
+  const canvas = document.createElement('canvas');
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Canvas 2D недоступен в этом браузере.');
+  canvas.style.width = `${scene.width * displayScale}px`;
+  canvas.style.maxWidth = '100%';
+
+  let pixelRatio = 1;
+  const resize = () => {
+    pixelRatio = (window.devicePixelRatio || 1) * displayScale;
+    canvas.width = scene.width * pixelRatio;
+    canvas.height = scene.height * pixelRatio;
+  };
+  resize();
+  const unwatch = watchPixelRatio(resize);
+  container.append(canvas);
+
+  let time = 0;
+  let last = performance.now();
+  let raf = 0;
+  const tick = (now: number) => {
+    try {
+      if (controls.animate) time += (now - last) / 1000;
+      last = now;
+      draw(ctx, pixelRatio, time);
+      controls.frame();
+    } catch (error) {
+      controls.error(error);
+      return;
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
+  return () => {
+    cancelAnimationFrame(raf);
+    unwatch();
+    canvas.remove();
+  };
+}
+
 function fromReferenceScene(scene: ReferenceScene): Example {
   return {
     id: `reference/${scene.id}`,
     title: scene.title,
     group: 'Эталон Zdog',
     mount(container, controls) {
-      const canvas = document.createElement('canvas');
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Canvas 2D недоступен в этом браузере.');
-      canvas.style.width = `${scene.width * displayScale}px`;
-      canvas.style.maxWidth = '100%';
-
-      let pixelRatio = 1;
-      const resize = () => {
-        pixelRatio = (window.devicePixelRatio || 1) * displayScale;
-        canvas.width = scene.width * pixelRatio;
-        canvas.height = scene.height * pixelRatio;
-      };
-      resize();
-      const unwatch = watchPixelRatio(resize);
-      container.append(canvas);
-
       const root = scene.build();
-      let time = 0;
-      let last = performance.now();
-      let raf = 0;
-      const tick = (now: number) => {
-        try {
-          if (controls.animate) time += (now - last) / 1000;
-          last = now;
-          renderScene(scene, root, ctx, { pixelRatio, time });
-          controls.frame();
-        } catch (error) {
-          controls.error(error);
-          return;
-        }
-        raf = requestAnimationFrame(tick);
-      };
-      raf = requestAnimationFrame(tick);
-      return () => {
-        cancelAnimationFrame(raf);
-        unwatch();
-        canvas.remove();
-      };
+      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
+        renderScene(scene, root, ctx, { pixelRatio, time });
+      });
     },
   };
 }
 
-export const examples: Example[] = referenceScenes.map(fromReferenceScene);
+function fromEngineScene(scene: ReferenceScene): Example {
+  return {
+    id: `engine/${scene.id}`,
+    title: scene.title,
+    group: 'Новое ядро',
+    mount(container, controls) {
+      const root = scene.engine.build();
+      const world = new Scene(root);
+      const camera = new Camera({ zoom: scene.zoom });
+      const renderer = new CanvasRenderer();
+      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
+        scene.engine.pose(root, time);
+        renderer.render(ctx, world, camera, {
+          width: scene.width,
+          height: scene.height,
+          pixelRatio,
+          background: scene.background,
+        });
+      });
+    },
+  };
+}
+
+export const examples: Example[] = [
+  ...referenceScenes.map(fromEngineScene),
+  ...referenceScenes.map(fromReferenceScene),
+];

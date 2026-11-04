@@ -1,6 +1,8 @@
 // Сцена, примитивы, сортировка, рендер, анимация и риг. См. docs/PLAN.md, разделы 5.4–5.12.
 
+export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
+export { DisplayItem, DisplayList } from './render/display-list.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,
