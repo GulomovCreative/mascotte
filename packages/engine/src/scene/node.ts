@@ -8,10 +8,13 @@ import {
   type Vec3,
 } from '@mascotte/math';
 import { ObservedQuat, ObservedVec3 } from './observed.ts';
-import type { Scene } from './scene.ts';
+import { type Scene, sceneInternals } from './scene.ts';
 
 export interface NodeOptions {
-  /** Стабильный идентификатор. Если не задан, создаётся автоматически. */
+  /**
+   * Стабильный идентификатор. Если не задан, создаётся автоматически с префиксом `~`.
+   * Свои идентификаторы не могут быть пустыми и начинаться с `~`.
+   */
   id?: string;
   name?: string;
   position?: Readonly<Vec3>;
@@ -25,12 +28,34 @@ export interface NodeOptions {
   opacity?: number;
 }
 
+/** Префикс автоматических идентификаторов. Документам он запрещён, поэтому совпадений нет. */
+export const AUTO_ID_PREFIX = '~';
+
 let nextId = 1;
 
-/** Идентификатор для узла без явного `id`. Документы редактора всегда задают свои. */
-function generateId(): string {
-  return `node-${nextId++}`;
+function checkId(id: string): string {
+  if (id.trim() === '') throw new RangeError('Идентификатор узла не может быть пустым.');
+  if (id.startsWith(AUTO_ID_PREFIX)) {
+    throw new RangeError(`Идентификатор «${id}» не может начинаться с «${AUTO_ID_PREFIX}».`);
+  }
+  return id;
 }
+
+function checkOpacity(value: number): number {
+  if (Number.isNaN(value)) throw new RangeError('Непрозрачность не может быть NaN.');
+  return Math.min(1, Math.max(0, value));
+}
+
+/**
+ * Доступ `Scene` к закрытому состоянию узлов. Заполняется в статическом блоке `Node`
+ * и не экспортируется из пакета.
+ */
+export let nodeInternals!: {
+  /** Подключает узел как корень сцены. */
+  attachRoot(root: Node, scene: Scene): void;
+  /** Отключает корень от сцены, не трогая индекс. */
+  detachRoot(root: Node): void;
+};
 
 /**
  * Узел сцены: локальная трансформация и дети.
@@ -40,26 +65,35 @@ function generateId(): string {
  * обращении к `worldMatrix`. Пока ничего не менялось, повторные обращения бесплатны.
  *
  * Инвариант: если мировая матрица узла устарела, устарели и матрицы всех его потомков.
- * Поэтому пометка поддерева останавливается на уже устаревших узлах.
+ * Поэтому пометка поддерева останавливается на уже устаревших узлах и стоит столько,
+ * сколько узлов стали устаревшими.
+ *
+ * Подклассы (фигуры) могут переопределить `onWorldInvalidated`, чтобы сбросить свои кэши.
+ * Переопределённый `destroy` обязан вызывать `super.destroy()`.
  */
 export class Node {
   readonly id: string;
+  /** Имя для редактора. На отрисовку не влияет. */
   name: string;
 
   /** Позиция относительно родителя. */
   readonly position: ObservedVec3;
-  /** Поворот относительно родителя. Кватернион должен быть единичным. */
+  /**
+   * Поворот относительно родителя. Кватернион должен быть единичным: неединичный
+   * добавит масштаб. `setRotationFromEuler` всегда даёт единичный.
+   */
   readonly rotation: ObservedQuat;
   readonly scale: ObservedVec3;
   /** Точка в локальных координатах, вокруг которой выполняются поворот и масштаб. */
   readonly pivot: ObservedVec3;
 
-  visible: boolean;
-  /** Непрозрачность узла от 0 до 1, умножается на непрозрачность предков. */
-  opacity: number;
+  #visible: boolean;
+  #opacity: number;
+  #appearanceVersion = 0;
 
   #parent: Node | null = null;
   readonly #children: Node[] = [];
+  #childrenView: readonly Node[] | null = null;
   #scene: Scene | null = null;
   #destroyed = false;
 
@@ -70,7 +104,7 @@ export class Node {
   #worldVersion = 0;
 
   constructor(options: NodeOptions = {}) {
-    this.id = options.id ?? generateId();
+    this.id = options.id === undefined ? `${AUTO_ID_PREFIX}${nextId++}` : checkId(options.id);
     this.name = options.name ?? '';
     const invalidate = () => this.#invalidateLocal();
     const { position, scale, pivot } = options;
@@ -82,8 +116,37 @@ export class Node {
         ? new ObservedVec3(invalidate, scale, scale, scale)
         : new ObservedVec3(invalidate, scale?.x ?? 1, scale?.y ?? 1, scale?.z ?? 1);
     this.pivot = new ObservedVec3(invalidate, pivot?.x, pivot?.y, pivot?.z);
-    this.visible = options.visible ?? true;
-    this.opacity = options.opacity ?? 1;
+    this.#visible = options.visible ?? true;
+    this.#opacity = checkOpacity(options.opacity ?? 1);
+  }
+
+  // ----- внешний вид ----- //
+
+  get visible(): boolean {
+    return this.#visible;
+  }
+  set visible(value: boolean) {
+    if (value !== this.#visible) {
+      this.#visible = value;
+      this.#appearanceVersion++;
+    }
+  }
+
+  /** Непрозрачность узла от 0 до 1, умножается на непрозрачность предков. NaN запрещён. */
+  get opacity(): number {
+    return this.#opacity;
+  }
+  set opacity(value: number) {
+    const opacity = checkOpacity(value);
+    if (opacity !== this.#opacity) {
+      this.#opacity = opacity;
+      this.#appearanceVersion++;
+    }
+  }
+
+  /** Счётчик изменений `visible` и `opacity` самого узла (без учёта предков). */
+  get appearanceVersion(): number {
+    return this.#appearanceVersion;
   }
 
   // ----- иерархия ----- //
@@ -92,8 +155,13 @@ export class Node {
     return this.#parent;
   }
 
+  /**
+   * Дети в порядке отрисовки. Это неизменяемый снимок: он пересоздаётся только при
+   * изменении состава детей, поэтому менять дерево во время цикла по нему безопасно.
+   */
   get children(): readonly Node[] {
-    return this.#children;
+    this.#childrenView ??= Object.freeze(this.#children.slice());
+    return this.#childrenView;
   }
 
   /** Сцена, в которую входит узел, или `null`, если он не подключён к сцене. */
@@ -106,8 +174,9 @@ export class Node {
   }
 
   /**
-   * Добавляет `child` в дети, по умолчанию в конец. Если у него был родитель, узел
-   * переносится. Локальная трансформация сохраняется, поэтому положение в мире меняется.
+   * Добавляет `child` в дети на позицию `index` (по умолчанию в конец). Если у него был
+   * другой родитель, узел переносится; локальная трансформация сохраняется, поэтому
+   * положение в мире может измениться. Узел из другой сцены переносится вместе с id.
    */
   add(child: Node, index = this.#children.length): this {
     this.#assertAlive();
@@ -124,36 +193,37 @@ export class Node {
     const scene = this.#scene;
     const sameScene = child.#scene === scene;
     // Регистрация id в новой сцене проверяет конфликты до любых изменений иерархии.
-    if (!sameScene) scene?.attachSubtree(child);
+    if (scene && !sameScene) sceneInternals.attach(scene, child);
 
     const oldParent = child.#parent;
-    if (oldParent) oldParent.#children.splice(oldParent.#children.indexOf(child), 1);
+    if (oldParent) oldParent.#detachChild(child);
     if (!sameScene) {
       const oldScene = child.#scene;
       if (oldScene) {
-        oldScene.detachSubtree(child);
-        oldScene.markStructureChanged();
+        sceneInternals.detach(oldScene, child);
+        sceneInternals.touch(oldScene);
       }
       child.#setSceneRecursive(scene);
     }
     this.#children.splice(Math.min(index, this.#children.length), 0, child);
+    this.#childrenView = null;
     child.#parent = this;
-    child.#invalidateWorld();
-    scene?.markStructureChanged();
+    // Перестановка внутри того же родителя не меняет мировую матрицу.
+    if (oldParent !== this) child.#invalidateWorld();
+    if (scene) sceneInternals.touch(scene);
     return this;
   }
 
   /** Убирает `child` из детей. Ничего не делает, если это не ребёнок этого узла. */
   remove(child: Node): this {
-    const index = this.#children.indexOf(child);
-    if (index === -1) return this;
-    this.#children.splice(index, 1);
+    if (child.#parent !== this) return this;
+    this.#detachChild(child);
     child.#parent = null;
     const scene = this.#scene;
     if (scene) {
       child.#setSceneRecursive(null);
-      scene.detachSubtree(child);
-      scene.markStructureChanged();
+      sceneInternals.detach(scene, child);
+      sceneInternals.touch(scene);
     }
     child.#invalidateWorld();
     return this;
@@ -172,24 +242,22 @@ export class Node {
     return false;
   }
 
-  /** Обходит поддерево в глубину, начиная с самого узла. Обход прекращается, если `visit` вернёт `false`. */
-  traverse(visit: (node: Node) => boolean | undefined): boolean {
-    if (visit(this) === false) return false;
-    for (const child of this.#children) {
-      if (!child.traverse(visit)) return false;
+  /**
+   * Обходит поддерево в глубину, начиная с самого узла. Если `visit` вернёт `false`,
+   * обход прекращается и возвращается узел, на котором он остановился; иначе `null`.
+   */
+  traverse(visit: (node: Node) => boolean | undefined): Node | null {
+    if (visit(this) === false) return this;
+    for (const child of this.children) {
+      const stopped = child.traverse(visit);
+      if (stopped) return stopped;
     }
-    return true;
+    return null;
   }
 
   /** Первый узел поддерева (включая сам узел) с указанным `id`. */
   findById(id: string): Node | null {
-    let found: Node | null = null;
-    this.traverse((node) => {
-      if (node.id !== id) return true;
-      found = node;
-      return false;
-    });
-    return found;
+    return this.traverse((node) => node.id !== id);
   }
 
   // ----- трансформация ----- //
@@ -230,9 +298,9 @@ export class Node {
   /**
    * Счётчик пересчётов мировой матрицы. Растёт при каждом пересчёте, поэтому кэши
    * геометрии могут сравнивать его, чтобы не проецировать вершины повторно.
+   * Чтение счётчика сначала пересчитывает устаревшую матрицу.
    */
   get worldVersion(): number {
-    // Обращение к матрице гарантирует, что счётчик отражает актуальное состояние.
     this.worldMatrix;
     return this.#worldVersion;
   }
@@ -258,7 +326,7 @@ export class Node {
   /** Видим ли узел с учётом предков. */
   get visibleInTree(): boolean {
     for (let node: Node | null = this; node; node = node.#parent) {
-      if (!node.visible) return false;
+      if (!node.#visible) return false;
     }
     return true;
   }
@@ -266,25 +334,44 @@ export class Node {
   /** Непрозрачность с учётом предков. */
   get worldOpacity(): number {
     let opacity = 1;
-    for (let node: Node | null = this; node; node = node.#parent) opacity *= node.opacity;
+    for (let node: Node | null = this; node; node = node.#parent) opacity *= node.#opacity;
     return opacity;
   }
 
+  // ----- для подклассов ----- //
+
+  /** Вызывается, когда мировая матрица узла становится устаревшей. */
+  protected onWorldInvalidated(): void {}
+
   // ----- жизненный цикл ----- //
 
-  /** Отключает узел от родителя и уничтожает всё поддерево. Повторный вызов ничего не делает. */
+  /**
+   * Отключает узел от родителя и уничтожает всё поддерево. Для корня сцены уничтожает
+   * всю сцену. Повторный вызов ничего не делает.
+   */
   destroy(): void {
     if (this.#destroyed) return;
+    const scene = this.#scene;
+    if (scene && !this.#parent) {
+      scene.destroy();
+      return;
+    }
     this.removeFromParent();
     for (const child of this.#children) {
       child.#parent = null;
       child.destroy();
     }
     this.#children.length = 0;
+    this.#childrenView = null;
     this.#destroyed = true;
   }
 
   // ----- внутреннее ----- //
+
+  #detachChild(child: Node): void {
+    this.#children.splice(this.#children.indexOf(child), 1);
+    this.#childrenView = null;
+  }
 
   #invalidateLocal(): void {
     this.#localDirty = true;
@@ -294,6 +381,7 @@ export class Node {
   #invalidateWorld(): void {
     if (this.#worldDirty) return;
     this.#worldDirty = true;
+    this.onWorldInvalidated();
     for (const child of this.#children) child.#invalidateWorld();
   }
 
@@ -302,23 +390,24 @@ export class Node {
     for (const child of this.#children) child.#setSceneRecursive(scene);
   }
 
-  /** Подключает узел как корень сцены. Используется только `Scene`. */
-  static attachRoot(root: Node, scene: Scene): void {
-    root.#assertAlive();
-    if (root.#parent || root.#scene) {
-      throw new Error(`Узел «${root.id}» уже входит в иерархию и не может быть корнем сцены.`);
-    }
-    scene.attachSubtree(root);
-    root.#setSceneRecursive(scene);
-  }
-
-  /** Отключает корень от сцены. Используется только `Scene`. */
-  static detachRoot(root: Node): void {
-    root.#setSceneRecursive(null);
-  }
-
   #assertAlive(): void {
     if (this.#destroyed) throw new Error(`Узел «${this.id}» уничтожен.`);
+  }
+
+  static {
+    nodeInternals = {
+      attachRoot(root, scene) {
+        root.#assertAlive();
+        if (root.#parent || root.#scene) {
+          throw new Error(`Узел «${root.id}» уже входит в иерархию и не может быть корнем сцены.`);
+        }
+        sceneInternals.attach(scene, root);
+        root.#setSceneRecursive(scene);
+      },
+      detachRoot(root) {
+        root.#setSceneRecursive(null);
+      },
+    };
   }
 }
 
