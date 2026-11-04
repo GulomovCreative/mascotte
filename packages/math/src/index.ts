@@ -2,7 +2,7 @@
 export type { Color, Oklab } from './color.ts';
 export * as color from './color.ts';
 export { approxEqual, clamp, EPSILON, lerp, TAU } from './common.ts';
-export type { Easing, EasingName, StepPosition } from './easing.ts';
+export type { Easing, EasingName, EasingSpec, StepPosition } from './easing.ts';
 export * as easing from './easing.ts';
 export type { Euler, EulerOrder } from './euler.ts';
 export * as euler from './euler.ts';

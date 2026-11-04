@@ -15,9 +15,9 @@ const bouncing = new Set(['bounceIn', 'bounceOut', 'bounceInOut']);
 
 describe('easing: именованные кривые', () => {
   for (const [name, curve] of Object.entries(easing.named)) {
-    it(`${name}: концы 0 и 1`, () => {
-      expect(curve(0)).toBeCloseTo(0, 9);
-      expect(curve(1)).toBeCloseTo(1, 9);
+    it(`${name}: ровно 0 и 1 на концах`, () => {
+      expect(curve(0)).toBe(0);
+      expect(curve(1)).toBe(1);
     });
 
     if (!overshooting.has(name)) {
@@ -44,13 +44,29 @@ describe('easing: именованные кривые', () => {
     }
   }
 
-  it('Out-версия — отражение In-версии', () => {
-    for (const base of ['quad', 'cubic', 'sine', 'expo', 'circ', 'back', 'elastic', 'bounce']) {
-      const curveIn = easing.named[`${base}In` as easing.EasingName];
-      const curveOut = easing.named[`${base}Out` as easing.EasingName];
-      for (const t of [0.2, 0.5, 0.7]) {
-        expect(curveOut(t), base).toBeCloseTo(1 - curveIn(1 - t), 9);
-      }
+  it('значения в опорных точках по стандартным формулам', () => {
+    // Посчитано вручную по формулам кривых, а не через реализацию.
+    const expected: [easing.EasingName, number, number][] = [
+      ['quadIn', 0.3, 0.09],
+      ['quadOut', 0.3, 0.51],
+      ['cubicIn', 0.5, 0.125],
+      ['quartIn', 0.5, 0.0625],
+      ['quintIn', 0.5, 0.03125],
+      ['sineIn', 0.5, 1 - Math.SQRT1_2],
+      ['expoIn', 0.5, 0.03125],
+      ['circIn', 0.5, 1 - Math.sqrt(0.75)],
+      ['backIn', 0.5, -0.0876975],
+      ['elasticIn', 0.5, -0.015625],
+      ['elasticOut', 0.5, 1.015625],
+      ['bounceOut', 0.2, 0.3025],
+      ['bounceOut', 0.5, 0.765625],
+      ['bounceOut', 0.8, 0.94],
+      ['bounceOut', 0.95, 0.98453125],
+      ['cubicInOut', 0.25, 0.0625],
+      ['quadInOut', 0.75, 0.875],
+    ];
+    for (const [name, t, value] of expected) {
+      expect(easing.named[name](t), `${name}(${t})`).toBeCloseTo(value, 9);
     }
   });
 
@@ -106,10 +122,21 @@ describe('easing: cubicBezier', () => {
     expect(easing.cssEase(2)).toBe(1);
   });
 
-  it('x вне [0, 1] — ошибка', () => {
+  it('x вне [0, 1] и неконечные y — ошибка', () => {
     expect(() => easing.cubicBezier(-0.1, 0, 0.5, 1)).toThrow(RangeError);
     expect(() => easing.cubicBezier(0.5, 0, 1.1, 1)).toThrow(RangeError);
     expect(() => easing.cubicBezier(Number.NaN, 0, 0.5, 1)).toThrow(RangeError);
+    expect(() => easing.cubicBezier(0.5, Number.NaN, 0.5, 1)).toThrow(RangeError);
+    expect(() => easing.cubicBezier(0.5, 0, 0.5, Number.POSITIVE_INFINITY)).toThrow(RangeError);
+  });
+
+  it('y вне [0, 1] даёт недолёт и перелёт', () => {
+    const curve = easing.cubicBezier(0.5, -1, 0.5, 2);
+    const values = Array.from({ length: 101 }, (_, i) => curve(i / 100));
+    expect(Math.min(...values)).toBeLessThan(0);
+    expect(Math.max(...values)).toBeGreaterThan(1);
+    expect(curve(0)).toBe(0);
+    expect(curve(1)).toBe(1);
   });
 });
 
@@ -127,11 +154,20 @@ describe('easing: steps', () => {
   it('both', () => {
     const curve = easing.steps(3, 'both');
     expect([0, 0.34, 0.99, 1].map(curve)).toEqual([0.25, 0.5, 0.75, 1]);
+    expect(curve(1 / 3 + 1e-12)).toBe(0.5);
+    expect(curve(2 / 3 + 1e-12)).toBe(0.75);
   });
 
   it('none', () => {
     const curve = easing.steps(5, 'none');
     expect([0, 0.2, 0.5, 0.99, 1].map(curve)).toEqual([0, 0.25, 0.5, 1, 1]);
+    const three = easing.steps(3, 'none');
+    expect([0, 0.34, 0.67, 1].map(three)).toEqual([0, 0.5, 1, 1]);
+  });
+
+  it('одна ступенька', () => {
+    const curve = easing.steps(1);
+    expect([0, 0.5, 0.999, 1].map(curve)).toEqual([0, 0, 0, 1]);
   });
 
   it('время вне [0, 1] обрезается', () => {
@@ -144,5 +180,29 @@ describe('easing: steps', () => {
     expect(() => easing.steps(0)).toThrow(RangeError);
     expect(() => easing.steps(2.5)).toThrow(RangeError);
     expect(() => easing.steps(1, 'none')).toThrow(RangeError);
+  });
+});
+
+describe('easing: resolve', () => {
+  it('имя кривой', () => {
+    expect(easing.resolve('backOut')).toBe(easing.backOut);
+    expect(() => easing.resolve('wobble' as easing.EasingName)).toThrow(RangeError);
+  });
+
+  it('cubicBezier и steps по параметрам', () => {
+    const curve = easing.resolve({ type: 'cubicBezier', x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 });
+    expect(curve(0.5)).toBeCloseTo(easing.cssEase(0.5), 12);
+    expect(easing.resolve({ type: 'steps', count: 4 })(0.5)).toBe(0.5);
+    expect(easing.resolve({ type: 'steps', count: 4, position: 'start' })(0)).toBe(0.25);
+  });
+
+  it('недопустимые параметры и тип — ошибка', () => {
+    expect(() => easing.resolve({ type: 'cubicBezier', x1: 2, y1: 0, x2: 0, y2: 1 })).toThrow(
+      RangeError,
+    );
+    expect(() => easing.resolve({ type: 'steps', count: 0 })).toThrow(RangeError);
+    expect(() => easing.resolve({ type: 'spring' } as unknown as easing.EasingSpec)).toThrow(
+      RangeError,
+    );
   });
 });
