@@ -67,7 +67,7 @@ reference/     эталонные сцены и снимки кадров
 docs/
 ```
 
-Инструменты: Vite для playground и сборки, Vitest для тестов, `skia-canvas` или `@napi-rs/canvas` для рендера в Node и тестов по снимкам кадров, Biome или ESLint с Prettier, CI в GitHub Actions.
+Инструменты: Vite для playground и сборки, Vitest для тестов, `@napi-rs/canvas` для рендера в Node и тестов по снимкам кадров, Biome как линтер и форматтер, CI в GitHub Actions.
 
 ### 5.2. Конвейер кадра
 
@@ -227,12 +227,12 @@ docs/
 
 ### Этап 0. Каркас
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/1)
+Статус: **готов** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/1)
 
-- [ ] Монорепозиторий: pnpm workspaces, TypeScript strict ([#1](https://github.com/GulomovCreative/mascotte/issues/1))
-- [ ] Линтер, форматтер и CI ([#2](https://github.com/GulomovCreative/mascotte/issues/2))
-- [ ] Playground на Vite ([#3](https://github.com/GulomovCreative/mascotte/issues/3))
-- [ ] Тесты по снимкам кадров и эталонные сцены ([#4](https://github.com/GulomovCreative/mascotte/issues/4))
+- [x] Монорепозиторий: pnpm workspaces, TypeScript strict ([#1](https://github.com/GulomovCreative/mascotte/issues/1))
+- [x] Линтер, форматтер и CI ([#2](https://github.com/GulomovCreative/mascotte/issues/2))
+- [x] Playground на Vite ([#3](https://github.com/GulomovCreative/mascotte/issues/3))
+- [x] Тесты по снимкам кадров и эталонные сцены ([#4](https://github.com/GulomovCreative/mascotte/issues/4))
 
 **Готово, когда** CI собирает проект и проверяет снимки кадров.
 

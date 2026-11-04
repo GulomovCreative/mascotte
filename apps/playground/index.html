@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Mascotte Playground</title>
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <aside class="sidebar">
+      <h1>Mascotte</h1>
+      <nav id="examples" aria-label="Примеры"></nav>
+    </aside>
+    <main class="stage">
+      <header class="toolbar">
+        <h2 id="example-title">Пример</h2>
+        <label><input id="animate" type="checkbox" checked /> Анимация</label>
+        <span id="fps" class="fps"></span>
+      </header>
+      <div id="viewport" class="viewport"></div>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
