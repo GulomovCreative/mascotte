@@ -9,3 +9,22 @@ export {
 export { AUTO_ID_PREFIX, Node, type NodeOptions } from './scene/node.ts';
 export { ObservedQuat, ObservedVec3 } from './scene/observed.ts';
 export { Scene } from './scene/scene.ts';
+export {
+  ARC_HANDLE,
+  PathBuilder,
+  type PathCommand,
+  type PathGeometry,
+  PathOp,
+  type PathPoint,
+} from './shapes/path.ts';
+export {
+  Ellipse,
+  type EllipseOptions,
+  Polygon,
+  type PolygonOptions,
+  Rect,
+  type RectOptions,
+  RoundedRect,
+  type RoundedRectOptions,
+} from './shapes/primitives.ts';
+export { PathShape, type PathShapeOptions, Shape, type ShapeOptions } from './shapes/shape.ts';
