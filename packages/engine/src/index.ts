@@ -1,4 +1,6 @@
 // Сцена, примитивы, сортировка, рендер, анимация и риг. См. docs/PLAN.md, разделы 5.4–5.12.
+
+export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,
   type CameraOptions,
@@ -36,3 +38,26 @@ export {
   ShapeStyle,
   type ShapeStyleValues,
 } from './shapes/shape.ts';
+export {
+  BOX_FACES,
+  Box,
+  type BoxFace,
+  type BoxFaceValue,
+  type BoxOptions,
+  Capsule,
+  type CapsuleOptions,
+  Cone,
+  type ConeOptions,
+  ConeSurface,
+  Cylinder,
+  CylinderBody,
+  type CylinderOptions,
+  Hemisphere,
+  HemisphereDome,
+  type HemisphereOptions,
+  Solid,
+  type SolidOptions,
+  Sphere,
+  type SphereOptions,
+} from './shapes/solids.ts';
+export { Surface, type SurfaceOptions, SurfaceOutline } from './shapes/surface.ts';
