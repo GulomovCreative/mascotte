@@ -1,0 +1,149 @@
+import {
+  Camera,
+  Capsule,
+  Cylinder,
+  Ellipse,
+  Node,
+  PathShape,
+  Rect,
+  Sphere,
+} from '@mascotte/engine';
+import { euler } from '@mascotte/math';
+
+/**
+ * Сцена только для нового ядра: проверяет то, чего нет в Zdog (перспектива, масштаб
+ * обводок, поверхности, слои, прозрачность, декали). Её снимки — собственные.
+ */
+export interface EngineScene {
+  readonly id: string;
+  readonly title: string;
+  readonly width: number;
+  readonly height: number;
+  readonly background: string;
+  build(): { root: Node; camera: Camera };
+  pose(root: Node, camera: Camera, time: number): void;
+}
+
+const perspective: EngineScene = {
+  id: 'engine-perspective',
+  title: 'Перспектива и масштаб',
+  width: 320,
+  height: 240,
+  background: '#f4efe6',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ projection: 'perspective', distance: 300, zoom: 1.2 });
+    root
+      .add(
+        new Sphere({
+          diameter: 50,
+          position: { x: -70, y: -30, z: 60 },
+          style: { color: '#e62', stroke: 4 },
+        }),
+      )
+      .add(
+        new Sphere({
+          diameter: 50,
+          position: { x: -80, y: 55, z: -80 },
+          style: { color: '#c25', stroke: 4 },
+        }),
+      )
+      .add(
+        new Capsule({
+          length: 90,
+          diameter: 22,
+          rotation: euler.create(0, Math.PI / 2, 0.4),
+          position: { x: 20, y: -60, z: 20 },
+          style: { color: '#27a', stroke: 2 },
+        }),
+      )
+      .add(
+        new Cylinder({
+          diameter: 40,
+          length: 60,
+          rotation: euler.create(0.5, 0.9, 0),
+          position: { x: 40, y: 40, z: -30 },
+          style: { color: '#3a8', backfaceColor: '#ea0', stroke: 2 },
+        }),
+      );
+    // Обводка масштабируется вместе с узлом: родитель 1.5 и ребёнок 2 — толщина ×3.
+    const scaled = new Node({ scale: 1.5, position: { x: 85, y: -15, z: 0 } });
+    scaled.add(new Rect({ width: 14, height: 14, scale: 2, style: { stroke: 2, color: '#636' } }));
+    root.add(scaled);
+    return { root, camera };
+  },
+  pose(root, camera, time) {
+    root.setRotationFromEuler(euler.create(0, Math.sin(time * 0.7) * 0.5, 0));
+    camera.setRotationFromEuler(euler.create(-0.15, 0.2, 0));
+  },
+};
+
+const layersOpacity: EngineScene = {
+  id: 'engine-layers-opacity',
+  title: 'Слои, прозрачность, декали',
+  width: 320,
+  height: 240,
+  background: '#e8f1f2',
+  build() {
+    const root = new Node();
+    const camera = new Camera();
+    // Тень под всем — слой −1, несмотря на то что по глубине она ближе.
+    root.add(
+      new Ellipse({
+        width: 120,
+        height: 26,
+        position: { x: 0, y: 95, z: 80 },
+        sortMode: 'layer',
+        layer: -1,
+        style: { fill: true, stroke: 0, color: '#9bb' },
+      }),
+    );
+    const head = new Sphere({ id: 'head', diameter: 110, style: { color: '#f6a623', stroke: 0 } });
+    for (const side of [-1, 1]) {
+      const eye = new Ellipse({
+        diameter: 20,
+        sortMode: 'attached',
+        position: { x: side * 22, y: -10, z: 50 },
+        rotation: euler.create(0.2, side * -0.45, 0),
+        style: { fill: true, stroke: 4, color: '#fff' },
+      });
+      eye.add(
+        new PathShape({
+          sortMode: 'attached',
+          position: { x: 0, y: 0, z: 1 },
+          style: { stroke: 9, color: '#222' },
+        }),
+      );
+      head.add(eye);
+    }
+    root.add(head);
+    // Полупрозрачный родитель над непрозрачной фигурой.
+    const veil = new Node({ opacity: 0.5, position: { x: 0, y: 0, z: 90 } });
+    veil.add(
+      new Rect({
+        width: 160,
+        height: 30,
+        position: { x: 0, y: 40, z: 0 },
+        style: { fill: true, stroke: 0, color: '#27a' },
+      }),
+    );
+    root.add(veil);
+    // Искра над всем — слой +1, хотя по глубине она дальше всего.
+    root.add(
+      new PathShape({
+        position: { x: 70, y: -70, z: -200 },
+        sortMode: 'layer',
+        layer: 1,
+        style: { stroke: 18, color: '#ed0' },
+      }),
+    );
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    const head = root.findById('head');
+    head?.setRotationFromEuler(euler.create(0, Math.sin(time * 1.1) * 1.4, 0));
+  },
+};
+
+/** Сцены только для нового ядра. */
+export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity];

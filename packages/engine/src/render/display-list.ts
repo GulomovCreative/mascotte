@@ -26,7 +26,8 @@ const front: Vec3 = { x: 0, y: 0, z: 0 };
  * сортировка по глубине, проекция путей фигур, контуры поверхностей, обратные стороны,
  * прозрачность. Бэкенд рисует готовый список без знания о сцене.
  *
- * Элементы и их буферы переиспользуются, поэтому в обычном кадре объекты не создаются.
+ * Элементы и их буферы переиспользуются между кадрами; новые создаются, только когда
+ * элементов становится больше, чем было.
  */
 export class DisplayList {
   readonly #sorter = new DepthSorter();
@@ -55,7 +56,10 @@ export class DisplayList {
         drawable instanceof Shape
           ? projectShape(drawable, camera, item)
           : drawable.buildOutline(camera, item);
-      if (!ready || !(item.hasStroke || item.hasFill)) continue;
+      if (!ready) continue;
+      // Canvas не принимает нулевую толщину и оставил бы прежнюю: такой обводки нет.
+      if (!(item.lineWidth > 0)) item.hasStroke = false;
+      if (!(item.hasStroke || item.hasFill)) continue;
       item.node = drawable;
       item.opacity = opacity;
       this.#count++;
@@ -80,14 +84,15 @@ export class DisplayList {
 function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const style = shape.style;
 
-  // Обратная сторона: точка `front` ближе к камере, чем начало, — лицевая.
+  // Обратная сторона, как в Zdog: только если точка `front` строго дальше от камеры,
+  // чем начало. Фигура ребром к камере рисуется лицевой стороной.
   shape.localToWorld(point, ORIGIN);
   const originDepth = camera.toView(point, point).z;
   front.x = shape.front.x;
   front.y = shape.front.y;
   front.z = shape.front.z;
   shape.localToWorld(point, front);
-  const facingBack = camera.toView(point, point).z <= originDepth;
+  const facingBack = camera.toView(point, point).z < originDepth;
   if (facingBack && !style.backfaceVisible) return false;
 
   camera.toView(point, shape.perspectiveReference.getWorldPosition(point));
@@ -95,8 +100,14 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const s = camera.scaleAt(point.z);
 
   mat3x4.multiply(modelView, camera.viewMatrix, shape.worldMatrix);
-  // Масштаб узла для обводки: кубический корень из определителя, точный для равномерного масштаба.
-  const nodeScale = Math.cbrt(Math.abs(mat3x4.determinant(shape.worldMatrix)));
+  // Масштаб узла для обводки — среднее геометрическое масштабов по осям x и y фигуры:
+  // плоские фигуры лежат в этой плоскости, поэтому масштаб по z на толщину не влияет.
+  // Для равномерного масштаба это точный масштаб.
+  const world = shape.worldMatrix;
+  const nodeScale = Math.sqrt(
+    Math.hypot(world[0] ?? 0, world[1] ?? 0, world[2] ?? 0) *
+      Math.hypot(world[3] ?? 0, world[4] ?? 0, world[5] ?? 0),
+  );
   const lineWidth = style.stroke * nodeScale * s;
   const color = facingBack ? (style.backfaceColor ?? style.color) : style.color;
 

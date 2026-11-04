@@ -4,6 +4,7 @@ import {
   Camera,
   CanvasRenderer,
   type CanvasTarget,
+  Capsule,
   Cylinder,
   DisplayList,
   Node,
@@ -111,13 +112,119 @@ describe('DisplayList', () => {
     });
     const list = new DisplayList().build(sceneWith(cylinder), perspective);
     const scale = perspective.scaleAt(20);
+    let checked = 0;
     for (const item of items(list)) {
       if (item.node === cylinder.body) continue;
+      checked++;
       // Основание в плоскости, перпендикулярной взгляду: радиус = 5 · масштаб глубины цилиндра.
       const data = Array.from(item.path.data.subarray(0, item.path.dataCount));
       const ys = data.filter((_, i) => i % 2 === 1);
       expect(Math.max(...ys)).toBeCloseTo(5 * scale, 9);
     }
+    expect(checked).toBe(2);
+  });
+
+  it('в перспективе точки фигуры масштабируются по глубине её начала', () => {
+    const perspective = new Camera({ projection: 'perspective', distance: 100 });
+    // Прямоугольник повёрнут: его углы на разной глубине, но масштаб — по глубине начала (20).
+    const rect = new Rect({
+      width: 20,
+      height: 10,
+      position: { x: 0, y: 0, z: 20 },
+      rotation: euler.create(0, 0.6, 0),
+    });
+    const item = new DisplayList().build(sceneWith(rect), perspective).item(0);
+    const s = perspective.scaleAt(20);
+    const half = 10 * Math.cos(0.6);
+    const xs = Array.from(item.path.data.subarray(0, item.path.dataCount)).filter(
+      (_, i) => i % 2 === 0,
+    );
+    expect(Math.max(...xs)).toBeCloseTo(half * s, 9);
+    expect(Math.min(...xs)).toBeCloseTo(-half * s, 9);
+  });
+
+  it('кривая проецируется всеми тремя точками', () => {
+    const curve = new PathShape({
+      path: [
+        { type: 'move', point: { x: 0 } },
+        {
+          type: 'bezier',
+          control1: { x: 1, y: 2 },
+          control2: { x: 3, y: 4 },
+          point: { x: 5, y: 6 },
+        },
+      ],
+    });
+    const item = new DisplayList().build(sceneWith(curve), new Camera({ zoom: 2 })).item(0);
+    expect(item.path.ops[1]).toBe(ScreenOp.cubic);
+    expect(Array.from(item.path.data.subarray(2, 8))).toEqual([2, 4, 6, 8, 10, 12]);
+  });
+
+  it('обратная сторона считается от камеры, ребром к камере — лицевая', () => {
+    const behind = new Camera({ rotation: euler.create(0, Math.PI, 0) });
+    expect(
+      new DisplayList().build(sceneWith(new Rect({ style: { backfaceVisible: false } })), behind)
+        .count,
+    ).toBe(0);
+    const flat = new Rect({
+      scale: { x: 1, y: 1, z: 0 },
+      style: { backfaceVisible: false, color: '#123', backfaceColor: '#abc' },
+    });
+    const item = new DisplayList().build(sceneWith(flat), camera).item(0);
+    expect(item.color).toBe('#123');
+  });
+
+  it('пропущенная фигура в середине списка не оставляет следов', () => {
+    const perspective = new Camera({ projection: 'perspective', distance: 100 });
+    const a = new Rect({ id: 'a', position: { x: 0, y: 0, z: -10 }, style: { color: '#a00' } });
+    const b = new Rect({
+      id: 'b',
+      position: { x: 0, y: 0, z: 0 },
+      style: { color: '#0b0', stroke: 7 },
+    });
+    const c = new Rect({
+      id: 'c',
+      position: { x: 0, y: 0, z: 10 },
+      style: { color: '#00c', stroke: 3 },
+    });
+    const scene = sceneWith(a, b, c);
+    const list = new DisplayList();
+    list.build(scene, perspective);
+    b.position.z = 500;
+    list.build(scene, perspective);
+    expect(list.count).toBe(2);
+    const second = list.item(1);
+    expect([second.node?.id, second.color, second.lineWidth]).toEqual([
+      'c',
+      '#00c',
+      3 * perspective.scaleAt(10),
+    ]);
+  });
+
+  it('прозрачность поверхности и нулевая толщина обводки', () => {
+    const parent = new Node({ opacity: 0.5 });
+    parent.add(new Sphere({ id: 'sphere' }));
+    expect(new DisplayList().build(sceneWith(parent), camera).item(0).opacity).toBe(0.5);
+    // Капсула, сжатая по ширине до нуля: обводки нет, а не толщина предыдущего элемента.
+    const flat = new Capsule({
+      length: 40,
+      scale: { x: 0, y: 1, z: 1 },
+      rotation: euler.create(0, Math.PI / 2, 0),
+    });
+    const list = new DisplayList().build(
+      sceneWith(
+        new PathShape({
+          path: [
+            { type: 'move', point: {} },
+            { type: 'line', point: { x: 9 } },
+          ],
+          style: { stroke: 40 },
+        }),
+        flat,
+      ),
+      camera,
+    );
+    expect(items(list).some((item) => item.node === flat)).toBe(false);
   });
 
   it('за глазом камеры фигура не рисуется', () => {
@@ -152,8 +259,8 @@ function recordingContext() {
     beginPath: () => calls.push('beginPath'),
     moveTo: (x: number, y: number) => calls.push(`moveTo ${x} ${y}`),
     lineTo: (x: number, y: number) => calls.push(`lineTo ${x} ${y}`),
-    bezierCurveTo: () => calls.push('bezierCurveTo'),
-    arc: (x: number, y: number, r: number) => calls.push(`arc ${x} ${y} ${r}`),
+    bezierCurveTo: (...args: number[]) => calls.push(`bezierCurveTo ${args.join(' ')}`),
+    arc: (...args: (number | boolean)[]) => calls.push(`arc ${args.join(' ')}`),
     closePath: () => calls.push('closePath'),
     stroke: () => calls.push('stroke'),
     fill: () => calls.push('fill'),
@@ -187,8 +294,10 @@ describe('CanvasRenderer', () => {
       pixelRatio: 2,
       background: '#fff',
     });
+    // Кадр очищается и при фоне: иначе полупрозрачный фон копился бы поверх прошлых кадров.
     expect(calls).toEqual([
       'setTransform 1 0 0 1 0 0',
+      'clearRect',
       'fillStyle=#fff',
       'fillRect',
       'setTransform 2 0 0 2 100 50',
@@ -196,8 +305,26 @@ describe('CanvasRenderer', () => {
       'globalAlpha=1',
     ]);
     const clear = recordingContext();
-    new CanvasRenderer().render(clear.ctx, sceneWith(), camera, { width: 10, height: 10 });
+    new CanvasRenderer().render(clear.ctx, sceneWith(), camera, { width: 100, height: 50 });
     expect(clear.calls).toContain('clearRect');
+    expect(clear.calls).not.toContain('fillRect');
+    expect(clear.calls).toContain('setTransform 1 0 0 1 50 25');
+  });
+
+  it('неверные размеры кадра — ошибка', () => {
+    const { ctx } = recordingContext();
+    const renderer = new CanvasRenderer();
+    for (const viewport of [
+      { width: -1, height: 10 },
+      { width: 10, height: Number.NaN },
+      { width: 10, height: 10, pixelRatio: 0 },
+      { width: 10, height: 10, pixelRatio: Number.NaN },
+    ]) {
+      expect(
+        () => renderer.render(ctx, sceneWith(), camera, viewport),
+        JSON.stringify(viewport),
+      ).toThrow(RangeError);
+    }
   });
 
   it('состояние контекста переключается только при изменении', () => {
@@ -211,13 +338,58 @@ describe('CanvasRenderer', () => {
     );
     new CanvasRenderer().render(ctx, sceneWith(...shapes), camera, { width: 100, height: 100 });
     const count = (prefix: string) => calls.filter((c) => c.startsWith(prefix)).length;
+    const exactly = (name: string) => calls.filter((c) => c === name).length;
     expect(count('strokeStyle=')).toBe(1);
     expect(count('fillStyle=')).toBe(1);
     expect(count('lineWidth=')).toBe(1);
     expect(count('lineCap=')).toBe(1);
-    expect(count('stroke')).toBe(3 + 1);
-    expect(count('fill')).toBe(3 + 1);
-    expect(count('closePath')).toBe(3);
+    expect(exactly('stroke')).toBe(3);
+    expect(exactly('fill')).toBe(3);
+    expect(exactly('closePath')).toBe(3);
+    // Внутри элемента — сначала обводка, потом заливка, как в Zdog.
+    expect(calls.indexOf('stroke')).toBeLessThan(calls.indexOf('fill'));
+  });
+
+  it('globalAlpha переключается при смене прозрачности и сбрасывается в конце', () => {
+    const { ctx, calls } = recordingContext();
+    const shapes = [0.5, 0.5, 1].map(
+      (opacity, i) => new Rect({ opacity, position: { x: 0, y: 0, z: i } }),
+    );
+    new CanvasRenderer().render(ctx, sceneWith(...shapes), camera, { width: 10, height: 10 });
+    expect(calls.filter((c) => c.startsWith('globalAlpha='))).toEqual([
+      'globalAlpha=0.5',
+      'globalAlpha=1',
+      'globalAlpha=1',
+    ]);
+    expect(calls.at(-1)).toBe('globalAlpha=1');
+  });
+
+  it('аргументы дуги и кривой передаются полностью', () => {
+    const { ctx, calls } = recordingContext();
+    const curve = new PathShape({
+      path: [
+        { type: 'move', point: { x: 0 } },
+        {
+          type: 'bezier',
+          control1: { x: 1, y: 2 },
+          control2: { x: 3, y: 4 },
+          point: { x: 5, y: 6 },
+        },
+      ],
+      closed: false,
+    });
+    new CanvasRenderer().render(
+      ctx,
+      sceneWith(new PathShape({ style: { stroke: 4 } }), curve),
+      camera,
+      {
+        width: 10,
+        height: 10,
+      },
+    );
+    expect(calls).toContain(`arc 0 0 2 0 ${Math.PI * 2} false`);
+    expect(calls[calls.indexOf(`arc 0 0 2 0 ${Math.PI * 2} false`) + 1]).toBe('closePath');
+    expect(calls).toContain('bezierCurveTo 1 2 3 4 5 6');
   });
 
   it('бок цилиндра рисуется с плоскими концами, потом снова круглые', () => {

@@ -7,6 +7,7 @@ import type { Anchor } from '@mascotte/zdog-reference';
 import { createCanvas } from '@napi-rs/canvas';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
+import type { EngineScene } from './engine-only/scenes.ts';
 import { type ReferenceScene, type RenderOptions, renderScene } from './scene.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -45,6 +46,21 @@ export function renderEngineToPng(scene: ReferenceScene, options: RenderOptions 
       background: scene.background,
     },
   );
+  return canvas.toBuffer('image/png');
+}
+
+/** Рисует сцену только для нового ядра в canvas Node и возвращает PNG. */
+export function renderEngineSceneToPng(scene: EngineScene, options: RenderOptions = {}): Buffer {
+  const pixelRatio = options.pixelRatio ?? 1;
+  const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
+  const { root, camera } = scene.build();
+  scene.pose(root, camera, options.time ?? 0);
+  new CanvasRenderer().render(canvas.getContext('2d'), new Scene(root), camera, {
+    width: scene.width,
+    height: scene.height,
+    pixelRatio,
+    background: scene.background,
+  });
   return canvas.toBuffer('image/png');
 }
 

@@ -1,5 +1,11 @@
 import { Camera, CanvasRenderer, Scene } from '@mascotte/engine';
-import { type ReferenceScene, referenceScenes, renderScene } from '@mascotte/reference';
+import {
+  type EngineScene,
+  engineScenes,
+  type ReferenceScene,
+  referenceScenes,
+  renderScene,
+} from '@mascotte/reference';
 
 /** Пример в playground: монтируется в контейнер и возвращает функцию очистки. */
 export interface Example {
@@ -45,7 +51,7 @@ type Draw = (ctx: CanvasRenderingContext2D, pixelRatio: number, time: number) =>
 function mountCanvas(
   container: HTMLElement,
   controls: ExampleControls,
-  scene: ReferenceScene,
+  scene: Pick<ReferenceScene, 'width' | 'height'>,
   draw: Draw,
 ): () => void {
   const canvas = document.createElement('canvas');
@@ -124,7 +130,30 @@ function fromEngineScene(scene: ReferenceScene): Example {
   };
 }
 
+function fromEngineOnlyScene(scene: EngineScene): Example {
+  return {
+    id: `engine/${scene.id}`,
+    title: scene.title,
+    group: 'Новое ядро',
+    mount(container, controls) {
+      const { root, camera } = scene.build();
+      const world = new Scene(root);
+      const renderer = new CanvasRenderer();
+      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
+        scene.pose(root, camera, time);
+        renderer.render(ctx, world, camera, {
+          width: scene.width,
+          height: scene.height,
+          pixelRatio,
+          background: scene.background,
+        });
+      });
+    },
+  };
+}
+
 export const examples: Example[] = [
   ...referenceScenes.map(fromEngineScene),
+  ...engineScenes.map(fromEngineOnlyScene),
   ...referenceScenes.map(fromReferenceScene),
 ];
