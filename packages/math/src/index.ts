@@ -1,5 +1,9 @@
-// Векторы, матрицы и кватернионы. См. docs/PLAN.md, раздел 5.3.
+// Векторы, матрицы, кватернионы, цвет и функции плавности. См. docs/PLAN.md, раздел 5.3.
+export type { Color, Oklab } from './color.ts';
+export * as color from './color.ts';
 export { approxEqual, clamp, EPSILON, lerp, TAU } from './common.ts';
+export type { Easing, EasingName, StepPosition } from './easing.ts';
+export * as easing from './easing.ts';
 export type { Euler, EulerOrder } from './euler.ts';
 export * as euler from './euler.ts';
 export type { Mat3x4 } from './mat3x4.ts';

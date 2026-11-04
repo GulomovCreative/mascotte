@@ -93,8 +93,8 @@ docs/
 - Операции без аллокаций: запись в выходной аргумент, пулы временных объектов.
 - Повороты хранятся кватернионами. В редакторе и документе их можно задавать углами Эйлера с выбранным порядком осей.
 - Порядок `'XYZ'` означает матрицу `Rx · Ry · Rz`. Поворот Zdog `rotate: {x, y, z}` равен углам `{x, -y, z}` в этом порядке: у Zdog обратный знак поворота вокруг Y.
-- Цвет: хранение в линейном RGB или OKLab для интерполяции, разбор строк CSS.
-- Плавность: стандартный набор (in/out/inOut для quad, cubic, back, elastic, bounce), произвольная `cubic-bezier`, ступенька.
+- Цвет хранится в sRGB с альфой без предумножения, а смешивается в OKLab с предумножением на альфу, как CSS `color-mix`. Разбор строк CSS: hex, `rgb()`, `hsl()`, `oklab()`, `oklch()` и `transparent`. Других именованных цветов нет: редактор пишет hex.
+- Плавность: стандартный набор (in/out/inOut для quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce), кривые CSS, произвольная `cubic-bezier`, ступеньки `steps()` с теми же режимами, что в CSS. В документе кривая хранится по имени из `easing.named` или параметрами.
 
 ### 5.4. Сцена
 
@@ -242,7 +242,7 @@ docs/
 Статус: **в работе** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
 
 - [x] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
-- [ ] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
+- [x] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
 - [ ] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
 - [ ] Камера: ортография и слабая перспектива ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
 - [ ] Путь и базовые примитивы ([#9](https://github.com/GulomovCreative/mascotte/issues/9))
