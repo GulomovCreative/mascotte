@@ -116,3 +116,13 @@ nav a[aria-current="page"] {
     border-bottom: 1px solid var(--border);
   }
 }
+
+.error {
+  max-width: 100%;
+  overflow: auto;
+  padding: 12px;
+  border-radius: 8px;
+  background: #fee2e2;
+  color: #991b1b;
+  white-space: pre-wrap;
+}

@@ -1,15 +1,15 @@
-import type { Anchor } from '@mascotte/zdog-reference';
+import type { Anchor, CanvasContext } from '@mascotte/zdog-reference';
 
 /** Эталонная сцена: строится копией Zdog и служит образцом картинки для нового ядра. */
 export interface ReferenceScene {
-  id: string;
-  title: string;
-  width: number;
-  height: number;
+  readonly id: string;
+  readonly title: string;
+  readonly width: number;
+  readonly height: number;
   /** Цвет фона кадра. */
-  background: string;
+  readonly background: string;
   /** Масштаб сцены, как `zoom` в Zdog. */
-  zoom: number;
+  readonly zoom: number;
   /** Строит граф сцены и возвращает его корень. */
   build(): Anchor;
   /** Положение сцены в момент `time` (секунды). Для снимков используется `time = 0`. */
@@ -17,18 +17,18 @@ export interface ReferenceScene {
 }
 
 /** Двумерный контекст, общий для браузерного canvas и canvas в Node. */
-export type Context2D = Pick<
-  CanvasRenderingContext2D,
-  | 'save'
-  | 'restore'
-  | 'setTransform'
-  | 'translate'
-  | 'scale'
-  | 'fillRect'
-  | 'fillStyle'
-  | 'lineCap'
-  | 'lineJoin'
->;
+export type Context2D = CanvasContext &
+  Pick<
+    CanvasRenderingContext2D,
+    | 'save'
+    | 'restore'
+    | 'setTransform'
+    | 'translate'
+    | 'scale'
+    | 'fillRect'
+    | 'lineCap'
+    | 'lineJoin'
+  >;
 
 export interface RenderOptions {
   pixelRatio?: number;
@@ -53,6 +53,6 @@ export function renderScene(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   root.updateGraph();
-  root.renderGraphCanvas(ctx as CanvasRenderingContext2D);
+  root.renderGraphCanvas(ctx);
   ctx.restore();
 }
