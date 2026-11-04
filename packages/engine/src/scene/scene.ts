@@ -1,4 +1,17 @@
-import { Node } from './node.ts';
+import { Node, nodeInternals } from './node.ts';
+
+/**
+ * Доступ `Node` к закрытому состоянию сцены. Заполняется в статическом блоке `Scene`
+ * и не экспортируется из пакета, поэтому внешний код не может испортить индекс.
+ */
+export let sceneInternals!: {
+  /** Регистрирует id поддерева. Сначала проверяет все id и при конфликте бросает ошибку, ничего не изменив. */
+  attach(scene: Scene, subtree: Node): void;
+  /** Снимает регистрацию id поддерева. */
+  detach(scene: Scene, subtree: Node): void;
+  /** Сообщает о смене структуры дерева. */
+  touch(scene: Scene): void;
+};
 
 /**
  * Сцена: корневой узел, индекс узлов по `id` и кэш плоского списка узлов.
@@ -9,17 +22,18 @@ import { Node } from './node.ts';
 export class Scene {
   readonly root: Node;
   readonly #byId = new Map<string, Node>();
-  #nodes: Node[] = [];
+  #nodes: readonly Node[] = [];
   #nodesVersion = -1;
   #structureVersion = 0;
   #destroyed = false;
 
-  constructor(root: Node = new Node({ id: 'root' })) {
+  /** Корень можно передать готовым, вместе с детьми: их id тоже регистрируются. */
+  constructor(root: Node = new Node()) {
     this.root = root;
-    Node.attachRoot(root, this);
+    nodeInternals.attachRoot(root, this);
   }
 
-  /** Счётчик изменений структуры. Растёт при каждом добавлении, удалении или перестановке. */
+  /** Счётчик изменений структуры. Растёт на 1 при каждом добавлении, удалении или перестановке. */
   get structureVersion(): number {
     return this.#structureVersion;
   }
@@ -34,13 +48,12 @@ export class Scene {
 
   /** Все узлы сцены в порядке обхода в глубину, начиная с корня. После `destroy` — пустой список. */
   get nodes(): readonly Node[] {
-    if (this.#destroyed) return this.#nodes;
-    if (this.#nodesVersion !== this.#structureVersion) {
+    if (!this.#destroyed && this.#nodesVersion !== this.#structureVersion) {
       const nodes: Node[] = [];
       this.root.traverse((node) => {
         nodes.push(node);
       });
-      this.#nodes = nodes;
+      this.#nodes = Object.freeze(nodes);
       this.#nodesVersion = this.#structureVersion;
     }
     return this.#nodes;
@@ -51,29 +64,18 @@ export class Scene {
     for (const node of this.nodes) node.worldMatrix;
   }
 
-  /** Уничтожает корень со всем деревом и очищает индекс. */
+  /** Уничтожает корень со всем деревом и очищает индекс. Повторный вызов ничего не делает. */
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
-    Node.detachRoot(this.root);
+    nodeInternals.detachRoot(this.root);
     this.root.destroy();
     this.#byId.clear();
     this.#nodes = [];
     this.#structureVersion++;
   }
 
-  // ----- для Node ----- //
-
-  /** @internal Сообщает о смене структуры дерева. */
-  markStructureChanged(): void {
-    this.#structureVersion++;
-  }
-
-  /**
-   * @internal Регистрирует id поддерева. Сначала проверяет все id и бросает ошибку при
-   * конфликте, ничего не изменив.
-   */
-  attachSubtree(subtree: Node): void {
+  #attach(subtree: Node): void {
     if (this.#destroyed) throw new Error('Сцена уничтожена.');
     const ids = new Set<string>();
     subtree.traverse((node) => {
@@ -87,10 +89,19 @@ export class Scene {
     });
   }
 
-  /** @internal Снимает регистрацию id поддерева. */
-  detachSubtree(subtree: Node): void {
+  #detach(subtree: Node): void {
     subtree.traverse((node) => {
       if (this.#byId.get(node.id) === node) this.#byId.delete(node.id);
     });
+  }
+
+  static {
+    sceneInternals = {
+      attach: (scene, subtree) => scene.#attach(subtree),
+      detach: (scene, subtree) => scene.#detach(subtree),
+      touch: (scene) => {
+        scene.#structureVersion++;
+      },
+    };
   }
 }

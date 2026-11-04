@@ -15,7 +15,7 @@ function worldPosition(node: Node): Vec3 {
 describe('Node: создание', () => {
   it('значения по умолчанию', () => {
     const node = new Node();
-    expect(node.id).toMatch(/^node-\d+$/);
+    expect(node.id).toMatch(/^~\d+$/);
     expect(new Node().id).not.toBe(node.id);
     expect({ ...vec3.clone(node.position) }).toEqual({ x: 0, y: 0, z: 0 });
     expect(vec3.clone(node.scale)).toEqual({ x: 1, y: 1, z: 1 });
@@ -91,6 +91,8 @@ describe('Node: мировые матрицы', () => {
     c.position.x = x;
     c.position.set(c.position.x, c.position.y, c.position.z);
     c.scale.copy(c.scale);
+    c.rotation.set(c.rotation.x, c.rotation.y, c.rotation.z, c.rotation.w);
+    c.pivot.copy(c.pivot);
     expect(c.worldVersion).toBe(version);
   });
 
@@ -208,7 +210,7 @@ describe('Scene', () => {
     const head = new Node({ id: 'head' });
     body.add(head);
     scene.root.add(body);
-    expect(scene.getById('root')).toBe(scene.root);
+    expect(scene.getById(scene.root.id)).toBe(scene.root);
     expect(scene.getById('head')).toBe(head);
     expect(head.scene).toBe(scene);
     body.removeFromParent();
@@ -255,7 +257,7 @@ describe('Scene', () => {
   });
 
   it('плоский список кэшируется до изменения структуры', () => {
-    const scene = new Scene();
+    const scene = new Scene(new Node({ id: 'root' }));
     const a = new Node({ id: 'a' });
     scene.root.add(a);
     const nodes = scene.nodes;
@@ -299,7 +301,7 @@ describe('уничтожение', () => {
     expect(scene.getById('head')).toBeNull();
     expect(() => scene.root.add(body)).toThrow(/уничтожен/);
     expect(() => body.add(new Node())).toThrow(/уничтожен/);
-    body.destroy();
+    expect(() => body.destroy()).not.toThrow();
   });
 
   it('Scene.destroy уничтожает дерево', () => {
@@ -311,6 +313,6 @@ describe('уничтожение', () => {
     expect(node.destroyed).toBe(true);
     expect(scene.getById('x')).toBeNull();
     expect(scene.nodes).toEqual([]);
-    scene.destroy();
+    expect(() => scene.destroy()).not.toThrow();
   });
 });

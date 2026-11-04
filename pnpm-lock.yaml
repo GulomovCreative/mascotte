@@ -190,11 +190,10 @@ importers:
         version: 8.3.5(@types/node@26.6.6)
 
   packages/engine:
-    dependencies:
+    devDependencies:
       '@mascotte/math':
         specifier: workspace:*
         version: link:../math
-    devDependencies:
       '@mascotte/zdog-reference':
         specifier: workspace:*
         version: link:../../src/core
