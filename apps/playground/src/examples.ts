@@ -105,7 +105,13 @@ function mountGL(
   const canvas = document.createElement('canvas');
   canvas.style.width = `${scene.width * displayScale}px`;
   canvas.style.maxWidth = '100%';
-  const renderer = new WebGLRenderer(canvas);
+  let renderer: WebGLRenderer;
+  try {
+    renderer = new WebGLRenderer(canvas);
+  } catch (error) {
+    controls.error(error);
+    return () => {};
+  }
   let pixelRatio = 1;
   const resize = () => {
     pixelRatio = (window.devicePixelRatio || 1) * displayScale;
@@ -134,7 +140,7 @@ function mountGL(
   return () => {
     cancelAnimationFrame(raf);
     unwatch();
-    renderer.gl.getExtension('WEBGL_lose_context')?.loseContext();
+    renderer.destroy();
     canvas.remove();
   };
 }

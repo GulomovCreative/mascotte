@@ -1,5 +1,5 @@
 import { euler } from '@mascotte/math';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   Box,
   type Bucket,
@@ -10,14 +10,19 @@ import {
   decalAnchor,
   Ellipse,
   GLCollector,
+  type GLFrame,
+  type GLLayer,
   Hemisphere,
+  MAX_ANCHORS,
   Node,
   PathShape,
+  PIXEL_BUDGET,
   type PrimitiveKind,
   Rect,
   Scene,
   Sphere,
   STRIDE,
+  supersampleFor,
   triangulate,
 } from '../src/index.ts';
 
@@ -37,6 +42,12 @@ function instances(bucket: Bucket | undefined, kind: PrimitiveKind): number[][] 
   for (let i = 0; i < buffer.length; i += stride)
     out.push(Array.from(buffer.data.subarray(i, i + stride)));
   return out;
+}
+
+function first(frame: GLFrame): GLLayer {
+  const layer = frame.layers[0];
+  if (!layer) throw new Error('В кадре нет слоёв.');
+  return layer;
 }
 
 function area(xs: number[], ys: number[], triangles: number[]): number {
@@ -65,6 +76,23 @@ describe('triangulate', () => {
     expect(triangulate([0, 0, 10, 10], [0, 10, 10, 0], 4, out)).toBe(2);
     expect(triangulate([0, 1], [0, 1], 2, out)).toBe(0);
   });
+
+  it('вырожденные контуры не ломают разбиение: индексы в пределах, площадь не теряется', () => {
+    const out: number[] = [];
+    // Все точки на одной прямой: площадь нулевая.
+    triangulate([0, 5, 10, 15], [0, 0, 0, 0], 4, out);
+    expect(area([0, 5, 10, 15], [0, 0, 0, 0], out)).toBeCloseTo(0, 9);
+    // Повторённые вершины.
+    const xs = [0, 10, 10, 10, 0];
+    const ys = [0, 0, 0, 10, 10];
+    triangulate(xs, ys, 5, out);
+    expect(out.every((i) => i >= 0 && i < 5)).toBe(true);
+    expect(area(xs, ys, out)).toBeCloseTo(100, 9);
+    // Самопересекающийся «бантик»: разбиение завершается, индексы в пределах.
+    const n = triangulate([0, 10, 0, 10], [0, 10, 10, 0], 4, out);
+    expect(out).toHaveLength(n * 3);
+    expect(out.every((i) => i >= 0 && i < 4)).toBe(true);
+  });
 });
 
 describe('GLCollector', () => {
@@ -83,7 +111,7 @@ describe('GLCollector', () => {
       ),
       new Camera({ zoom: 2 }),
     );
-    const plain = frame.opaque[0];
+    const plain = first(frame).opaque[0];
     expect(instances(plain, 'sphere').map((s) => s.slice(0, 4))).toEqual([[10, 0, 0, 10]]);
     const capsules = instances(plain, 'capsule');
     expect(capsules).toHaveLength(5);
@@ -98,7 +126,7 @@ describe('GLCollector', () => {
       ),
       camera,
     );
-    const plain = frame.opaque[0];
+    const plain = first(frame).opaque[0];
     expect(plain?.count('fill')).toBe(6);
     // Четыре четверти дуги по 9/16 дают кривые: каждая на несколько отрезков.
     expect(plain?.count('capsule')).toBeGreaterThan(8);
@@ -113,7 +141,7 @@ describe('GLCollector', () => {
       ),
       camera,
     );
-    const capsules = instances(frame.opaque[0], 'capsule');
+    const capsules = instances(first(frame).opaque[0], 'capsule');
     expect(capsules).toHaveLength(4);
     expect(capsules[0]?.slice(7)).toEqual([1, 0, 0, 1]);
   });
@@ -126,13 +154,15 @@ describe('GLCollector', () => {
     head.add(new PathShape({ id: 'mouth', sortMode: 'attached', style: { stroke: 4 } }));
     expect(decalAnchor(eye.children[0] as Node)).toBe(head);
     const frame = new GLCollector().collect(sceneWith(head, new Sphere()), camera);
-    const anchor = frame.opaque.find((b) => b.stencil === 1);
+    const anchor = first(frame).opaque.find((b) => b.stencil === 1);
     expect(anchor?.count('sphere')).toBe(1);
-    expect(frame.opaque[0]?.stencil).toBe(0);
-    expect(frame.opaque[0]?.count('sphere')).toBe(1);
-    expect(frame.decals).toHaveLength(1);
-    expect(frame.decals[0]?.stencil).toBe(1);
-    expect(frame.decals[0]?.count('sphere')).toBe(2);
+    expect(first(frame).opaque[0]?.stencil).toBe(0);
+    expect(first(frame).opaque[0]?.count('sphere')).toBe(1);
+    // Каждая декаль — своя корзина в порядке сортировки.
+    expect(first(frame).decals.map((b) => [b.stencil, b.count('sphere')])).toEqual([
+      [1, 1],
+      [1, 1],
+    ]);
   });
 
   it('у составной фигуры опора — сама фигура, её части в корзине опоры', () => {
@@ -146,9 +176,9 @@ describe('GLCollector', () => {
       }),
     );
     const frame = new GLCollector().collect(sceneWith(head), camera);
-    const anchor = frame.opaque.find((b) => b.stencil === 1);
+    const anchor = first(frame).opaque.find((b) => b.stencil === 1);
     expect(anchor?.count('hemisphere')).toBe(1);
-    expect(frame.decals[0]?.count('sphere')).toBe(1);
+    expect(first(frame).decals[0]?.count('sphere')).toBe(1);
   });
 
   it('полупрозрачное — отдельной корзиной по порядку, с непрозрачностью в цвете', () => {
@@ -159,8 +189,8 @@ describe('GLCollector', () => {
       ),
       camera,
     );
-    expect(frame.transparent).toHaveLength(1);
-    expect(instances(frame.transparent[0], 'sphere')[0]?.slice(4)).toEqual([1, 1, 1, 0.5]);
+    expect(first(frame).transparent).toHaveLength(1);
+    expect(instances(first(frame).transparent[0], 'sphere')[0]?.slice(4)).toEqual([1, 1, 1, 0.5]);
   });
 
   it('объёмные примитивы: шар, капсула, купол, бок цилиндра, конус', () => {
@@ -174,7 +204,8 @@ describe('GLCollector', () => {
       ),
       camera,
     );
-    const counts = (kind: PrimitiveKind) => frame.opaque.reduce((n, b) => n + b.count(kind), 0);
+    const counts = (kind: PrimitiveKind) =>
+      first(frame).opaque.reduce((n, b) => n + b.count(kind), 0);
     expect([counts('sphere'), counts('hemisphere'), counts('cylinder'), counts('cone')]).toEqual([
       1, 1, 1, 1,
     ]);
@@ -182,7 +213,7 @@ describe('GLCollector', () => {
     expect(counts('capsule')).toBe(1);
     expect(counts('fill')).toBeGreaterThan(0);
     // Радиус шара — половина диаметра плюс половина обводки.
-    expect(instances(frame.opaque[0], 'sphere')[0]?.[3]).toBe(5.5);
+    expect(instances(first(frame).opaque[0], 'sphere')[0]?.[3]).toBe(5.5);
   });
 
   it('диапазон глубин охватывает примитивы, перспектива масштабирует', () => {
@@ -202,33 +233,207 @@ describe('GLCollector', () => {
       ),
       perspective,
     );
-    expect(instances(near.opaque[0], 'sphere')[0]?.[3]).toBeCloseTo(10, 9);
+    expect(instances(first(near).opaque[0], 'sphere')[0]?.[3]).toBeCloseTo(10, 9);
   });
 
   it('корзины и буферы переиспользуются между кадрами', () => {
     const scene = sceneWith(new Rect(), new Sphere());
     const collector = new GLCollector();
-    const first = collector.collect(scene, camera).opaque[0];
-    const data = first?.data.capsule.data;
-    const second = collector.collect(scene, camera).opaque[0];
-    expect(second).toBe(first);
-    expect(second?.data.capsule.data).toBe(data);
+    const one = first(collector.collect(scene, camera)).opaque[0];
+    const data = one?.data.capsule.data;
+    const two = first(collector.collect(scene, camera)).opaque[0];
+    expect(two).toBe(one);
+    expect(two?.data.capsule.data).toBe(data);
   });
 
   it('крышки — диски полного радиуса, грани коробки — раздутые на полтолщины обводки', () => {
     const cylinder = new Cylinder({ diameter: 20, length: 10, style: { stroke: 4 } });
     const frame = new GLCollector().collect(sceneWith(cylinder), camera);
-    const fills = frame.opaque.flatMap((b) => instances(b, 'fill'));
+    const fills = first(frame).opaque.flatMap((b) => instances(b, 'fill'));
     const radii = fills.map(([x = 0, y = 0]) => Math.hypot(x, y));
     // Радиус крышки = радиусу бока: (20 + 4) / 2.
     expect(Math.max(...radii)).toBeCloseTo(12, 6);
-    const body = frame.opaque.flatMap((b) => instances(b, 'cylinder'))[0];
+    const body = first(frame).opaque.flatMap((b) => instances(b, 'cylinder'))[0];
     expect(body?.[6]).toBeCloseTo(12, 9);
 
     const box = new Box({ width: 10, height: 10, depth: 10, style: { stroke: 2 } });
     const boxFrame = new GLCollector().collect(sceneWith(box), camera);
-    const corners = boxFrame.opaque.flatMap((b) => instances(b, 'fill'));
+    const corners = first(boxFrame).opaque.flatMap((b) => instances(b, 'fill'));
     expect(Math.max(...corners.map(([x = 0]) => x))).toBeCloseTo(6, 9);
-    expect(boxFrame.opaque.reduce((n, b) => n + b.count('capsule'), 0)).toBe(0);
+    expect(first(boxFrame).opaque.reduce((n, b) => n + b.count('capsule'), 0)).toBe(0);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('пустая сцена: слоёв нет, диапазон глубин конечный', () => {
+    const frame = new GLCollector().collect(new Scene(), camera);
+    expect(frame.layers).toHaveLength(0);
+    expect([frame.zMin, frame.zMax]).toEqual([-1, 1]);
+  });
+
+  it('фигура за глазом камеры в перспективе не рисуется и не расширяет диапазон', () => {
+    const perspective = new Camera({ projection: 'perspective', distance: 100 });
+    const frame = new GLCollector().collect(
+      sceneWith(new Sphere({ diameter: 10, position: { x: 0, y: 0, z: 150 } })),
+      perspective,
+    );
+    const total = frame.layers.reduce(
+      (n, layer) => n + layer.opaque.reduce((m, b) => m + b.count('sphere'), 0),
+      0,
+    );
+    expect(total).toBe(0);
+    expect([frame.zMin, frame.zMax]).toEqual([-1, 1]);
+  });
+
+  it('слои сортировки — отдельные слои кадра: нижний первым, даже если он ближе', () => {
+    const shadow = new PathShape({
+      sortMode: 'layer',
+      layer: -1,
+      position: { x: 0, y: 0, z: 50 },
+      style: { stroke: 10 },
+    });
+    const body = new Sphere({ diameter: 20 });
+    const badge = new PathShape({ sortMode: 'layer', layer: 1, style: { stroke: 4 } });
+    const frame = new GLCollector().collect(sceneWith(badge, body, shadow), camera);
+    expect(frame.layers).toHaveLength(3);
+    const spheres = frame.layers.map((layer) => instances(layer.opaque[0], 'sphere'));
+    expect(spheres[0]?.[0]?.[2]).toBe(50);
+    expect(spheres[1]?.[0]?.[3]).toBe(10.5);
+    expect(spheres[2]?.[0]?.[3]).toBe(2);
+  });
+
+  it('у полупрозрачной опоры декали рисуются как обычные полупрозрачные фигуры', () => {
+    const head = new PathShape({ opacity: 0.5, style: { stroke: 40 } });
+    head.add(new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } }));
+    const layer = first(new GLCollector().collect(sceneWith(head), camera));
+    expect(layer.decals).toHaveLength(0);
+    expect(layer.transparent).toHaveLength(2);
+  });
+
+  it('полупрозрачная декаль на непрозрачной опоре — своя корзина с наложением', () => {
+    const head = new PathShape({ style: { stroke: 40 } });
+    head.add(new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } }));
+    head.add(
+      new PathShape({ sortMode: 'attached', opacity: 0.5, position: { x: 0, y: 0, z: 19 } }),
+    );
+    const layer = first(new GLCollector().collect(sceneWith(head), camera));
+    expect(layer.decals.map((b) => [b.stencil, b.blend])).toEqual([
+      [1, false],
+      [1, true],
+    ]);
+  });
+
+  it(`сверх ${MAX_ANCHORS} опор в слое декали становятся обычными фигурами с предупреждением`, () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const heads: Node[] = [];
+    for (let i = 0; i <= MAX_ANCHORS; i++) {
+      const head = new PathShape({ position: { x: i, y: 0, z: 0 }, style: { stroke: 4 } });
+      head.add(new PathShape({ sortMode: 'attached', style: { stroke: 1 } }));
+      heads.push(head);
+    }
+    const collector = new GLCollector();
+    const layer = first(collector.collect(sceneWith(...heads), camera));
+    expect(layer.decals).toHaveLength(MAX_ANCHORS);
+    expect(Math.max(...layer.decals.map((b) => b.stencil))).toBe(MAX_ANCHORS);
+    collector.collect(sceneWith(...heads), camera);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('неразборчивый цвет — пурпурный и одно предупреждение', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const shape = () => new PathShape({ style: { stroke: 2, color: 'не-цвет-для-теста' } });
+    const frame = new GLCollector().collect(sceneWith(shape(), shape()), camera);
+    expect(instances(first(frame).opaque[0], 'sphere')[0]?.slice(4)).toEqual([1, 0, 1, 1]);
+    expect(warn).toHaveBeenCalledTimes(1);
+  });
+
+  it('кривые разбиваются мелко и точно: точки эллипса у его радиуса', () => {
+    const frame = new GLCollector().collect(sceneWith(new Ellipse({ diameter: 200 })), camera);
+    const capsules = instances(first(frame).opaque[0], 'capsule');
+    // Примерно по 3 пикселя на отрезок: длина окружности ≈ 628.
+    expect(capsules.length).toBeGreaterThan(150);
+    // Дуги — кубические кривые с ручками 9/16, как в Zdog: от окружности они отходят
+    // до 0,6 % радиуса, сами точки разбиения лежат на кривых.
+    for (const [ax = 0, ay = 0] of capsules) {
+      expect(Math.abs(Math.hypot(ax, ay) - 100)).toBeLessThan(0.7);
+    }
+  });
+
+  it('у пути с несколькими контурами заливается только первый, обводятся все', () => {
+    const frame = new GLCollector().collect(
+      sceneWith(
+        new PathShape({
+          path: [
+            { type: 'move', point: { x: 0, y: 0 } },
+            { type: 'line', point: { x: 10, y: 0 } },
+            { type: 'line', point: { x: 10, y: 10 } },
+            { type: 'move', point: { x: 20, y: 0 } },
+            { type: 'line', point: { x: 30, y: 0 } },
+            { type: 'line', point: { x: 30, y: 10 } },
+          ],
+          style: { stroke: 2, fill: true },
+        }),
+      ),
+      camera,
+    );
+    const plain = first(frame).opaque[0];
+    expect(plain?.count('fill')).toBe(3);
+    // Путь замкнут по умолчанию: оба контура — треугольники по три отрезка.
+    expect(plain?.count('capsule')).toBe(6);
+  });
+
+  it('все грани коробки сходятся в углах раздутой коробки', () => {
+    const box = new Box({ width: 10, height: 10, depth: 10, style: { stroke: 2 } });
+    const layer = first(new GLCollector().collect(sceneWith(box), camera));
+    const vertices = layer.opaque.flatMap((b) => instances(b, 'fill'));
+    expect(vertices.length).toBeGreaterThan(0);
+    for (const [x = 0, y = 0, z = 0] of vertices) {
+      expect([Math.abs(x), Math.abs(y), Math.abs(z)].map((v) => Math.round(v * 1e6) / 1e6)).toEqual(
+        [6, 6, 6],
+      );
+    }
+  });
+
+  it('крышки конуса и полусферы — диски радиусом основания плюс полтолщины обводки', () => {
+    for (const solid of [
+      new Cone({ diameter: 20, length: 10, style: { stroke: 4 } }),
+      new Hemisphere({ diameter: 20, style: { stroke: 4 } }),
+    ]) {
+      const layer = first(new GLCollector().collect(sceneWith(solid), camera));
+      const radii = layer.opaque
+        .flatMap((b) => instances(b, 'fill'))
+        .map(([x = 0, y = 0]) => Math.hypot(x, y));
+      expect(Math.max(...radii)).toBeCloseTo(12, 6);
+    }
+  });
+
+  it('при смене числа корзин между кадрами старые данные не просачиваются', () => {
+    const head = new PathShape({ style: { stroke: 40 } });
+    const eye = new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } });
+    head.add(eye);
+    const scene = sceneWith(head, new Sphere({ opacity: 0.5 }));
+    const collector = new GLCollector();
+    const before = first(collector.collect(scene, camera));
+    expect([before.opaque.length, before.decals.length, before.transparent.length]).toEqual([
+      2, 1, 1,
+    ]);
+    head.remove(eye);
+    const after = first(collector.collect(scene, camera));
+    expect([after.opaque.length, after.decals.length, after.transparent.length]).toEqual([1, 0, 1]);
+    expect(after.opaque[0]?.count('sphere')).toBe(1);
+    expect(after.transparent[0]?.count('sphere')).toBe(1);
+  });
+});
+
+describe('supersampleFor', () => {
+  it('снижает множитель под пределы видеокарты и бюджет пикселей', () => {
+    expect(supersampleFor(800, 600, 2, 16384)).toBe(2);
+    // Full HD при плотности 2: при 2× кадр превысил бы бюджет.
+    expect(3840 * 2160 * 4).toBeGreaterThan(PIXEL_BUDGET);
+    expect(supersampleFor(3840, 2160, 2, 16384)).toBe(1);
+    expect(supersampleFor(3000, 100, 4, 8192)).toBe(2);
+    expect(() => supersampleFor(9000, 100, 2, 8192)).toThrow(RangeError);
   });
 });

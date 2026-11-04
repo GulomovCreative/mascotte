@@ -52,11 +52,11 @@ export const PRIMITIVE_KINDS = Object.keys(STRIDE) as PrimitiveKind[];
  * трафарета и одним режимом (обычный, декаль, полупрозрачный).
  */
 export class Bucket {
-  /** Значение трафарета: у опоры декалей — её номер, у декали — номер опоры, иначе 0. */
+  /** Номер опоры декалей в трафарете (1–127): у опоры — её номер, у декали — номер её опоры, иначе 0. */
   stencil = 0;
-  /** Декаль: рисуется только поверх видимых пикселей опоры, в своём диапазоне глубины. */
+  /** Декаль: рисуется только поверх видимых пикселей опоры, без проверки глубины. */
   decal = false;
-  /** Полупрозрачное: с наложением, без записи глубины. */
+  /** Полупрозрачное: с наложением, без записи глубины, каждый пиксель смешивается один раз. */
   blend = false;
   readonly data: Record<PrimitiveKind, FloatBuffer> = {
     capsule: new FloatBuffer(),
@@ -74,34 +74,62 @@ export class Bucket {
   count(kind: PrimitiveKind): number {
     return this.data[kind].length / STRIDE[kind];
   }
-
-  get empty(): boolean {
-    return PRIMITIVE_KINDS.every((kind) => this.data[kind].length === 0);
-  }
 }
 
-/** Кадр: корзины в порядке отрисовки и диапазон глубин. */
-export interface GLFrame {
+/**
+ * Слой кадра — прогон слоёв сортировщика. Глубина проверяется только внутри слоя:
+ * следующий слой рисуется поверх предыдущего.
+ */
+export interface GLLayer {
   /** Непрозрачные корзины: сначала обычная (трафарет 0), затем по одной на опору. */
   readonly opaque: readonly Bucket[];
-  /** Декали по опорам. */
+  /** Декали в порядке сортировки, по корзине на фигуру. */
   readonly decals: readonly Bucket[];
-  /** Полупрозрачные корзины по порядку сортировки. */
+  /** Полупрозрачные фигуры в порядке сортировки, по корзине на фигуру. */
   readonly transparent: readonly Bucket[];
+}
+
+/** Кадр: слои в порядке отрисовки и диапазон глубин. */
+export interface GLFrame {
+  readonly layers: readonly GLLayer[];
   /** Самая дальняя и самая ближняя глубина кадра в экранных пикселях. */
   readonly zMin: number;
   readonly zMax: number;
 }
 
+/** Сколько опор декалей помещается в одном слое: номер опоры занимает 7 бит трафарета. */
+export const MAX_ANCHORS = 127;
+
+class Layer implements GLLayer {
+  readonly opaque: Bucket[] = [];
+  readonly decals: Bucket[] = [];
+  readonly transparent: Bucket[] = [];
+  anchors = 0;
+
+  clear(): void {
+    this.opaque.length = 0;
+    this.decals.length = 0;
+    this.transparent.length = 0;
+    this.anchors = 0;
+  }
+}
+
 const colors = new Map<string, [number, number, number, number]>();
 const parsed = colorMath.create();
 
-/** RGBA цвета CSS с кэшем; неразборчивый цвет — пурпурный, чтобы ошибка была видна. */
+/**
+ * RGBA цвета CSS с кэшем. Неразборчивый цвет — пурпурный, чтобы ошибка была видна
+ * на кадре; предупреждение в консоль — один раз на цвет.
+ */
 function rgba(css: string): [number, number, number, number] {
   let value = colors.get(css);
   if (!value) {
     const c = colorMath.parse(css, parsed);
-    value = c ? [c.r, c.g, c.b, c.a] : [1, 0, 1, 1];
+    if (c) value = [c.r, c.g, c.b, c.a];
+    else {
+      value = [1, 0, 1, 1];
+      console.warn(`Не удалось разобрать цвет «${css}», вместо него пурпурный.`);
+    }
     colors.set(css, value);
   }
   return value;
@@ -133,17 +161,25 @@ const CORNERS: readonly (readonly [number, number])[] = [
 const scratch: Vec3 = { x: 0, y: 0, z: 0 };
 const local: Vec3 = { x: 0, y: 0, z: 0 };
 
-/** Сборщик кадра. Корзины и буферы переиспользуются между кадрами. */
+/**
+ * Сборщик кадра. Корзины, слои, буферы и сам объект кадра переиспользуются между
+ * кадрами: результат действителен до следующего вызова `collect`.
+ */
 export class GLCollector {
   readonly #sorter = new DepthSorter();
   readonly #pool: Bucket[] = [];
   #used = 0;
-  readonly #opaque: Bucket[] = [];
-  readonly #decals: Bucket[] = [];
-  readonly #transparent: Bucket[] = [];
+  readonly #layerPool: Layer[] = [];
+  readonly #layers: Layer[] = [];
   readonly #anchors = new Map<Node, number>();
   #zMin = 0;
   #zMax = 0;
+  #warnedAnchors = false;
+  readonly #frame: { layers: Layer[]; zMin: number; zMax: number } = {
+    layers: this.#layers,
+    zMin: 0,
+    zMax: 0,
+  };
   // Ломаная текущего контура в экранном 3D.
   readonly #xs: number[] = [];
   readonly #ys: number[] = [];
@@ -152,36 +188,47 @@ export class GLCollector {
 
   collect(scene: Scene, camera: Camera): GLFrame {
     this.#used = 0;
-    this.#opaque.length = 0;
-    this.#decals.length = 0;
-    this.#transparent.length = 0;
+    this.#layers.length = 0;
     this.#anchors.clear();
     this.#zMin = Number.POSITIVE_INFINITY;
     this.#zMax = Number.NEGATIVE_INFINITY;
 
     const drawables = this.#sorter.sort(scene, camera);
-    // Номера опор: у каждой опоры декалей свой номер трафарета (1–255).
-    for (const drawable of drawables) {
-      const anchor = decalAnchor(drawable);
-      if (anchor && !this.#anchors.has(anchor) && this.#anchors.size < 255) {
-        this.#anchors.set(anchor, this.#anchors.size + 1);
+    const runs = this.#sorter.runs;
+    // Номера опор: у каждой непрозрачной опоры декалей свой номер трафарета в её слое.
+    // У полупрозрачной опоры номера нет: её декали тоже полупрозрачны (прозрачность
+    // наследуется) и рисуются как обычные полупрозрачные фигуры.
+    for (let i = 0; i < drawables.length; i++) {
+      const anchor = decalAnchor(drawables[i] as Drawable);
+      if (!anchor || this.#anchors.has(anchor) || anchor.worldOpacity < 1) continue;
+      const layer = this.#layer(runs[i] ?? 0);
+      if (layer.anchors < MAX_ANCHORS) this.#anchors.set(anchor, ++layer.anchors);
+      else if (!this.#warnedAnchors) {
+        this.#warnedAnchors = true;
+        console.warn(
+          `В слое больше ${MAX_ANCHORS} опор декалей; декали остальных рисуются как обычные фигуры.`,
+        );
       }
     }
-    const plain = this.#bucket(this.#opaque, 0, false, false);
-    for (const drawable of drawables) {
+    for (let i = 0; i < drawables.length; i++) {
+      const drawable = drawables[i] as Drawable;
       const opacity = drawable.worldOpacity;
       if (opacity <= 0) continue;
+      const layer = this.#layer(runs[i] ?? 0);
       const anchor = decalAnchor(drawable);
+      const anchorId = anchor ? this.#anchors.get(anchor) : undefined;
       let bucket: Bucket;
-      if (anchor && this.#anchors.has(anchor)) {
-        bucket = this.#find(this.#decals, this.#anchors.get(anchor) ?? 0, true);
+      if (anchorId !== undefined) {
+        // Декали рисуются без проверки глубины, строго по порядку сортировки, поэтому у
+        // каждой своя корзина: внутри корзины примитивы идут по видам, а не по порядку.
+        bucket = this.#bucket(layer.decals, anchorId, true, opacity < 1);
       } else if (opacity < 1) {
-        bucket = this.#bucket(this.#transparent, 0, false, true);
+        bucket = this.#bucket(layer.transparent, 0, false, true);
       } else {
         const own =
           this.#anchors.get(drawable) ??
           (drawable.owner ? this.#anchors.get(drawable.owner) : undefined);
-        bucket = own ? this.#find(this.#opaque, own, false) : plain;
+        bucket = this.#opaque(layer, own ?? 0);
       }
       this.#emit(drawable, camera, bucket, opacity);
     }
@@ -189,13 +236,26 @@ export class GLCollector {
       this.#zMin = -1;
       this.#zMax = 1;
     }
-    return {
-      opaque: this.#opaque,
-      decals: this.#decals,
-      transparent: this.#transparent,
-      zMin: this.#zMin,
-      zMax: this.#zMax,
-    };
+    const frame = this.#frame;
+    frame.zMin = this.#zMin;
+    frame.zMax = this.#zMax;
+    return frame;
+  }
+
+  /** Слой с номером прогона `run`; слои создаются по порядку, пропусков нет. */
+  #layer(run: number): Layer {
+    while (this.#layers.length <= run) {
+      let layer = this.#layerPool[this.#layers.length];
+      if (!layer) {
+        layer = new Layer();
+        this.#layerPool.push(layer);
+      }
+      layer.clear();
+      this.#layers.push(layer);
+      // Обычная корзина слоя идёт первой.
+      this.#bucket(layer.opaque, 0, false, false);
+    }
+    return this.#layers[run] as Layer;
   }
 
   #bucket(list: Bucket[], stencil: number, decal: boolean, blend: boolean): Bucket {
@@ -213,10 +273,9 @@ export class GLCollector {
     return bucket;
   }
 
-  #find(list: Bucket[], stencil: number, decal: boolean): Bucket {
-    for (const bucket of list)
-      if (bucket.stencil === stencil && bucket.decal === decal) return bucket;
-    return this.#bucket(list, stencil, decal, false);
+  #opaque(layer: Layer, stencil: number): Bucket {
+    for (const bucket of layer.opaque) if (bucket.stencil === stencil) return bucket;
+    return this.#bucket(layer.opaque, stencil, false, false);
   }
 
   #extent(z: number, r: number): void {
@@ -370,39 +429,6 @@ export class GLCollector {
     ys.length = 0;
     zs.length = 0;
     let fillDone = false;
-    const flush = () => {
-      if (xs.length === 0) return;
-      if (closed && xs.length > 2) {
-        xs.push(xs[0] as number);
-        ys.push(ys[0] as number);
-        zs.push(zs[0] as number);
-      }
-      if (radius > 0) {
-        for (let i = 1; i < xs.length; i++) {
-          this.#pushSegment(
-            'capsule',
-            bucket,
-            xs[i - 1] as number,
-            ys[i - 1] as number,
-            zs[i - 1] as number,
-            xs[i] as number,
-            ys[i] as number,
-            zs[i] as number,
-            radius,
-            css,
-            opacity,
-          );
-        }
-      }
-      // Заливка — у первого контура, как у Canvas с одним контуром.
-      if (style.fill && !fillDone) {
-        this.#fill(bucket, css, opacity, closed && xs.length > 2 ? xs.length - 1 : xs.length);
-        fillDone = true;
-      }
-      xs.length = 0;
-      ys.length = 0;
-      zs.length = 0;
-    };
 
     let index = 0;
     for (let op = 0; op < opCount; op++) {
@@ -442,7 +468,10 @@ export class GLCollector {
         }
         index += 3;
       } else {
-        if (code === PathOp.move) flush();
+        if (code === PathOp.move && xs.length > 0) {
+          this.#contour(bucket, css, opacity, radius, closed, style.fill && !fillDone);
+          fillDone ||= style.fill;
+        }
         const p = project(points, index, s);
         xs.push(p.x);
         ys.push(p.y);
@@ -450,7 +479,50 @@ export class GLCollector {
         index++;
       }
     }
-    flush();
+    if (xs.length > 0) this.#contour(bucket, css, opacity, radius, closed, style.fill && !fillDone);
+  }
+
+  /**
+   * Обводка текущей ломаной капсулами и, если `fill`, заливка. Заливается только первый
+   * контур, как у Canvas с одним контуром. Ломаная после вызова пуста.
+   */
+  #contour(
+    bucket: Bucket,
+    css: string,
+    opacity: number,
+    radius: number,
+    closed: boolean,
+    fill: boolean,
+  ): void {
+    const xs = this.#xs;
+    const ys = this.#ys;
+    const zs = this.#zs;
+    if (closed && xs.length > 2) {
+      xs.push(xs[0] as number);
+      ys.push(ys[0] as number);
+      zs.push(zs[0] as number);
+    }
+    if (radius > 0) {
+      for (let i = 1; i < xs.length; i++) {
+        this.#pushSegment(
+          'capsule',
+          bucket,
+          xs[i - 1] as number,
+          ys[i - 1] as number,
+          zs[i - 1] as number,
+          xs[i] as number,
+          ys[i] as number,
+          zs[i] as number,
+          radius,
+          css,
+          opacity,
+        );
+      }
+    }
+    if (fill) this.#fill(bucket, css, opacity, closed && xs.length > 2 ? xs.length - 1 : xs.length);
+    xs.length = 0;
+    ys.length = 0;
+    zs.length = 0;
   }
 
   /** Крышка цилиндра, конуса или полусферы: диск радиусом основания плюс полтолщины обводки. */

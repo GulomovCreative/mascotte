@@ -53,6 +53,11 @@ export class DepthSorter {
   #settingsVersion = -1;
   #next = 0;
   readonly #out: Drawable[] = [];
+  readonly #runs: number[] = [];
+  // Слои на пути от верхнего списка к текущему элементу и путь текущего прогона.
+  readonly #path: number[] = [];
+  readonly #runPath: number[] = [];
+  #run = 0;
 
   sort(scene: Scene, camera: Camera): readonly Drawable[] {
     if (
@@ -64,8 +69,23 @@ export class DepthSorter {
     }
     const out = this.#out;
     out.length = 0;
+    this.#runs.length = 0;
+    this.#path.length = 0;
+    this.#runPath.length = 0;
+    this.#run = 0;
     this.#emitList(this.#top, camera);
     return out;
+  }
+
+  /**
+   * Номер прогона слоёв для каждого элемента последнего результата. Прогон — подряд
+   * идущие элементы с одинаковым путём слоёв от верхнего списка (нулевые слои в конце
+   * пути не считаются). Номера растут с нуля. Отрисовка с буфером глубины проверяет
+   * глубину только внутри прогона: так слой под содержимым остаётся под ним, даже
+   * если он ближе к камере.
+   */
+  get runs(): readonly number[] {
+    return this.#runs;
   }
 
   // ----- структура ----- //
@@ -140,15 +160,35 @@ export class DepthSorter {
 
   #emitUnit(unit: Unit, camera: Camera): void {
     if (!unit.node.visibleInTree) return;
-    if (unit.drawable) this.#out.push(unit.drawable);
+    this.#path.push(unit.layer);
+    if (unit.drawable) this.#push(unit.drawable);
     else this.#emitList(unit.members, camera);
     const decals = unit.decals;
-    if (decals.length === 0) return;
-    for (const decal of decals) decal.depth = this.#depth(decal.node, camera);
-    insertionSort(decals);
-    for (const decal of decals) {
-      if (isFacing(decal.node, camera)) this.#emitUnit(decal, camera);
+    if (decals.length > 0) {
+      for (const decal of decals) decal.depth = this.#depth(decal.node, camera);
+      insertionSort(decals);
+      for (const decal of decals) {
+        if (isFacing(decal.node, camera)) this.#emitUnit(decal, camera);
+      }
     }
+    this.#path.pop();
+  }
+
+  /** Добавляет элемент в результат и отмечает его прогон слоёв. */
+  #push(drawable: Drawable): void {
+    const path = this.#path;
+    const runPath = this.#runPath;
+    let n = path.length;
+    while (n > 0 && path[n - 1] === 0) n--;
+    let same = n === runPath.length;
+    for (let i = 0; same && i < n; i++) same = path[i] === runPath[i];
+    if (!same) {
+      if (this.#out.length > 0) this.#run++;
+      runPath.length = n;
+      for (let i = 0; i < n; i++) runPath[i] = path[i] as number;
+    }
+    this.#out.push(drawable);
+    this.#runs.push(this.#run);
   }
 
   #depth(node: Node, camera: Camera): number {

@@ -7,15 +7,14 @@
 const common = /* glsl */ `#version 300 es
 precision highp float;
 uniform vec2 uDepth;   // zMin, zMax
-uniform float uDecal;  // 1 — декаль: глубина в отдельном ближнем диапазоне
-uniform float uPx;     // пикселей устройства в пикселе CSS
+uniform float uPx;     // пикселей внутреннего кадра в пикселе CSS
 uniform float uRayZ;
+uniform float uSolid;  // 1 — рисовать только полностью покрытые пиксели (см. shade)
 in vec2 vPos;
 out vec4 outColor;
 
 float depthOf(float z) {
-  float d = (uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6);
-  return uDecal > 0.5 ? 0.1 * clamp(d, 0.0, 1.0) : 0.1 + 0.9 * clamp(d, 0.0, 1.0);
+  return clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
 }
 
 float coverage(float inside) {
@@ -82,6 +81,12 @@ ${pass
   .filter(Boolean)
   .map((line) => `flat in ${line};`)
   .join('\n')}
+// Цвет пикселя с покрытием края. Полупрозрачная фигура рисуется в два прохода: сначала
+// только полностью покрытые пиксели, затем края; трафарет пускает каждый пиксель один раз.
+vec4 shade(float cover) {
+  if (uSolid > 0.5 && cover < 1.0) discard;
+  return vec4(vColor.rgb, vColor.a * cover);
+}
 void main() {
   vec3 ro = vec3(vPos, uRayZ);
   vec3 rd = vec3(0.0, 0.0, -1.0);
@@ -106,7 +111,7 @@ export const sphereProgram = {
   float r = max(vRadius, d);
   float z = vCenter.z + sqrt(max(r * r - d * d, 0.0));
   gl_FragDepth = depthOf(z);
-  outColor = vec4(vColor.rgb, vColor.a * cover);`,
+  outColor = shade(cover);`,
   ),
   attributes: [
     ['aCenter', 3],
@@ -151,7 +156,7 @@ export const capsuleProgram = {
   }
   if (t < 0.0) discard;
   gl_FragDepth = depthOf(ro.z - t);
-  outColor = vec4(vColor.rgb, vColor.a * cover);`,
+  outColor = shade(cover);`,
   ),
   attributes: [
     ['aA', 3],
@@ -190,7 +195,7 @@ export const cylinderProgram = {
   }
   float cover = coverage(vRadius - d);
   gl_FragDepth = depthOf(ro.z - t);
-  outColor = vec4(vColor.rgb, vColor.a * cover);`,
+  outColor = shade(cover);`,
   ),
   attributes: [
     ['aA', 3],
@@ -222,7 +227,7 @@ export const hemisphereProgram = {
   else if (dot(far - vCenter, vAxis) >= 0.0) { z = far.z; cover = 1.0; }
   else discard;
   gl_FragDepth = depthOf(z);
-  outColor = vec4(vColor.rgb, vColor.a * cover);`,
+  outColor = shade(cover);`,
   ),
   attributes: [
     ['aCenter', 3],
@@ -266,7 +271,7 @@ export const coneProgram = {
     if (y <= 0.0 || y >= m0) discard;
   }
   gl_FragDepth = depthOf(ro.z - t);
-  outColor = vColor;`,
+  outColor = shade(1.0);`,
   ),
   attributes: [
     ['aBase', 3],
@@ -280,13 +285,11 @@ export const fillProgram = {
 precision highp float;
 uniform vec2 uHalf;
 uniform vec2 uDepth;
-uniform float uDecal;
 in vec3 aPosition;
 in vec4 aColor;
 flat out vec4 vColor;
 void main() {
-  float d = clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
-  float depth = uDecal > 0.5 ? 0.1 * d : 0.1 + 0.9 * d;
+  float depth = clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
   vColor = aColor;
   gl_Position = vec4(aPosition.x / uHalf.x, -aPosition.y / uHalf.y, depth * 2.0 - 1.0, 1.0);
 }
