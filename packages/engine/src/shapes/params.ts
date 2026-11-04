@@ -45,3 +45,38 @@ export function checkNumberParam(name: string, spec: ParamSpec, value: number): 
   if (spec.kind === 'integer') return checkInteger(name, value, spec.min, spec.max);
   throw new TypeError(`Параметр ${name} не числовой.`);
 }
+
+/**
+ * Хранилище числовых параметров по схеме. Значения по умолчанию берутся из схемы,
+ * ввод проверяется, а `onChange` вызывается только при реальном изменении.
+ */
+export class ParamStore {
+  readonly #schema: ParamSchema;
+  readonly #values = new Map<string, number>();
+  readonly #onChange: () => void;
+
+  constructor(schema: ParamSchema, options: object, onChange: () => void) {
+    this.#schema = schema;
+    this.#onChange = onChange;
+    for (const [name, spec] of Object.entries(schema)) {
+      const given = (options as Readonly<Record<string, unknown>>)[name];
+      const value = typeof given === 'number' ? given : (spec.default as number);
+      this.#values.set(name, checkNumberParam(name, spec, value));
+    }
+  }
+
+  get(name: string): number {
+    const value = this.#values.get(name);
+    if (value === undefined) throw new Error(`Нет параметра ${name}.`);
+    return value;
+  }
+
+  set(name: string, value: number): void {
+    const spec = this.#schema[name];
+    if (!spec) throw new Error(`Нет параметра ${name}.`);
+    if (checkNumberParam(name, spec, value) !== this.#values.get(name)) {
+      this.#values.set(name, value);
+      this.#onChange();
+    }
+  }
+}

@@ -1,7 +1,7 @@
 import type { Vec3 } from '@mascotte/math';
 import { Node, type NodeOptions } from '../scene/node.ts';
 import { ObservedVec3 } from '../scene/observed.ts';
-import { checkLength, checkNumberParam, type ParamSchema } from './params.ts';
+import { checkLength, type ParamSchema, ParamStore } from './params.ts';
 import { PathBuilder, type PathCommand, type PathGeometry, type PathPoint } from './path.ts';
 
 /** Значения стиля фигуры. */
@@ -126,7 +126,7 @@ export abstract class Shape extends Node {
   readonly front: ObservedVec3;
 
   #closed: boolean;
-  readonly #params = new Map<string, number>();
+  readonly #params: ParamStore;
   readonly #builder = new PathBuilder();
   readonly #view: { -readonly [K in keyof PathGeometry]: PathGeometry[K] } = {
     ops: new Uint8Array(0),
@@ -146,11 +146,7 @@ export abstract class Shape extends Node {
     this.front = new ObservedVec3(markAppearance, front.x, front.y, front.z);
     const type = this.constructor as typeof Shape;
     this.#closed = options.closed ?? type.defaultClosed;
-    for (const [name, spec] of Object.entries(type.params)) {
-      const given = (options as Readonly<Record<string, unknown>>)[name];
-      const value = typeof given === 'number' ? given : (spec.default as number);
-      this.#params.set(name, checkNumberParam(name, spec, value));
-    }
+    this.#params = new ParamStore(type.params, options, () => this.invalidateGeometry());
   }
 
   /** Замыкать ли контур. Влияет на геометрию. */
@@ -201,19 +197,12 @@ export abstract class Shape extends Node {
 
   /** Значение числового параметра из схемы `params`. */
   protected getParam(name: string): number {
-    const value = this.#params.get(name);
-    if (value === undefined) throw new Error(`У фигуры нет параметра ${name}.`);
-    return value;
+    return this.#params.get(name);
   }
 
   /** Проверяет и записывает числовой параметр; при изменении помечает геометрию устаревшей. */
   protected setParam(name: string, value: number): void {
-    const spec = (this.constructor as typeof Shape).params[name];
-    if (!spec) throw new Error(`У фигуры нет параметра ${name}.`);
-    if (checkNumberParam(name, spec, value) !== this.#params.get(name)) {
-      this.#params.set(name, value);
-      this.invalidateGeometry();
-    }
+    this.#params.set(name, value);
   }
 }
 
