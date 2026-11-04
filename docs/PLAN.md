@@ -216,50 +216,100 @@ docs/
 
 Каждый этап заканчивается рабочим состоянием: тесты проходят, playground показывает результат.
 
+### Как отмечать выполнение
+
+- Каждый этап соответствует milestone на GitHub, каждый пункт — issue в этом milestone.
+- PR, который выполняет пункт, пишет в описании `Closes #N` и в этом же PR ставит галочку `[x]` здесь.
+- Пункт выполнен, когда PR влит в `main`. Этап готов, когда выполнены все пункты и его критерий «Готово, когда».
+- Статус этапа: **не начат**, **в работе**, **готов**. Его меняют в том же PR, который начинает или завершает этап.
+- Новые задачи сначала заводятся как issue в нужном milestone, потом добавляются в список ниже.
+- Изменение решений из раздела 2 оформляется документом в `docs/decisions/`.
+
 ### Этап 0. Каркас
-- pnpm workspaces, TypeScript strict, Vite, Vitest, линтер и форматтер, CI.
-- Playground с переключением примеров.
-- Тесты по снимкам кадров в Node и эталонные сцены, отрисованные копией Zdog.
+
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/1)
+
+- [ ] Монорепозиторий: pnpm workspaces, TypeScript strict ([#1](https://github.com/GulomovCreative/mascotte/issues/1))
+- [ ] Линтер, форматтер и CI ([#2](https://github.com/GulomovCreative/mascotte/issues/2))
+- [ ] Playground на Vite ([#3](https://github.com/GulomovCreative/mascotte/issues/3))
+- [ ] Тесты по снимкам кадров и эталонные сцены ([#4](https://github.com/GulomovCreative/mascotte/issues/4))
 
 **Готово, когда** CI собирает проект и проверяет снимки кадров.
 
 ### Этап 1. Ядро рендера
-- `math`: векторы, матрицы, кватернионы, цвет, плавность.
-- Сцена с ленивыми мировыми матрицами, камера.
-- Все примитивы Zdog плюс капсула и сфера.
-- Режимы сортировки, список отрисовки, бэкенд Canvas 2D, hit-testing.
-- Бенчмарк.
 
-**Готово, когда** эталонные сцены совпадают с Zdog визуально, в простое нет аллокаций, а бенчмарк тянет 20 маскотов по 300 примитивов при 60 fps на среднем ноутбуке.
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
+
+- [ ] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
+- [ ] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
+- [ ] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
+- [ ] Камера: ортография и слабая перспектива ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
+- [ ] Путь и базовые примитивы ([#9](https://github.com/GulomovCreative/mascotte/issues/9))
+- [ ] Объёмные примитивы ([#10](https://github.com/GulomovCreative/mascotte/issues/10))
+- [ ] Режимы сортировки по глубине ([#11](https://github.com/GulomovCreative/mascotte/issues/11))
+- [ ] Список отрисовки и бэкенд Canvas 2D ([#12](https://github.com/GulomovCreative/mascotte/issues/12))
+- [ ] Hit-testing ([#13](https://github.com/GulomovCreative/mascotte/issues/13))
+- [ ] Бенчмарк и проверка аллокаций ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
+- [ ] Убрать копию Zdog из src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
+
+**Готово, когда** эталонные сцены совпадают с Zdog визуально, в простое нет аллокаций, бенчмарк тянет 20 маскотов по 300 примитивов при 60 fps на среднем ноутбуке.
 
 ### Этап 2. Анимация
-- Ticker, реестр свойств, клипы и ключи, слои, смешивание, переходы.
-- Процедурные поведения, пружины.
+
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
+
+- [ ] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
+- [ ] Реестр анимируемых свойств ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
+- [ ] Клипы, дорожки и ключи ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
+- [ ] Слои, маски, веса и переходы ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
+- [ ] Процедурные поведения ([#20](https://github.com/GulomovCreative/mascotte/issues/20))
+- [ ] Пружины и вторичное движение ([#21](https://github.com/GulomovCreative/mascotte/issues/21))
 
 **Готово, когда** маскот из примера дышит, моргает и машет, а перемотка клипа даёт тот же кадр, что и проигрывание.
 
 ### Этап 3. Риг и интерактивность
-- Кости, слоты, ограничения (`lookAt`, IK на две кости, лимиты).
-- Машина состояний, входы, события указателя.
+
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/4)
+
+- [ ] Кости и слоты рига ([#22](https://github.com/GulomovCreative/mascotte/issues/22))
+- [ ] Ограничения рига ([#23](https://github.com/GulomovCreative/mascotte/issues/23))
+- [ ] Машина состояний и входы ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
+- [ ] События указателя и вращение мышью ([#25](https://github.com/GulomovCreative/mascotte/issues/25))
 
 **Готово, когда** маскот следит за курсором, реагирует на наведение и клик и переключает эмоции.
 
 ### Этап 4. Формат и плеер
-- Схема документа, валидация, версии, миграции.
-- Пакет `player`: загрузка, встраивание, ресайз, `destroy()`, публичный API входов.
-- Архетипы, библиотека анимаций по слотам, префабы, параметры формы, палитры.
-- Три маскота разных архетипов, собранных только из документов.
 
-**Готово, когда** три маскота работают в playground из JSON и используют общие анимации.
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
+
+- [ ] Схема документа, валидация, версии и миграции ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
+- [ ] Пакет player ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
+- [ ] Архетипы и библиотека анимаций по слотам ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
+- [ ] Префабы частей и параметры формы ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
+- [ ] Палитры и скины ([#30](https://github.com/GulomovCreative/mascotte/issues/30))
+- [ ] Три эталонных маскота ([#31](https://github.com/GulomovCreative/mascotte/issues/31))
+
+**Готово, когда** три маскота разных архетипов работают в playground из JSON и используют общие анимации.
 
 ### Этап 5. Визуальный стиль
-- Материалы, toon-затенение, блики, контур, тень.
-- Экспорт кадров: PNG, SVG, последовательность для видео.
+
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
+
+- [ ] Материалы и toon-затенение ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
+- [ ] Контур и тень под маскотом ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
+- [ ] Экспорт кадров ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 
 **Готово, когда** эталонные маскоты выглядят объёмно, а экспорт совпадает с рендером в браузере.
 
 ### Этап 6. Редактор
-Для редактора пишется отдельный план после этапа 4. Минимальный объём: дерево сцены, инспектор свойств, вьюпорт с гизмо, таймлайн ключей, редактор машины состояний, палитры, сохранение и загрузка документа, предпросмотр в плеере.
+
+Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/7)
+
+- [ ] План редактора ([#35](https://github.com/GulomovCreative/mascotte/issues/35))
+
+**Готово, когда** отдельный план редактора утверждён и разбит на задачи.
+
+Минимальный объём редактора: дерево сцены, инспектор свойств, вьюпорт с гизмо, таймлайн ключей, редактор машины состояний, палитры, сохранение и загрузка документа, предпросмотр в плеере.
 
 ## 10. Открытые вопросы
 
