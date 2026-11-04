@@ -8,12 +8,19 @@ export {
   decalAnchor,
   GLCollector,
   type GLFrame,
+  type GLLayer,
+  MAX_ANCHORS,
   PRIMITIVE_KINDS,
   type PrimitiveKind,
   STRIDE,
 } from './render/gl/collect.ts';
 export { triangulate } from './render/gl/triangulate.ts';
-export { WebGLRenderer } from './render/gl/webgl.ts';
+export {
+  PIXEL_BUDGET,
+  supersampleFor,
+  WebGLRenderer,
+  type WebGLRendererOptions,
+} from './render/gl/webgl.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,
