@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type Color, color } from '../src/index.ts';
+import { type Color, color, type Oklab } from '../src/index.ts';
 import { expectClose, random } from './helpers.ts';
 
 function parsed(input: string): Color {
@@ -36,6 +36,40 @@ describe('color: разбор CSS', () => {
     expect(color.toHex(parsed('oklch(1 0 0 / 0.25)'))).toBe('#ffffff40');
   });
 
+  it('единицы угла и экспоненты', () => {
+    expect(color.toHex(parsed('hsl(133.3333grad 100% 50%)'))).toBe('#00ff00');
+    expect(color.toHex(parsed(`hsl(${Math.PI}rad 100% 50%)`))).toBe('#00ffff');
+    expect(color.toHex(parsed('rgb(2.55e2 0 0)'))).toBe('#ff0000');
+    expect(color.toHex(parsed('RGB(1E2% 0% 0%)'))).toBe('#ff0000');
+  });
+
+  it('none в новом синтаксисе считается нулём', () => {
+    expect(color.toHex(parsed('rgb(none 128 255)'))).toBe('#0080ff');
+    expect(color.toHex(parsed('oklch(1 0 none)'))).toBe('#ffffff');
+    expect(color.toHex(parsed('rgb(255 0 0 / none)'))).toBe('#ff000000');
+  });
+
+  it('hsl в новом синтаксисе принимает числа, s и l обрезаются', () => {
+    expect(color.toHex(parsed('hsl(120 100 50)'))).toBe('#00ff00');
+    expect(color.toHex(parsed('hsl(0 150% 50%)'))).toBe(color.toHex(parsed('hsl(0 100% 50%)')));
+  });
+
+  it('oklab и oklch обрезают L и отрицательную хрому, хрома в процентах', () => {
+    expect(color.toHex(parsed('oklab(1.5 0 0)'))).toBe('#ffffff');
+    const gray = parsed('oklch(0.5 -0.1 0)');
+    expect(gray.r).toBeCloseTo(gray.g, 6);
+    expect(gray.g).toBeCloseTo(gray.b, 6);
+    expect(color.toHex(parsed('oklch(0.627955 64.42% 29.2339)'))).toBe('#ff0000');
+  });
+
+  it('при неудаче out не меняется', () => {
+    const out = color.create(0.1, 0.2, 0.3, 0.4);
+    for (const input of ['rgb(1 2 / 0.5)', 'hsl(1e999 50% 50%)', 'nope', '#12345']) {
+      expect(color.parse(input, out)).toBeNull();
+      expect(out).toEqual({ r: 0.1, g: 0.2, b: 0.3, a: 0.4 });
+    }
+  });
+
   it('transparent', () => {
     expect(parsed('transparent')).toEqual({ r: 0, g: 0, b: 0, a: 0 });
   });
@@ -51,9 +85,21 @@ describe('color: разбор CSS', () => {
       'rgb(1 2 3 4 5)',
       'rgb(1, 2, 3 / 4)',
       'rgb(a b c)',
-      'hsl(10 20 30)',
+      'hsl(10, 20, 30)',
       'rgb(1 2 3 / 4 / 5)',
       'cmyk(0 0 0 0)',
+      'rgb(1 2 / 0.5)',
+      'rgb(1 2 3 0.5)',
+      'rgb(1,2,3,)',
+      'rgb(1 2 3 /)',
+      'rgb(1e 0 0)',
+      'rgb(. 0 0)',
+      'rgb(10%, 20, 30)',
+      'rgb(none, 0, 0)',
+      'hsl(1e999 50% 50%)',
+      'oklab(1e999 0 0)',
+      'oklab(0.5, 0.1, 0.1)',
+      'oklch(0.5, 0.1, 10)',
     ]) {
       expect(color.parse(input), input).toBeNull();
     }
@@ -67,7 +113,10 @@ describe('color: разбор CSS', () => {
 });
 
 describe('color: преобразования', () => {
-  it('sRGB ↔ линейный', () => {
+  it('sRGB ↔ линейный, включая значения вне [0, 1]', () => {
+    expect(color.srgbToLinear(-0.5)).toBe(-color.srgbToLinear(0.5));
+    expect(color.linearToSrgb(-0.2)).toBe(-color.linearToSrgb(0.2));
+    expect(color.linearToSrgb(color.srgbToLinear(1.2))).toBeCloseTo(1.2, 12);
     expect(color.srgbToLinear(0.5)).toBeCloseTo(0.214041, 6);
     expect(color.linearToSrgb(color.srgbToLinear(0.3))).toBeCloseTo(0.3, 12);
     expect(color.srgbToLinear(0.02)).toBeCloseTo(0.02 / 12.92, 12);
@@ -137,6 +186,20 @@ describe('color: смешивание', () => {
     expect(color.mix(a, a, b, 0.3)).toEqual(expected);
   });
 
+  it('mixOklab вне [0, 1] продолжает линейно и не раздувает цвет', () => {
+    const x = color.createOklab(0.2, 0, 0, 1);
+    const y = color.createOklab(0.6, 0, 0, 1);
+    expect(color.mixOklab(color.createOklab(), x, y, 1.5).l).toBeCloseTo(0.8, 12);
+    const faint = color.createOklab(0.5, 0.1, 0, 0.1);
+    const solid = color.createOklab(0.6, 0, 0.1, 1);
+    const under = color.mixOklab(color.createOklab(), faint, solid, -0.11);
+    expect(under.l).toBeCloseTo(0.489, 12);
+    expect(under.alpha).toBeCloseTo(0.001, 12);
+    const beyond = color.mixOklab(color.createOklab(), faint, solid, -1);
+    expect(beyond.alpha).toBe(0);
+    expect(Number.isNaN(beyond.l)).toBe(false);
+  });
+
   it('mixOklab допускает out = аргумент', () => {
     const x = color.toOklab(color.createOklab(), parsed('#c25'));
     const y = color.toOklab(color.createOklab(), parsed('#3a8c'));
@@ -160,5 +223,22 @@ describe('color: прочее', () => {
   it('toHex округляет и обрезает', () => {
     expect(color.toHex(color.create(1.2, -0.1, 0.5))).toBe('#ff0080');
     expect(color.toHex(color.create(0, 0, 0, 0))).toBe('#00000000');
+    expect(color.toHex(color.create(1, 0, 0, 0.999))).toBe('#ff0000');
+    expect(color.toHex(color.create(1, 0, 0, 0.99))).toBe('#ff0000fc');
+  });
+
+  it('createOklab по умолчанию', () => {
+    expect(color.createOklab()).toEqual({ l: 0, a: 0, b: 0, alpha: 1 });
+  });
+
+  it('Color и Oklab нельзя подставить друг вместо друга', () => {
+    const c: Color = color.create();
+    const lab: Oklab = color.createOklab();
+    // @ts-expect-error Oklab не является Color.
+    const asColor: Color = lab;
+    // @ts-expect-error Color не является Oklab.
+    const asLab: Oklab = c;
+    expect(asColor).toBe(lab);
+    expect(asLab).toBe(c);
   });
 });

@@ -1,6 +1,8 @@
 /**
- * Функция плавности: время клипа от 0 до 1 → доля пройденного пути. На концах
- * возвращает 0 и 1. Некоторые кривые (`back`, `elastic`) выходят за [0, 1] посередине.
+ * Функция плавности: время клипа от 0 до 1 → доля пройденного пути. Именованные
+ * кривые и `cubicBezier` возвращают ровно 0 при t = 0 и ровно 1 при t = 1. Исключение —
+ * `steps` в режимах `start` и `both`: там скачок происходит уже в начале. Кривые `back`,
+ * `elastic` и `cubicBezier` с y вне [0, 1] выходят за [0, 1] посередине.
  */
 export type Easing = (t: number) => number;
 
@@ -8,7 +10,7 @@ export const linear: Easing = (t) => t;
 
 // ----- стандартные кривые ----- //
 
-/** Отражает кривую: из разгона получается торможение и наоборот, `f'(t) = 1 − f(1 − t)`. */
+/** Отражает кривую: из разгона получается торможение и наоборот, `g(t) = 1 − f(1 − t)`. */
 function mirror(curve: Easing): Easing {
   return (t) => 1 - curve(1 - t);
 }
@@ -25,11 +27,12 @@ export const quadIn: Easing = (t) => t * t;
 export const cubicIn: Easing = (t) => t * t * t;
 export const quartIn: Easing = (t) => t * t * t * t;
 export const quintIn: Easing = (t) => t * t * t * t * t;
-export const sineIn: Easing = (t) => 1 - Math.cos((t * Math.PI) / 2);
+// Кривые с неточной арифметикой на конце явно возвращают 1 при t ≥ 1.
+export const sineIn: Easing = (t) => (t >= 1 ? 1 : 1 - Math.cos((t * Math.PI) / 2));
 export const expoIn: Easing = (t) => (t <= 0 ? 0 : 2 ** (10 * t - 10));
 export const circIn: Easing = (t) => 1 - Math.sqrt(1 - Math.min(1, t * t));
 /** Сначала немного отходит назад, потом разгоняется. */
-export const backIn: Easing = (t) => (BACK + 1) * t * t * t - BACK * t * t;
+export const backIn: Easing = (t) => (t >= 1 ? 1 : (BACK + 1) * t * t * t - BACK * t * t);
 /** Колебания, как у пружины: нарастают к концу (`elasticOut` затухает). */
 export const elasticIn: Easing = (t) =>
   t <= 0 ? 0 : t >= 1 ? 1 : -(2 ** (10 * t - 10)) * Math.sin((t * 10 - 10.75) * ELASTIC_PERIOD);
@@ -37,6 +40,7 @@ export const elasticIn: Easing = (t) =>
 export const bounceOut: Easing = (t) => {
   const n = 7.5625;
   const d = 2.75;
+  if (t >= 1) return 1;
   if (t < 1 / d) return n * t * t;
   if (t < 2 / d) return n * (t - 1.5 / d) ** 2 + 0.75;
   if (t < 2.5 / d) return n * (t - 2.25 / d) ** 2 + 0.9375;
@@ -75,6 +79,10 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   if (!(x1 >= 0 && x1 <= 1 && x2 >= 0 && x2 <= 1)) {
     throw new RangeError(`cubic-bezier: x1 и x2 должны быть в [0, 1], получено ${x1}, ${x2}.`);
   }
+  if (!(Number.isFinite(y1) && Number.isFinite(y2))) {
+    throw new RangeError(`cubic-bezier: y1 и y2 должны быть конечными, получено ${y1}, ${y2}.`);
+  }
+  // Прямая линия: возвращается общая функция `linear`.
   if (x1 === y1 && x2 === y2) return linear;
 
   // Коэффициенты многочлена B(s) = ((a·s + b)·s + c)·s.
@@ -124,7 +132,7 @@ export const cssEaseIn = cubicBezier(0.42, 0, 1, 1);
 export const cssEaseOut = cubicBezier(0, 0, 0.58, 1);
 export const cssEaseInOut = cubicBezier(0.42, 0, 0.58, 1);
 
-/** Все именованные кривые. По этим именам плавность хранится в документе. */
+/** Все именованные кривые. По этим именам плавность будет храниться в документе. */
 export const named = {
   linear,
   quadIn,
@@ -190,4 +198,37 @@ export function steps(count: number, position: StepPosition = 'end'): Easing {
     const step = Math.min(jumps, Math.floor(time * count) + shift);
     return step / jumps;
   };
+}
+
+// ----- описание кривой в документе ----- //
+
+/** Как плавность записывается в документе: имя кривой или параметры. */
+export type EasingSpec =
+  | EasingName
+  | {
+      readonly type: 'cubicBezier';
+      readonly x1: number;
+      readonly y1: number;
+      readonly x2: number;
+      readonly y2: number;
+    }
+  | { readonly type: 'steps'; readonly count: number; readonly position?: StepPosition };
+
+/**
+ * Функция плавности по описанию из документа. Вызывается при загрузке, а не в каждом
+ * кадре. Бросает `RangeError` для неизвестного имени или недопустимых параметров.
+ */
+export function resolve(spec: EasingSpec): Easing {
+  if (typeof spec === 'string') {
+    if (!isEasingName(spec)) throw new RangeError(`Неизвестная кривая плавности «${spec}».`);
+    return named[spec];
+  }
+  switch (spec.type) {
+    case 'cubicBezier':
+      return cubicBezier(spec.x1, spec.y1, spec.x2, spec.y2);
+    case 'steps':
+      return steps(spec.count, spec.position);
+    default:
+      throw new RangeError(`Неизвестный тип плавности «${(spec as { type: unknown }).type}».`);
+  }
 }
