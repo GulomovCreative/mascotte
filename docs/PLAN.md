@@ -243,7 +243,7 @@ docs/
 
 - [x] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
 - [x] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
-- [ ] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
+- [x] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
 - [ ] Камера: ортография и слабая перспектива ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
 - [ ] Путь и базовые примитивы ([#9](https://github.com/GulomovCreative/mascotte/issues/9))
 - [ ] Объёмные примитивы ([#10](https://github.com/GulomovCreative/mascotte/issues/10))

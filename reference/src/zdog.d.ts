@@ -62,6 +62,8 @@ declare module '@mascotte/zdog-reference' {
     rotate: Vector;
     scale: Vector;
     children: Anchor[];
+    /** Положение начала координат узла после `updateGraph`. */
+    renderOrigin: Vector;
     updateGraph(): void;
     renderGraphCanvas(ctx: CanvasContext): void;
   }
