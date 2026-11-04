@@ -48,9 +48,12 @@ declare module '@mascotte/zdog-reference' {
   }
 
   class Vector {
+    constructor(position?: VectorLike);
     x: number;
     y: number;
     z: number;
+    /** Поворачивает на углы Эйлера: сначала Z, потом Y, потом X. Без поворота возвращает undefined. */
+    rotate(rotation?: VectorLike): this | undefined;
   }
 
   class Anchor {
