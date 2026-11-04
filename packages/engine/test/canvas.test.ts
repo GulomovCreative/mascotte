@@ -36,7 +36,7 @@ describe('DisplayList', () => {
       style: { stroke: 2 },
     });
     const dot = new PathShape({
-      position: { x: -3, y: 1, z: 0 },
+      position: { x: -30, y: 1, z: 0 },
       style: { stroke: 6, color: '#f00' },
     });
     const list = new DisplayList().build(sceneWith(rect, dot), new Camera({ zoom: 2 }));
@@ -47,7 +47,7 @@ describe('DisplayList', () => {
     ]);
     expect([a.path.closed, a.lineWidth, a.hasStroke, a.hasFill]).toEqual([true, 4, true, false]);
     expect(b.path.ops[0]).toBe(ScreenOp.arc);
-    expect(Array.from(b.path.data.subarray(0, 3))).toEqual([-6, 2, 6]);
+    expect(Array.from(b.path.data.subarray(0, 3))).toEqual([-60, 2, 6]);
     expect([b.hasStroke, b.hasFill, b.color]).toEqual([false, true, '#f00']);
   });
 
@@ -380,15 +380,15 @@ describe('CanvasRenderer', () => {
     });
     new CanvasRenderer().render(
       ctx,
-      sceneWith(new PathShape({ style: { stroke: 4 } }), curve),
+      sceneWith(new PathShape({ position: { x: -40, y: 0, z: 0 }, style: { stroke: 4 } }), curve),
       camera,
       {
         width: 10,
         height: 10,
       },
     );
-    expect(calls).toContain(`arc 0 0 2 0 ${Math.PI * 2} false`);
-    expect(calls[calls.indexOf(`arc 0 0 2 0 ${Math.PI * 2} false`) + 1]).toBe('closePath');
+    expect(calls).toContain(`arc -40 0 2 0 ${Math.PI * 2} false`);
+    expect(calls[calls.indexOf(`arc -40 0 2 0 ${Math.PI * 2} false`) + 1]).toBe('closePath');
     expect(calls).toContain('bezierCurveTo 1 2 3 4 5 6');
   });
 

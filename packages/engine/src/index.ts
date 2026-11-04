@@ -2,7 +2,7 @@
 
 export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
-export { DisplayItem, DisplayList } from './render/display-list.ts';
+export { DisplayItem, DisplayList, type DisplayListOptions } from './render/display-list.ts';
 export {
   Bucket,
   decalAnchor,
@@ -14,6 +14,7 @@ export {
   type PrimitiveKind,
   STRIDE,
 } from './render/gl/collect.ts';
+export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { triangulate } from './render/gl/triangulate.ts';
 export {
   PIXEL_BUDGET,

@@ -65,6 +65,8 @@ describe('служебный доступ закрыт', () => {
         'STRIDE',
         'triangulate',
         'WebGLRenderer',
+        'splitPath',
+        'cutValue',
       ].sort(),
     );
     const scene = new Scene();

@@ -35,7 +35,8 @@ export function renderEngineToPng(scene: ReferenceScene, options: RenderOptions 
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
   const root = scene.engine.build();
   scene.engine.pose(root, options.time ?? 0);
-  new CanvasRenderer().render(
+  // Сверка с Zdog проверяет его поведение, поэтому частичное перекрытие здесь выключено.
+  new CanvasRenderer({ partialOcclusion: false }).render(
     canvas.getContext('2d'),
     new Scene(root),
     new Camera({ zoom: scene.zoom }),
