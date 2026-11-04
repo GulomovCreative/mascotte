@@ -14,7 +14,6 @@ export {
   type PrimitiveKind,
   STRIDE,
 } from './render/gl/collect.ts';
-export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { triangulate } from './render/gl/triangulate.ts';
 export {
   PIXEL_BUDGET,
@@ -22,6 +21,7 @@ export {
   WebGLRenderer,
   type WebGLRendererOptions,
 } from './render/gl/webgl.ts';
+export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,

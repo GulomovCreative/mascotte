@@ -266,6 +266,9 @@ function recordingContext() {
     fill: () => calls.push('fill'),
     setTransform: (...args: number[]) => calls.push(`setTransform ${args.join(' ')}`),
     clearRect: () => calls.push('clearRect'),
+    save: () => calls.push('save'),
+    restore: () => calls.push('restore'),
+    clip: () => calls.push('clip'),
     fillRect: () => calls.push('fillRect'),
   };
   for (const key of [
@@ -411,5 +414,39 @@ describe('CanvasRenderer', () => {
     );
     const caps = calls.filter((c) => c.startsWith('lineCap='));
     expect(caps).toEqual(['lineCap=butt', 'lineCap=round']);
+  });
+
+  it('обрезка декали: save, круг, clip, restore, после него состояние задаётся заново', () => {
+    const { ctx, calls } = recordingContext();
+    const head = new PathShape({ id: 'head', style: { stroke: 80, color: '#f60' } });
+    const eye = new Rect({
+      id: 'eye',
+      width: 6,
+      height: 6,
+      sortMode: 'attached',
+      position: { x: 0, y: 0, z: 30 },
+      style: { color: '#f60', stroke: 2 },
+    });
+    head.add(eye);
+    new CanvasRenderer().render(
+      ctx,
+      sceneWith(
+        head,
+        new Rect({ position: { x: 0, y: 0, z: 60 }, style: { color: '#f60', stroke: 2 } }),
+      ),
+      camera,
+      { width: 100, height: 100 },
+    );
+    const save = calls.indexOf('save');
+    expect(calls.slice(save, save + 4)).toEqual([
+      'save',
+      'beginPath',
+      `arc 0 0 40 0 ${Math.PI * 2}`,
+      'clip',
+    ]);
+    const restore = calls.indexOf('restore');
+    expect(restore).toBeGreaterThan(save);
+    // После restore цвет обводки той же фигуры задаётся заново: кэш сброшен.
+    expect(calls.slice(restore).filter((c) => c === 'strokeStyle=#f60')).toHaveLength(1);
   });
 });

@@ -22,6 +22,8 @@ export interface EngineScene {
   readonly background: string;
   build(): { root: Node; camera: Camera };
   pose(root: Node, camera: Camera, time: number): void;
+  /** Дополнительные моменты анимации со своими снимками (кроме `time = 0`). */
+  readonly snapshotTimes?: readonly number[];
 }
 
 const perspective: EngineScene = {
@@ -272,7 +274,14 @@ const earBehindHead: EngineScene = {
   pose(root, _camera, time) {
     root.setRotationFromEuler(euler.create(-0.15, Math.sin(time) * 0.8, 0));
   },
+  // Голова повёрнута до упора в одну и в другую сторону.
+  snapshotTimes: [Math.PI / 2, (3 * Math.PI) / 2],
 };
 
 /** Сцены только для нового ядра. */
-export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity, mascot3d, earBehindHead];
+export const engineScenes: readonly EngineScene[] = [
+  perspective,
+  layersOpacity,
+  mascot3d,
+  earBehindHead,
+];

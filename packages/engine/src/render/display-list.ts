@@ -1,10 +1,11 @@
 import { mat3x4, TAU, type Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
+import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
 import { PathOp } from '../shapes/path.ts';
 import { Shape } from '../shapes/shape.ts';
 import { SurfaceOutline } from '../shapes/surface.ts';
-import { DepthSorter, type Drawable } from './depth-sort.ts';
+import { DepthSorter, type Drawable, isDrawable } from './depth-sort.ts';
 import { type Cutter, type SplitTarget, splitPath } from './occlusion.ts';
 
 /**
@@ -106,7 +107,10 @@ export class DisplayList {
       item.behind.length = 0;
       item.inFront.length = 0;
     }
-    if (this.#partialOcclusion) this.#split();
+    if (this.#partialOcclusion) {
+      this.#clipDecals();
+      this.#split();
+    }
     for (let i = 0; i < count; i++) {
       const item = items[i] as DisplayItem;
       if (item.split) continue;
@@ -114,6 +118,35 @@ export class DisplayList {
       order.push(item);
       for (const part of item.inFront) order.push(part);
     }
+  }
+
+  /** Декали на сфере обрезаются по её силуэту и не режутся ей. */
+  #clipDecals(): void {
+    const items = this.#items;
+    const count = this.#itemCount;
+    for (let i = 0; i < count; i++) {
+      const item = items[i] as DisplayItem;
+      const anchor = this.#anchorItem(item);
+      if (anchor?.occluder !== 'sphere') continue;
+      item.clip = 'circle';
+      item.clipX = anchor.occluderX;
+      item.clipY = anchor.occluderY;
+      item.clipRadius = anchor.occluderRadius;
+    }
+  }
+
+  /** Элемент опоры декали в этом кадре или `null`, если элемент не декаль. */
+  #anchorItem(item: DisplayItem): DisplayItem | null {
+    const node = item.node;
+    if (!node) return null;
+    const anchor = decalAnchor(node);
+    if (!anchor) return null;
+    const items = this.#items;
+    for (let i = 0; i < this.#itemCount; i++) {
+      const candidate = items[i] as DisplayItem;
+      if (candidate.node === anchor) return candidate;
+    }
+    return null;
   }
 
   #split(): void {
@@ -134,10 +167,12 @@ export class DisplayList {
       for (let j = 0; j < count; j++) {
         const occluder = items[j] as DisplayItem;
         if (j === index || occluder.occluder === 'none' || occluder.split) continue;
+        // Декаль лежит на поверхности своей опоры: опора её не режет.
+        if (occluder.node !== null && occluder.node === decalAnchor(shape.node)) continue;
         if (shape.occluder !== 'none' && !(occluder.occluderRadius > shape.occluderRadius))
           continue;
         if (!overlaps(occluder)) continue;
-        setCutter(occluder);
+        setCutter(occluder, shape.lineWidth / 2);
         const mark = this.#partCount;
         const back = this.#part(shape);
         const front = this.#part(shape);
@@ -173,8 +208,27 @@ export class DisplayList {
     part.hasStroke = true;
     part.hasFill = false;
     part.color = shape.color;
+    part.clip = shape.clip;
+    part.clipX = shape.clipX;
+    part.clipY = shape.clipY;
+    part.clipRadius = shape.clipRadius;
     return part;
   }
+}
+
+/**
+ * Опора декали: ближайший рисуемый предок, который сам не декаль. Узел — декаль, если он
+ * сам или промежуточный узел до опоры в режиме `attached` (зрачок на глазу на голове,
+ * белок в группе-глазе на голове): опора всех — голова. Для остальных — `null`.
+ */
+function decalAnchor(node: Node | null): Node | null {
+  if (!node) return null;
+  let attached = node.sortMode === 'attached';
+  for (let p = node.parent; p; p = p.parent) {
+    if (isDrawable(p) && p.sortMode !== 'attached') return attached ? p : null;
+    if (p.sortMode === 'attached') attached = true;
+  }
+  return null;
 }
 
 function nextItem(pool: DisplayItem[], index: number): DisplayItem {
@@ -204,13 +258,18 @@ function sortByRadius(list: DisplayItem[]): void {
 
 const cutter: Cutter = { kind: 'plane', x: 0, y: 0, depth: 0, radius: 0, scale: 1 };
 
-/** Поверхность разреза перекрывателя: сфера — её передней поверхностью, капсула — плоскостью. */
-function setCutter(occluder: DisplayItem): void {
+/**
+ * Поверхность разреза перекрывателя: сфера — её передней поверхностью, капсула — плоскостью.
+ * Шов ищется по оси обводки, а сама обводка толстая, поэтому сфера раздувается на
+ * половину её толщины `pad`: видимая часть начинается там, где касается поверхности
+ * край обводки, а не её ось. Иначе конец обводки шириной в полтолщины лёг бы поверх сферы.
+ */
+function setCutter(occluder: DisplayItem, pad: number): void {
   cutter.kind = occluder.occluder === 'sphere' ? 'sphere' : 'plane';
   cutter.x = occluder.occluderX;
   cutter.y = occluder.occluderY;
   cutter.depth = occluder.occluderDepth;
-  cutter.radius = occluder.occluderRadius;
+  cutter.radius = occluder.occluderRadius + (cutter.kind === 'sphere' ? pad : 0);
   cutter.scale = occluder.occluderScale;
 }
 
