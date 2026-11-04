@@ -14,7 +14,15 @@ const world = (node: Node) => node.getWorldPosition(vec3.create());
 describe('служебный доступ закрыт', () => {
   it('пакет не экспортирует внутренние объекты, у Scene и Node нет служебных методов', () => {
     expect(Object.keys(engine).sort()).toEqual(
-      ['AUTO_ID_PREFIX', 'Node', 'ObservedQuat', 'ObservedVec3', 'Scene'].sort(),
+      [
+        'AUTO_ID_PREFIX',
+        'Camera',
+        'createProjectedPoint',
+        'Node',
+        'ObservedQuat',
+        'ObservedVec3',
+        'Scene',
+      ].sort(),
     );
     const scene = new Scene();
     for (const name of ['attachSubtree', 'detachSubtree', 'markStructureChanged']) {
