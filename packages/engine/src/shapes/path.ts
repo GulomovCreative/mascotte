@@ -34,14 +34,16 @@ export type PathOp = (typeof PathOp)[keyof typeof PathOp];
 
 /**
  * Длина ручек кривой Безье, заменяющей четверть дуги, в долях от расстояния до угла.
- * Значение из Zdog: так дуга выглядит круглой при толстой обводке.
+ * Значение из Zdog (`arcHandleLength = 9/16`), чтобы геометрия совпадала. Точная
+ * аппроксимация окружности — 4/3·tan(π/8) ≈ 0,5523.
  */
 export const ARC_HANDLE = 9 / 16;
 
 /**
  * Собранная геометрия пути: только `move`, `line` и кубические кривые, дуги уже
- * заменены кривыми. Массивы переиспользуются между пересборками, поэтому читать
- * нужно только первые `opCount` операций и `pointCount` точек.
+ * заменены кривыми. Читать нужно только первые `opCount` операций и `pointCount`
+ * точек. Массивы переиспользуются между пересборками и заменяются новыми только при
+ * росте, поэтому хранить ссылки на `ops` и `points` дольше одной `geometryVersion` нельзя.
  */
 export interface PathGeometry {
   readonly ops: Uint8Array;
@@ -49,28 +51,45 @@ export interface PathGeometry {
   readonly points: Float64Array;
   readonly opCount: number;
   readonly pointCount: number;
-  /** Замыкать ли контур. Путь из двух точек (отрезок) не замыкается никогда. */
+  /** Замыкать ли контур. Путь из одного отрезка (`move` и `line`) не замыкается никогда. */
   readonly closed: boolean;
 }
 
 /**
  * Сборщик пути в переиспользуемые буферы. Первая команда всегда становится `move`:
- * если путь начинается с другой команды, он начинается в её конечной точке.
+ * если путь начинается с другой команды, он начинается в её конечной точке. Zdog
+ * в этом случае начинает с первой точки команды (опорной точки или угла дуги).
  */
 export class PathBuilder implements PathGeometry {
-  ops = new Uint8Array(8);
-  points = new Float64Array(24);
-  opCount = 0;
-  pointCount = 0;
-  closed = false;
+  #ops = new Uint8Array(8);
+  #points = new Float64Array(24);
+  #opCount = 0;
+  #pointCount = 0;
+  #closed = false;
   #x = 0;
   #y = 0;
   #z = 0;
 
+  get ops(): Uint8Array {
+    return this.#ops;
+  }
+  get points(): Float64Array {
+    return this.#points;
+  }
+  get opCount(): number {
+    return this.#opCount;
+  }
+  get pointCount(): number {
+    return this.#pointCount;
+  }
+  get closed(): boolean {
+    return this.#closed;
+  }
+
   reset(): this {
-    this.opCount = 0;
-    this.pointCount = 0;
-    this.closed = false;
+    this.#opCount = 0;
+    this.#pointCount = 0;
+    this.#closed = false;
     return this;
   }
 
@@ -81,7 +100,7 @@ export class PathBuilder implements PathGeometry {
   }
 
   lineTo(x: number, y: number, z: number): this {
-    if (this.opCount === 0) return this.moveTo(x, y, z);
+    if (this.#opCount === 0) return this.moveTo(x, y, z);
     this.#op(PathOp.line, 1);
     this.#point(x, y, z);
     return this;
@@ -98,7 +117,7 @@ export class PathBuilder implements PathGeometry {
     y: number,
     z: number,
   ): this {
-    if (this.opCount === 0) return this.moveTo(x, y, z);
+    if (this.#opCount === 0) return this.moveTo(x, y, z);
     this.#op(PathOp.cubic, 3);
     this.#point(c1x, c1y, c1z);
     this.#point(c2x, c2y, c2z);
@@ -108,7 +127,7 @@ export class PathBuilder implements PathGeometry {
 
   /** Четверть дуги из текущей точки к `(x, y, z)` через угол `(cx, cy, cz)`. */
   arcTo(cx: number, cy: number, cz: number, x: number, y: number, z: number): this {
-    if (this.opCount === 0) return this.moveTo(x, y, z);
+    if (this.#opCount === 0) return this.moveTo(x, y, z);
     const px = this.#x;
     const py = this.#y;
     const pz = this.#z;
@@ -161,37 +180,34 @@ export class PathBuilder implements PathGeometry {
     return this;
   }
 
-  /**
-   * Задаёт замыкание с учётом правила Zdog: путь из двух точек (один отрезок) не
-   * замыкается, иначе обводка прошла бы по нему дважды.
-   */
+  /** Задаёт замыкание с учётом правила Zdog: путь из одного отрезка не замыкается. */
   finish(closed: boolean): this {
-    const isSegment = this.opCount === 2 && this.ops[1] === PathOp.line;
-    this.closed = closed && !isSegment;
+    const isSegment = this.#opCount === 2 && this.#ops[1] === PathOp.line;
+    this.#closed = closed && !isSegment;
     return this;
   }
 
   #op(op: PathOp, points: number): void {
-    if (this.opCount === this.ops.length) {
-      const ops = new Uint8Array(this.ops.length * 2);
-      ops.set(this.ops);
-      this.ops = ops;
+    if (this.#opCount === this.#ops.length) {
+      const ops = new Uint8Array(this.#ops.length * 2);
+      ops.set(this.#ops);
+      this.#ops = ops;
     }
-    const needed = (this.pointCount + points) * 3;
-    if (needed > this.points.length) {
-      const grown = new Float64Array(Math.max(needed, this.points.length * 2));
-      grown.set(this.points);
-      this.points = grown;
+    const needed = (this.#pointCount + points) * 3;
+    if (needed > this.#points.length) {
+      const grown = new Float64Array(Math.max(needed, this.#points.length * 2));
+      grown.set(this.#points);
+      this.#points = grown;
     }
-    this.ops[this.opCount++] = op;
+    this.#ops[this.#opCount++] = op;
   }
 
   #point(x: number, y: number, z: number): void {
-    const i = this.pointCount * 3;
-    this.points[i] = x;
-    this.points[i + 1] = y;
-    this.points[i + 2] = z;
-    this.pointCount++;
+    const i = this.#pointCount * 3;
+    this.#points[i] = x;
+    this.#points[i + 1] = y;
+    this.#points[i + 2] = z;
+    this.#pointCount++;
     this.#x = x;
     this.#y = y;
     this.#z = z;

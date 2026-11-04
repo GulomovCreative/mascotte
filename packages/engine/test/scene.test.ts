@@ -31,6 +31,7 @@ describe('служебный доступ закрыт', () => {
         'RoundedRect',
         'Scene',
         'Shape',
+        'ShapeStyle',
       ].sort(),
     );
     const scene = new Scene();

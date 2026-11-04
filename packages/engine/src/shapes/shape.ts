@@ -1,67 +1,50 @@
 import type { Vec3 } from '@mascotte/math';
 import { Node, type NodeOptions } from '../scene/node.ts';
 import { ObservedVec3 } from '../scene/observed.ts';
-import { PathBuilder, type PathCommand, type PathGeometry } from './path.ts';
+import { checkLength, checkNumberParam, type ParamSchema } from './params.ts';
+import { PathBuilder, type PathCommand, type PathGeometry, type PathPoint } from './path.ts';
 
-export interface ShapeOptions extends NodeOptions {
+/** Значения стиля фигуры. */
+export interface ShapeStyleValues {
   /** Толщина обводки в единицах сцены; 0 — без обводки. */
-  stroke?: number;
-  fill?: boolean;
+  stroke: number;
+  fill: boolean;
   /** Цвет CSS. */
-  color?: string;
-  closed?: boolean;
-  /**
-   * Обратная сторона: `true` — рисовать как лицевую, `false` — не рисовать, строка —
-   * рисовать этим цветом.
-   */
-  backface?: boolean | string;
-  /** Направление лицевой стороны в локальных координатах. */
-  front?: Readonly<Vec3>;
-}
-
-export interface PathShapeOptions extends ShapeOptions {
-  /** Команды пути. По умолчанию — одна точка в начале координат, то есть круглая точка. */
-  path?: readonly PathCommand[];
-}
-
-/** Проверяет, что значение — конечное неотрицательное число. */
-export function checkLength(name: string, value: number): number {
-  if (!(value >= 0 && Number.isFinite(value))) {
-    throw new RangeError(`${name} должно быть конечным неотрицательным числом, получено ${value}.`);
-  }
-  return value;
+  color: string;
+  /** Рисовать ли обратную сторону. */
+  backfaceVisible: boolean;
+  /** Цвет обратной стороны; `null` — тот же, что у лицевой. */
+  backfaceColor: string | null;
 }
 
 /**
- * Фигура: узел с путём и стилем. Геометрия строится лениво, в локальных координатах,
- * и пересобирается только после изменения параметров. Изменение трансформации её не
- * трогает: проекция использует мировую матрицу.
- *
- * Подклассы-примитивы переопределяют `buildPath` и вызывают `invalidateGeometry`
- * из сеттеров своих параметров.
+ * Стиль фигуры одним объектом: так его проще сохранять в документ и позже заменить
+ * цвет материалом. Каждое изменение увеличивает `appearanceVersion` фигуры.
  */
-export abstract class Shape extends Node {
+export class ShapeStyle implements ShapeStyleValues {
+  static readonly params = {
+    stroke: { kind: 'length', default: 1 },
+    fill: { kind: 'boolean', default: false },
+    color: { kind: 'color', default: '#333' },
+    backfaceVisible: { kind: 'boolean', default: true },
+    backfaceColor: { kind: 'optionalColor', default: null },
+  } as const satisfies ParamSchema;
+
   #stroke: number;
   #fill: boolean;
   #color: string;
-  #closed: boolean;
-  #backface: boolean | string;
-  /** Направление лицевой стороны. Его изменение меняет только внешний вид. */
-  readonly front: ObservedVec3;
+  #backfaceVisible: boolean;
+  #backfaceColor: string | null;
+  readonly #onChange: () => void;
 
-  readonly #builder = new PathBuilder();
-  #geometryDirty = true;
-  #geometryVersion = 0;
-
-  constructor(options: ShapeOptions = {}, defaults: { closed: boolean } = { closed: true }) {
-    super(options);
-    this.#stroke = checkLength('stroke', options.stroke ?? 1);
-    this.#fill = options.fill ?? false;
-    this.#color = options.color ?? '#333';
-    this.#closed = options.closed ?? defaults.closed;
-    this.#backface = options.backface ?? true;
-    const front = options.front ?? { x: 0, y: 0, z: 1 };
-    this.front = new ObservedVec3(() => this.markAppearanceChanged(), front.x, front.y, front.z);
+  constructor(onChange: () => void, values: Partial<ShapeStyleValues> = {}) {
+    const p = ShapeStyle.params;
+    this.#onChange = onChange;
+    this.#stroke = checkLength('stroke', values.stroke ?? p.stroke.default);
+    this.#fill = values.fill ?? p.fill.default;
+    this.#color = values.color ?? p.color.default;
+    this.#backfaceVisible = values.backfaceVisible ?? p.backfaceVisible.default;
+    this.#backfaceColor = values.backfaceColor ?? p.backfaceColor.default;
   }
 
   get stroke(): number {
@@ -70,7 +53,7 @@ export abstract class Shape extends Node {
   set stroke(value: number) {
     if (checkLength('stroke', value) !== this.#stroke) {
       this.#stroke = value;
-      this.markAppearanceChanged();
+      this.#onChange();
     }
   }
 
@@ -80,7 +63,7 @@ export abstract class Shape extends Node {
   set fill(value: boolean) {
     if (value !== this.#fill) {
       this.#fill = value;
-      this.markAppearanceChanged();
+      this.#onChange();
     }
   }
 
@@ -90,17 +73,83 @@ export abstract class Shape extends Node {
   set color(value: string) {
     if (value !== this.#color) {
       this.#color = value;
-      this.markAppearanceChanged();
+      this.#onChange();
     }
   }
 
-  get backface(): boolean | string {
-    return this.#backface;
+  get backfaceVisible(): boolean {
+    return this.#backfaceVisible;
   }
-  set backface(value: boolean | string) {
-    if (value !== this.#backface) {
-      this.#backface = value;
-      this.markAppearanceChanged();
+  set backfaceVisible(value: boolean) {
+    if (value !== this.#backfaceVisible) {
+      this.#backfaceVisible = value;
+      this.#onChange();
+    }
+  }
+
+  get backfaceColor(): string | null {
+    return this.#backfaceColor;
+  }
+  set backfaceColor(value: string | null) {
+    if (value !== this.#backfaceColor) {
+      this.#backfaceColor = value;
+      this.#onChange();
+    }
+  }
+}
+
+export interface ShapeOptions extends NodeOptions {
+  style?: Partial<ShapeStyleValues>;
+  /** Замыкать ли контур. По умолчанию — `defaultClosed` класса фигуры. */
+  closed?: boolean;
+  /** Направление лицевой стороны в локальных координатах. */
+  front?: Readonly<Vec3>;
+}
+
+/**
+ * Фигура: узел с одним путём и одним стилем. Геометрия строится лениво, в локальных
+ * координатах, и пересобирается только после изменения параметров. Изменение
+ * трансформации её не трогает: проекция использует мировую матрицу.
+ *
+ * Числовые параметры примитивов описаны статической схемой `params` и хранятся
+ * в общем хранилище: подклассы объявляют схему, переопределяют `buildPath` и читают
+ * и пишут параметры через `getParam` и `setParam`.
+ */
+export abstract class Shape extends Node {
+  /** Схема числовых параметров фигуры. */
+  static readonly params: ParamSchema = {};
+  /** Замкнут ли контур по умолчанию. */
+  static readonly defaultClosed: boolean = true;
+
+  readonly style: ShapeStyle;
+  /** Направление лицевой стороны. Его изменение меняет только внешний вид. */
+  readonly front: ObservedVec3;
+
+  #closed: boolean;
+  readonly #params = new Map<string, number>();
+  readonly #builder = new PathBuilder();
+  readonly #view: { -readonly [K in keyof PathGeometry]: PathGeometry[K] } = {
+    ops: new Uint8Array(0),
+    points: new Float64Array(0),
+    opCount: 0,
+    pointCount: 0,
+    closed: false,
+  };
+  #geometryDirty = true;
+  #geometryVersion = 0;
+
+  constructor(options: ShapeOptions = {}) {
+    super(options);
+    const markAppearance = () => this.markAppearanceChanged();
+    this.style = new ShapeStyle(markAppearance, options.style);
+    const front = options.front ?? { x: 0, y: 0, z: 1 };
+    this.front = new ObservedVec3(markAppearance, front.x, front.y, front.z);
+    const type = this.constructor as typeof Shape;
+    this.#closed = options.closed ?? type.defaultClosed;
+    for (const [name, spec] of Object.entries(type.params)) {
+      const given = (options as Readonly<Record<string, unknown>>)[name];
+      const value = typeof given === 'number' ? given : (spec.default as number);
+      this.#params.set(name, checkNumberParam(name, spec, value));
     }
   }
 
@@ -115,15 +164,25 @@ export abstract class Shape extends Node {
     }
   }
 
-  /** Геометрия пути в локальных координатах. Пересобирается лениво. */
+  /**
+   * Геометрия пути в локальных координатах. Пересобирается лениво; объект всегда
+   * один и тот же, а его поля обновляются при пересборке.
+   */
   get geometry(): PathGeometry {
     if (this.#geometryDirty) {
-      this.buildPath(this.#builder.reset());
-      this.#builder.finish(this.#closed);
+      const builder = this.#builder.reset();
+      this.buildPath(builder);
+      builder.finish(this.#closed);
+      const view = this.#view;
+      view.ops = builder.ops;
+      view.points = builder.points;
+      view.opCount = builder.opCount;
+      view.pointCount = builder.pointCount;
+      view.closed = builder.closed;
       this.#geometryDirty = false;
       this.#geometryVersion++;
     }
-    return this.#builder;
+    return this.#view;
   }
 
   /** Счётчик пересборок геометрии. Чтение сначала пересобирает устаревшую геометрию. */
@@ -135,10 +194,32 @@ export abstract class Shape extends Node {
   /** Строит путь в локальных координатах. */
   protected abstract buildPath(builder: PathBuilder): void;
 
-  /** Помечает геометрию устаревшей. Вызывается из сеттеров параметров. */
+  /** Помечает геометрию устаревшей. */
   protected invalidateGeometry(): void {
     this.#geometryDirty = true;
   }
+
+  /** Значение числового параметра из схемы `params`. */
+  protected getParam(name: string): number {
+    const value = this.#params.get(name);
+    if (value === undefined) throw new Error(`У фигуры нет параметра ${name}.`);
+    return value;
+  }
+
+  /** Проверяет и записывает числовой параметр; при изменении помечает геометрию устаревшей. */
+  protected setParam(name: string, value: number): void {
+    const spec = (this.constructor as typeof Shape).params[name];
+    if (!spec) throw new Error(`У фигуры нет параметра ${name}.`);
+    if (checkNumberParam(name, spec, value) !== this.#params.get(name)) {
+      this.#params.set(name, value);
+      this.invalidateGeometry();
+    }
+  }
+}
+
+export interface PathShapeOptions extends ShapeOptions {
+  /** Команды пути. По умолчанию — одна точка в начале координат, то есть круглая точка. */
+  path?: readonly PathCommand[];
 }
 
 /**
@@ -156,7 +237,10 @@ export class PathShape extends Shape {
   get path(): readonly PathCommand[] {
     return this.#path;
   }
-  /** Новый путь. Массив копируется и замораживается: менять путь можно только присваиванием. */
+  /**
+   * Новый путь. Команды и точки копируются и замораживаются, поэтому изменение
+   * исходных объектов на фигуру не влияет: менять путь можно только присваиванием.
+   */
   set path(value: readonly PathCommand[]) {
     this.#path = freezePath(value);
     this.invalidateGeometry();
@@ -167,11 +251,34 @@ export class PathShape extends Shape {
   }
 }
 
-const DOT: readonly PathCommand[] = Object.freeze([
-  Object.freeze({ type: 'move', point: Object.freeze({}) }),
-]);
+function freezePoint(point: PathPoint): Required<PathPoint> {
+  return Object.freeze({ x: point.x ?? 0, y: point.y ?? 0, z: point.z ?? 0 });
+}
+
+function freezeCommand(command: PathCommand): PathCommand {
+  switch (command.type) {
+    case 'move':
+    case 'line':
+      return Object.freeze({ type: command.type, point: freezePoint(command.point) });
+    case 'bezier':
+      return Object.freeze({
+        type: 'bezier',
+        control1: freezePoint(command.control1),
+        control2: freezePoint(command.control2),
+        point: freezePoint(command.point),
+      });
+    case 'arc':
+      return Object.freeze({
+        type: 'arc',
+        corner: freezePoint(command.corner),
+        point: freezePoint(command.point),
+      });
+  }
+}
 
 function freezePath(path: readonly PathCommand[]): readonly PathCommand[] {
   if (path.length === 0) throw new RangeError('Путь не может быть пустым.');
-  return Object.freeze(path.slice());
+  return Object.freeze(path.map(freezeCommand));
 }
+
+const DOT: readonly PathCommand[] = [{ type: 'move', point: {} }];

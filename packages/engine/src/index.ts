@@ -9,6 +9,7 @@ export {
 export { AUTO_ID_PREFIX, Node, type NodeOptions } from './scene/node.ts';
 export { ObservedQuat, ObservedVec3 } from './scene/observed.ts';
 export { Scene } from './scene/scene.ts';
+export type { ParamSchema, ParamSpec } from './shapes/params.ts';
 export {
   ARC_HANDLE,
   PathBuilder,
@@ -27,4 +28,11 @@ export {
   RoundedRect,
   type RoundedRectOptions,
 } from './shapes/primitives.ts';
-export { PathShape, type PathShapeOptions, Shape, type ShapeOptions } from './shapes/shape.ts';
+export {
+  PathShape,
+  type PathShapeOptions,
+  Shape,
+  type ShapeOptions,
+  ShapeStyle,
+  type ShapeStyleValues,
+} from './shapes/shape.ts';
