@@ -1,7 +1,7 @@
 /**
- * Описание параметра фигуры. По этим схемам конструкторы берут значения по умолчанию
- * и проверяют ввод, а позже реестр свойств и формат документа узнают, что можно
- * анимировать и сохранять.
+ * Описание числового параметра фигуры. По этим схемам конструкторы берут значения
+ * по умолчанию и проверяют ввод, а позже реестр свойств и формат документа узнают,
+ * что можно анимировать и сохранять.
  */
 export type ParamSpec =
   | { readonly kind: 'length'; readonly default: number }
@@ -10,12 +10,17 @@ export type ParamSpec =
       readonly default: number;
       readonly min: number;
       readonly max?: number;
-    }
+    };
+
+/** Схема числовых параметров: имя → описание. */
+export type ParamSchema = Readonly<Record<string, ParamSpec>>;
+
+/** Описание поля стиля. */
+export type StyleParamSpec =
+  | { readonly kind: 'length'; readonly default: number }
   | { readonly kind: 'boolean'; readonly default: boolean }
   | { readonly kind: 'color'; readonly default: string }
   | { readonly kind: 'optionalColor'; readonly default: string | null };
-
-export type ParamSchema = Readonly<Record<string, ParamSpec>>;
 
 /** Проверяет, что значение — конечное неотрицательное число. */
 export function checkLength(name: string, value: number): number {
@@ -39,42 +44,43 @@ export function checkInteger(
   return value;
 }
 
-/** Проверяет числовой параметр по его схеме. */
-export function checkNumberParam(name: string, spec: ParamSpec, value: number): number {
-  if (spec.kind === 'length') return checkLength(name, value);
-  if (spec.kind === 'integer') return checkInteger(name, value, spec.min, spec.max);
-  throw new TypeError(`Параметр ${name} не числовой.`);
+/** Проверяет числовой параметр по его описанию. */
+export function checkParam(name: string, spec: ParamSpec, value: number): number {
+  return spec.kind === 'length'
+    ? checkLength(name, value)
+    : checkInteger(name, value, spec.min, spec.max);
 }
 
 /**
- * Хранилище числовых параметров по схеме. Значения по умолчанию берутся из схемы,
- * ввод проверяется, а `onChange` вызывается только при реальном изменении.
+ * Хранилище числовых параметров по схеме `S`. Имена параметров проверяются на этапе
+ * компиляции, значения — при записи. `onChange` вызывается только при реальном изменении.
  */
-export class ParamStore {
-  readonly #schema: ParamSchema;
-  readonly #values = new Map<string, number>();
+export class ParamStore<S extends ParamSchema> {
+  readonly #schema: S;
+  readonly #values = new Map<keyof S & string, number>();
   readonly #onChange: () => void;
 
-  constructor(schema: ParamSchema, options: object, onChange: () => void) {
+  constructor(schema: S, options: object, onChange: () => void) {
     this.#schema = schema;
     this.#onChange = onChange;
-    for (const [name, spec] of Object.entries(schema)) {
+    for (const name of Object.keys(schema) as (keyof S & string)[]) {
+      const spec = schema[name] as ParamSpec;
       const given = (options as Readonly<Record<string, unknown>>)[name];
-      const value = typeof given === 'number' ? given : (spec.default as number);
-      this.#values.set(name, checkNumberParam(name, spec, value));
+      const value = typeof given === 'number' ? given : spec.default;
+      this.#values.set(name, checkParam(name, spec, value));
     }
   }
 
-  get(name: string): number {
+  get(name: keyof S & string): number {
     const value = this.#values.get(name);
     if (value === undefined) throw new Error(`Нет параметра ${name}.`);
     return value;
   }
 
-  set(name: string, value: number): void {
-    const spec = this.#schema[name];
+  set(name: keyof S & string, value: number): void {
+    const spec = this.#schema[name] as ParamSpec | undefined;
     if (!spec) throw new Error(`Нет параметра ${name}.`);
-    if (checkNumberParam(name, spec, value) !== this.#values.get(name)) {
+    if (checkParam(name, spec, value) !== this.#values.get(name)) {
       this.#values.set(name, value);
       this.#onChange();
     }

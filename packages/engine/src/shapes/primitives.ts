@@ -17,13 +17,15 @@ export interface EllipseOptions extends ShapeOptions {
   quarters?: number;
 }
 
+const ELLIPSE_PARAMS = {
+  width: { kind: 'length', default: 1 },
+  height: { kind: 'length', default: 1 },
+  quarters: { kind: 'integer', default: 4, min: 1, max: 4 },
+} as const satisfies ParamSchema;
+
 /** Эллипс или его часть из четвертей. По умолчанию не замкнут, как в Zdog. */
-export class Ellipse extends Shape {
-  static override readonly params = {
-    width: { kind: 'length', default: 1 },
-    height: { kind: 'length', default: 1 },
-    quarters: { kind: 'integer', default: 4, min: 1, max: 4 },
-  } as const satisfies ParamSchema;
+export class Ellipse extends Shape<typeof ELLIPSE_PARAMS> {
+  static override readonly params = ELLIPSE_PARAMS;
   static override readonly defaultClosed = false;
 
   constructor(options: EllipseOptions = {}) {
@@ -82,12 +84,14 @@ export interface RectOptions extends ShapeOptions {
   height?: number;
 }
 
+const RECT_PARAMS = {
+  width: { kind: 'length', default: 1 },
+  height: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
 /** Прямоугольник. */
-export class Rect extends Shape {
-  static override readonly params: ParamSchema = {
-    width: { kind: 'length', default: 1 },
-    height: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Rect<S extends typeof RECT_PARAMS = typeof RECT_PARAMS> extends Shape<S> {
+  static override readonly params: ParamSchema = RECT_PARAMS;
 
   constructor(options: RectOptions = {}) {
     super(options);
@@ -119,12 +123,14 @@ export interface RoundedRectOptions extends RectOptions {
   cornerRadius?: number;
 }
 
+const ROUNDED_RECT_PARAMS = {
+  ...RECT_PARAMS,
+  cornerRadius: { kind: 'length', default: 0.25 },
+} as const satisfies ParamSchema;
+
 /** Прямоугольник со скруглёнными углами. Путь возвращается в начало, поэтому не замкнут, как в Zdog. */
-export class RoundedRect extends Rect {
-  static override readonly params: ParamSchema = {
-    ...Rect.params,
-    cornerRadius: { kind: 'length', default: 0.25 },
-  } as const satisfies ParamSchema;
+export class RoundedRect extends Rect<typeof ROUNDED_RECT_PARAMS> {
+  static override readonly params: ParamSchema = ROUNDED_RECT_PARAMS;
   static override readonly defaultClosed = false;
 
   constructor(options: RoundedRectOptions = {}) {
@@ -162,12 +168,14 @@ export interface PolygonOptions extends ShapeOptions {
   sides?: number;
 }
 
+const POLYGON_PARAMS = {
+  radius: { kind: 'length', default: 0.5 },
+  sides: { kind: 'integer', default: 3, min: 3 },
+} as const satisfies ParamSchema;
+
 /** Правильный многоугольник. Первая вершина — сверху. */
-export class Polygon extends Shape {
-  static override readonly params = {
-    radius: { kind: 'length', default: 0.5 },
-    sides: { kind: 'integer', default: 3, min: 3 },
-  } as const satisfies ParamSchema;
+export class Polygon extends Shape<typeof POLYGON_PARAMS> {
+  static override readonly params = POLYGON_PARAMS;
 
   constructor(options: PolygonOptions = {}) {
     super(options);

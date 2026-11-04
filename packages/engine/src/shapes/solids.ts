@@ -1,14 +1,15 @@
 import { TAU, type Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
-import { Node, type NodeOptions } from '../scene/node.ts';
-import { type ParamSchema, ParamStore } from './params.ts';
+import type { ParamSchema } from './params.ts';
 import { Ellipse, Rect } from './primitives.ts';
-import { ShapeStyle, type ShapeStyleValues } from './shape.ts';
+import type { ShapeStyle } from './style.ts';
+import { Styled, type StyledOptions } from './styled.ts';
 import { Surface, type SurfaceOptions, type SurfaceOutline } from './surface.ts';
 
 /*
- * Объёмные примитивы. Ось вращения у цилиндра, конуса, полусферы и капсулы — локальная z.
- * Формулы экранных частей повторяют Zdog, поэтому картинка совпадает с ним.
+ * Объёмные примитивы. Ось у цилиндра, конуса, полусферы и капсулы — локальная z.
+ * Формулы экранных частей повторяют Zdog, поэтому при масштабе 1 картинка совпадает
+ * с ним. В отличие от Zdog, обводка масштабируется вместе с узлом.
  */
 
 const o: Vec3 = { x: 0, y: 0, z: 0 };
@@ -21,18 +22,18 @@ function length3(x: number, y: number, z: number): number {
 
 // ----- поверхности ----- //
 
+const SPHERE_PARAMS = { diameter: { kind: 'length', default: 1 } } as const satisfies ParamSchema;
+
 export interface SphereOptions extends SurfaceOptions {
   diameter?: number;
 }
 
 /**
- * Сфера: круг на экране. Масштаб узла считается равномерным (берётся по оси x).
- * Голова маскота, глаз, нос.
+ * Сфера: круг на экране. Масштаб узла считается равномерным: радиус и обводка берут
+ * масштаб по локальной оси x. Голова маскота, глаз, нос.
  */
-export class Sphere extends Surface {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Sphere extends Surface<typeof SPHERE_PARAMS> {
+  static override readonly params = SPHERE_PARAMS;
 
   constructor(options: SphereOptions = {}) {
     super(options);
@@ -46,19 +47,24 @@ export class Sphere extends Surface {
   }
 
   buildOutline(camera: Camera, out: SurfaceOutline): boolean {
+    const s = this.screenScale(camera);
+    if (s === null) return false;
     this.toView(camera, o, 0, 0, 0);
-    if (!camera.isInFront(o.z)) return false;
     this.toView(camera, a, 1, 0, 0);
-    const s = camera.scaleAt(o.z);
     const k = length3(a.x - o.x, a.y - o.y, a.z - o.z);
     out.path
       .reset()
       .arc(o.x * s, o.y * s, (this.diameter / 2) * k * s, 0, TAU)
       .close();
-    this.applyStyle(out, this.style.stroke * s);
+    this.applyStyle(out, this.style.stroke * k * s);
     return true;
   }
 }
+
+const CAPSULE_PARAMS = {
+  length: { kind: 'length', default: 1 },
+  diameter: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
 
 export interface CapsuleOptions extends SurfaceOptions {
   /** Длина оси между центрами полусфер на концах. */
@@ -68,13 +74,11 @@ export interface CapsuleOptions extends SurfaceOptions {
 
 /**
  * Капсула: толстый отрезок со скруглёнными концами вдоль локальной z, как линия Zdog
- * с толщиной во весь диаметр. Тело и конечности маскота.
+ * толщиной в диаметр плюс обводка стиля. Толщина берёт масштаб по локальной оси x.
+ * Тело и конечности маскота.
  */
-export class Capsule extends Surface {
-  static override readonly params = {
-    length: { kind: 'length', default: 1 },
-    diameter: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
+  static override readonly params = CAPSULE_PARAMS;
 
   constructor(options: CapsuleOptions = {}) {
     super(options);
@@ -95,15 +99,15 @@ export class Capsule extends Surface {
   }
 
   buildOutline(camera: Camera, out: SurfaceOutline): boolean {
+    const s = this.screenScale(camera);
+    if (s === null) return false;
     const half = this.length / 2;
     this.toView(camera, o, 0, 0, 0);
-    if (!camera.isInFront(o.z)) return false;
-    const s = camera.scaleAt(o.z);
-    this.toView(camera, a, 0, 0, -half);
     this.toView(camera, b, 1, 0, 0);
     const k = length3(b.x - o.x, b.y - o.y, b.z - o.z);
+    this.toView(camera, a, 0, 0, -half);
     this.toView(camera, b, 0, 0, half);
-    const width = (this.diameter * k + this.style.stroke) * s;
+    const width = (this.diameter + this.style.stroke) * k * s;
     const dx = (b.x - a.x) * s;
     const dy = (b.y - a.y) * s;
     if (dx * dx + dy * dy < 1e-18) {
@@ -113,8 +117,8 @@ export class Capsule extends Surface {
         .arc(o.x * s, o.y * s, width / 2, 0, TAU)
         .close();
       this.applyStyle(out, 0);
-      out.stroke = false;
-      out.fill = true;
+      out.hasStroke = false;
+      out.hasFill = true;
       return true;
     }
     out.path
@@ -122,17 +126,20 @@ export class Capsule extends Surface {
       .moveTo(a.x * s, a.y * s)
       .lineTo(b.x * s, b.y * s);
     this.applyStyle(out, width);
-    out.stroke = true;
-    out.fill = false;
+    out.hasStroke = true;
+    out.hasFill = false;
     return true;
   }
 }
 
-/** Купол полусферы: половина круга со стороны, обратной лицевой стороне основания. */
-export class HemisphereDome extends Surface {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+const DOME_PARAMS = { diameter: { kind: 'length', default: 1 } } as const satisfies ParamSchema;
+
+/**
+ * Купол полусферы: половина круга со стороны вершины купола (проекции точки +z);
+ * граница проходит через центр перпендикулярно проекции оси.
+ */
+export class HemisphereDome extends Surface<typeof DOME_PARAMS> {
+  static override readonly params = DOME_PARAMS;
 
   get diameter(): number {
     return this.getParam('diameter');
@@ -142,27 +149,34 @@ export class HemisphereDome extends Surface {
   }
 
   buildOutline(camera: Camera, out: SurfaceOutline): boolean {
+    const s = this.screenScale(camera);
+    if (s === null) return false;
     this.toView(camera, o, 0, 0, 0);
-    if (!camera.isInFront(o.z)) return false;
     this.toView(camera, a, 0, 0, 1);
-    const s = camera.scaleAt(o.z);
-    // Нормаль как в Zdog: от лицевой точки к центру.
+    // Нормаль как в Zdog: от точки +z к центру; её длина — масштаб узла по оси.
     const nx = o.x - a.x;
     const ny = o.y - a.y;
+    const k = length3(nx, ny, o.z - a.z);
     const contour = Math.atan2(ny, nx);
-    const radius = (this.diameter / 2) * length3(nx, ny, o.z - a.z) * s;
-    out.path.reset().arc(o.x * s, o.y * s, radius, contour + TAU / 4, contour - TAU / 4);
-    this.applyStyle(out, this.style.stroke * s);
+    out.path
+      .reset()
+      .arc(o.x * s, o.y * s, (this.diameter / 2) * k * s, contour + TAU / 4, contour - TAU / 4);
+    this.applyStyle(out, this.style.stroke * k * s);
     return true;
   }
 }
 
-/** Боковая поверхность цилиндра: отрезок между центрами оснований толщиной в диаметр. */
-export class CylinderBody extends Surface {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-    length: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+const CYLINDER_BODY_PARAMS = {
+  diameter: { kind: 'length', default: 1 },
+  length: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
+/**
+ * Боковая поверхность цилиндра: отрезок между центрами оснований толщиной в диаметр
+ * плюс обводка стиля, с плоскими концами.
+ */
+export class CylinderBody extends Surface<typeof CYLINDER_BODY_PARAMS> {
+  static override readonly params = CYLINDER_BODY_PARAMS;
 
   get diameter(): number {
     return this.getParam('diameter');
@@ -179,10 +193,10 @@ export class CylinderBody extends Surface {
   }
 
   buildOutline(camera: Camera, out: SurfaceOutline): boolean {
+    const s = this.screenScale(camera);
+    if (s === null) return false;
     const half = this.length / 2;
     this.toView(camera, o, 0, 0, 0);
-    if (!camera.isInFront(o.z)) return false;
-    const s = camera.scaleAt(o.z);
     this.toView(camera, a, 0, 0, 1);
     const k = length3(a.x - o.x, a.y - o.y, a.z - o.z);
     this.toView(camera, a, 0, 0, half);
@@ -191,23 +205,25 @@ export class CylinderBody extends Surface {
       .reset()
       .moveTo(a.x * s, a.y * s)
       .lineTo(b.x * s, b.y * s);
-    this.applyStyle(out, (this.diameter * k + this.style.stroke) * s);
+    this.applyStyle(out, (this.diameter + this.style.stroke) * k * s);
     out.lineCap = 'butt';
-    out.stroke = true;
-    out.fill = false;
+    out.hasStroke = true;
+    out.hasFill = false;
     return true;
   }
 }
 
+const CONE_SURFACE_PARAMS = {
+  diameter: { kind: 'length', default: 1 },
+  length: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
 /**
  * Боковая поверхность конуса: две касательные от вершины к эллипсу основания.
- * Не рисуется, если вершина видна внутри основания.
+ * Не рисуется, если вершина видна внутри основания или на его краю.
  */
-export class ConeSurface extends Surface {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-    length: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class ConeSurface extends Surface<typeof CONE_SURFACE_PARAMS> {
+  static override readonly params = CONE_SURFACE_PARAMS;
 
   get diameter(): number {
     return this.getParam('diameter');
@@ -224,9 +240,9 @@ export class ConeSurface extends Surface {
   }
 
   buildOutline(camera: Camera, out: SurfaceOutline): boolean {
+    const s = this.screenScale(camera);
+    if (s === null) return false;
     this.toView(camera, o, 0, 0, 0);
-    if (!camera.isInFront(o.z)) return false;
-    const s = camera.scaleAt(o.z);
     this.toView(camera, a, 0, 0, 1);
     const nx = o.x - a.x;
     const ny = o.y - a.y;
@@ -236,6 +252,7 @@ export class ConeSurface extends Surface {
     const normalDistance = Math.hypot(nx, ny);
     const eccen = Math.sin(Math.acos(Math.min(1, normalDistance / scale)));
     const radius = (this.diameter / 2) * scale;
+    // При вырожденном масштабе здесь NaN, и сравнение тоже даёт отказ.
     if (!(radius * eccen < apexDistance)) return false;
     const apexAngle = Math.atan2(ny, nx) + TAU / 2;
     const projectAngle = Math.acos(radius / (apexDistance / eccen));
@@ -253,52 +270,36 @@ export class ConeSurface extends Surface {
       .moveTo(ax * s, ay * s)
       .lineTo(b.x * s, b.y * s)
       .lineTo(bx * s, by * s);
-    this.applyStyle(out, this.style.stroke * s);
+    this.applyStyle(out, this.style.stroke * scale * s);
     return true;
   }
 }
 
 // ----- составные фигуры ----- //
 
-export interface SolidOptions extends NodeOptions {
-  style?: Partial<ShapeStyleValues>;
-}
+export type SolidOptions = StyledOptions;
 
 /**
- * Составная объёмная фигура: узел, который владеет дочерними фигурами и поверхностями
- * и передаёт им свой стиль и параметры. Дети создаются самой фигурой; менять их
- * напрямую не нужно — изменения перезапишутся при следующей синхронизации.
+ * Составная объёмная фигура: узел, который создаёт дочерние фигуры и поверхности
+ * (их `owner` — эта фигура, `id` — `«id фигуры»/«ключ»`) и передаёт им свой стиль
+ * и параметры. При каждой синхронизации у детей перезаписываются стиль, размеры
+ * и положение, поэтому менять их напрямую не нужно. Перспектива всех частей считается
+ * по глубине начала самой фигуры, чтобы части не расходились.
  */
-export abstract class Solid extends Node {
-  static readonly params: ParamSchema = {};
+export abstract class Solid<S extends ParamSchema = ParamSchema> extends Styled<S> {
+  static override readonly defaultStyle = { fill: true };
 
-  readonly style: ShapeStyle;
-  readonly #params: ParamStore;
-
-  constructor(options: SolidOptions = {}) {
-    super(options);
-    this.style = new ShapeStyle(
-      () => {
-        this.markAppearanceChanged();
-        this.sync();
-      },
-      { fill: true, ...options.style },
-    );
-    this.#params = new ParamStore((this.constructor as typeof Solid).params, options, () =>
-      this.sync(),
-    );
+  protected override onStyleChanged(): void {
+    this.markAppearanceChanged();
+    this.sync();
   }
 
-  /** Передаёт стиль и параметры дочерним фигурам. */
+  protected onParamsChanged(): void {
+    this.sync();
+  }
+
+  /** Передаёт стиль и параметры дочерним фигурам. Вызывается в конце конструктора подкласса. */
   protected abstract sync(): void;
-
-  protected getParam(name: string): number {
-    return this.#params.get(name);
-  }
-
-  protected setParam(name: string, value: number): void {
-    this.#params.set(name, value);
-  }
 }
 
 function copyStyle(target: ShapeStyle, source: ShapeStyle, color = source.color): void {
@@ -309,23 +310,25 @@ function copyStyle(target: ShapeStyle, source: ShapeStyle, color = source.color)
   target.backfaceColor = source.backfaceColor;
 }
 
+const HEMISPHERE_PARAMS = {
+  diameter: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
 export interface HemisphereOptions extends SolidOptions {
   diameter?: number;
 }
 
 /** Полусфера: основание-эллипс и купол в сторону +z. */
-export class Hemisphere extends Solid {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Hemisphere extends Solid<typeof HEMISPHERE_PARAMS> {
+  static override readonly params = HEMISPHERE_PARAMS;
 
   readonly base: Ellipse;
   readonly dome: HemisphereDome;
 
   constructor(options: HemisphereOptions = {}) {
     super(options);
-    this.dome = new HemisphereDome();
-    this.base = new Ellipse();
+    this.dome = new HemisphereDome({ owner: this, id: 'dome' });
+    this.base = new Ellipse({ owner: this, id: 'base' });
     this.add(this.dome).add(this.base);
     this.sync();
   }
@@ -338,6 +341,8 @@ export class Hemisphere extends Solid {
   }
 
   protected sync(): void {
+    // Изменения стиля и параметров возможны только после конструктора, но защита
+    // оставлена на случай вызова до создания детей.
     if (!this.base) return;
     copyStyle(this.base.style, this.style);
     copyStyle(this.dome.style, this.style);
@@ -346,19 +351,21 @@ export class Hemisphere extends Solid {
   }
 }
 
+const CYLINDER_PARAMS = {
+  diameter: { kind: 'length', default: 1 },
+  length: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
 export interface CylinderOptions extends SolidOptions {
   diameter?: number;
   length?: number;
-  /** Цвет основания со стороны +z; `null` — как у обратной стороны. */
+  /** Цвет основания, видимого со стороны +z; `null` — `style.backfaceColor` цилиндра. */
   frontFaceColor?: string | null;
 }
 
 /** Цилиндр вдоль локальной z: два основания и боковая поверхность. */
-export class Cylinder extends Solid {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-    length: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Cylinder extends Solid<typeof CYLINDER_PARAMS> {
+  static override readonly params = CYLINDER_PARAMS;
 
   readonly body: CylinderBody;
   readonly frontBase: Ellipse;
@@ -368,10 +375,14 @@ export class Cylinder extends Solid {
   constructor(options: CylinderOptions = {}) {
     super(options);
     this.#frontFaceColor = options.frontFaceColor ?? null;
-    this.body = new CylinderBody();
+    this.body = new CylinderBody({ owner: this, id: 'body' });
     // Как в Zdog: переднее основание развёрнуто лицевой стороной внутрь.
-    this.frontBase = new Ellipse({ rotation: { x: 0, y: Math.PI, z: 0, order: 'XYZ' } });
-    this.rearBase = new Ellipse();
+    this.frontBase = new Ellipse({
+      owner: this,
+      id: 'front',
+      rotation: { x: 0, y: Math.PI, z: 0, order: 'XYZ' },
+    });
+    this.rearBase = new Ellipse({ owner: this, id: 'rear' });
     this.add(this.body).add(this.frontBase).add(this.rearBase);
     this.sync();
   }
@@ -390,6 +401,7 @@ export class Cylinder extends Solid {
     this.setParam('length', value);
   }
 
+  /** Цвет основания, видимого со стороны +z; `null` — `style.backfaceColor` цилиндра. */
   get frontFaceColor(): string | null {
     return this.#frontFaceColor;
   }
@@ -402,7 +414,7 @@ export class Cylinder extends Solid {
   }
 
   protected sync(): void {
-    if (!this.body) return;
+    if (!this.rearBase) return;
     const { style, diameter, length } = this;
     copyStyle(this.body.style, style);
     for (const base of [this.frontBase, this.rearBase]) {
@@ -419,6 +431,11 @@ export class Cylinder extends Solid {
   }
 }
 
+const CONE_PARAMS = {
+  diameter: { kind: 'length', default: 1 },
+  length: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
+
 export interface ConeOptions extends SolidOptions {
   diameter?: number;
   /** Высота: расстояние от основания до вершины вдоль +z. */
@@ -426,19 +443,16 @@ export interface ConeOptions extends SolidOptions {
 }
 
 /** Конус: основание-эллипс и вершина на `length` по +z. */
-export class Cone extends Solid {
-  static override readonly params = {
-    diameter: { kind: 'length', default: 1 },
-    length: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+export class Cone extends Solid<typeof CONE_PARAMS> {
+  static override readonly params = CONE_PARAMS;
 
   readonly surface: ConeSurface;
   readonly base: Ellipse;
 
   constructor(options: ConeOptions = {}) {
     super(options);
-    this.surface = new ConeSurface();
-    this.base = new Ellipse();
+    this.surface = new ConeSurface({ owner: this, id: 'surface' });
+    this.base = new Ellipse({ owner: this, id: 'base' });
     this.add(this.surface).add(this.base);
     this.sync();
   }
@@ -470,14 +484,24 @@ export class Cone extends Solid {
 export const BOX_FACES = ['front', 'rear', 'left', 'right', 'top', 'bottom'] as const;
 export type BoxFace = (typeof BOX_FACES)[number];
 
-/** Грань коробки: `true` — цвет коробки, `false` — грани нет, строка — свой цвет. */
-export type BoxFaceValue = boolean | string;
+/** Настройки грани коробки. */
+export interface BoxFaceSettings {
+  visible: boolean;
+  /** Свой цвет грани; `null` — цвет коробки. */
+  color: string | null;
+}
+
+const BOX_PARAMS = {
+  width: { kind: 'length', default: 1 },
+  height: { kind: 'length', default: 1 },
+  depth: { kind: 'length', default: 1 },
+} as const satisfies ParamSchema;
 
 export interface BoxOptions extends SolidOptions {
   width?: number;
   height?: number;
   depth?: number;
-  faces?: Partial<Record<BoxFace, BoxFaceValue>>;
+  faces?: Partial<Record<BoxFace, Partial<BoxFaceSettings>>>;
 }
 
 /** Повороты граней коробки (углы Эйлера 'XYZ'); у Zdog знак поворота вокруг Y обратный. */
@@ -490,28 +514,28 @@ const FACE_ROTATION: Record<BoxFace, { x: number; y: number }> = {
   bottom: { x: TAU / 4, y: 0 },
 };
 
-/** Коробка из шести граней-прямоугольников. Каждую грань можно убрать или перекрасить. */
-export class Box extends Solid {
-  static override readonly params = {
-    width: { kind: 'length', default: 1 },
-    height: { kind: 'length', default: 1 },
-    depth: { kind: 'length', default: 1 },
-  } as const satisfies ParamSchema;
+/** Коробка из шести граней-прямоугольников. Каждую грань можно скрыть или перекрасить. */
+export class Box extends Solid<typeof BOX_PARAMS> {
+  static override readonly params = BOX_PARAMS;
 
   readonly faces: Readonly<Record<BoxFace, Rect>>;
-  readonly #faceValues: Record<BoxFace, BoxFaceValue>;
+  readonly #settings: Record<BoxFace, Readonly<BoxFaceSettings>>;
 
   constructor(options: BoxOptions = {}) {
     super(options);
-    const values = {} as Record<BoxFace, BoxFaceValue>;
+    const settings = {} as Record<BoxFace, Readonly<BoxFaceSettings>>;
     const faces = {} as Record<BoxFace, Rect>;
     for (const face of BOX_FACES) {
-      values[face] = options.faces?.[face] ?? true;
+      const given = options.faces?.[face];
+      settings[face] = Object.freeze({
+        visible: given?.visible ?? true,
+        color: given?.color ?? null,
+      });
       const { x, y } = FACE_ROTATION[face];
-      faces[face] = new Rect({ rotation: { x, y, z: 0, order: 'XYZ' } });
+      faces[face] = new Rect({ owner: this, id: face, rotation: { x, y, z: 0, order: 'XYZ' } });
       this.add(faces[face]);
     }
-    this.#faceValues = values;
+    this.#settings = settings;
     this.faces = Object.freeze(faces);
     this.sync();
   }
@@ -537,16 +561,19 @@ export class Box extends Solid {
     this.setParam('depth', value);
   }
 
-  getFace(face: BoxFace): BoxFaceValue {
-    return this.#faceValues[face];
+  getFace(face: BoxFace): Readonly<BoxFaceSettings> {
+    return this.#settings[face];
   }
 
-  setFace(face: BoxFace, value: BoxFaceValue): void {
-    if (value !== this.#faceValues[face]) {
-      this.#faceValues[face] = value;
-      this.markAppearanceChanged();
-      this.sync();
-    }
+  /** Меняет настройки грани; пропущенные поля остаются прежними. */
+  setFace(face: BoxFace, settings: Partial<BoxFaceSettings>): void {
+    const current = this.#settings[face];
+    const visible = settings.visible ?? current.visible;
+    const color = settings.color === undefined ? current.color : settings.color;
+    if (visible === current.visible && color === current.color) return;
+    this.#settings[face] = Object.freeze({ visible, color });
+    this.markAppearanceChanged();
+    this.sync();
   }
 
   protected sync(): void {
@@ -554,9 +581,9 @@ export class Box extends Solid {
     const { width, height, depth, style } = this;
     for (const face of BOX_FACES) {
       const rect = this.faces[face];
-      const value = this.#faceValues[face];
-      rect.visible = value !== false;
-      copyStyle(rect.style, style, typeof value === 'string' ? value : style.color);
+      const settings = this.#settings[face];
+      rect.visible = settings.visible;
+      copyStyle(rect.style, style, settings.color ?? style.color);
       const sideways = face === 'left' || face === 'right';
       const flat = face === 'top' || face === 'bottom';
       rect.width = sideways ? depth : width;

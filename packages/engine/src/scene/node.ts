@@ -13,9 +13,16 @@ import { type Scene, sceneInternals } from './scene.ts';
 export interface NodeOptions {
   /**
    * Стабильный идентификатор. Если не задан, создаётся автоматически с префиксом `~`.
-   * Свои идентификаторы не могут быть пустыми и начинаться с `~`.
+   * Свои идентификаторы не могут быть пустыми, начинаться с `~` и содержать `/`.
+   * У узла с `owner` это ключ внутри владельца, а полный `id` — `«id владельца»/«ключ»`.
    */
   id?: string;
+  /**
+   * Составная фигура, которая создала этот узел как свою часть (грань коробки,
+   * основание цилиндра). Такие узлы не сохраняются в документ отдельно, а поиск
+   * фигуры под курсором возвращает владельца.
+   */
+  owner?: Node;
   name?: string;
   position?: Readonly<Vec3>;
   /** Поворот углами Эйлера; внутри хранится кватернионом. */
@@ -33,10 +40,16 @@ export const AUTO_ID_PREFIX = '~';
 
 let nextId = 1;
 
+/** Разделитель в идентификаторах частей составной фигуры. */
+export const OWNER_SEPARATOR = '/';
+
 function checkId(id: string): string {
   if (id.trim() === '') throw new RangeError('Идентификатор узла не может быть пустым.');
   if (id.startsWith(AUTO_ID_PREFIX)) {
     throw new RangeError(`Идентификатор «${id}» не может начинаться с «${AUTO_ID_PREFIX}».`);
+  }
+  if (id.includes(OWNER_SEPARATOR)) {
+    throw new RangeError(`Идентификатор «${id}» не может содержать «${OWNER_SEPARATOR}».`);
   }
   return id;
 }
@@ -73,6 +86,8 @@ export let nodeInternals!: {
  */
 export class Node {
   readonly id: string;
+  /** Составная фигура, частью которой является узел, или `null`. */
+  readonly owner: Node | null;
   /** Имя для редактора. На отрисовку не влияет. */
   name: string;
 
@@ -104,7 +119,9 @@ export class Node {
   #worldVersion = 0;
 
   constructor(options: NodeOptions = {}) {
-    this.id = options.id === undefined ? `${AUTO_ID_PREFIX}${nextId++}` : checkId(options.id);
+    const key = options.id === undefined ? `${AUTO_ID_PREFIX}${nextId++}` : checkId(options.id);
+    this.owner = options.owner ?? null;
+    this.id = this.owner ? `${this.owner.id}${OWNER_SEPARATOR}${key}` : key;
     this.name = options.name ?? '';
     const invalidate = () => this.#invalidateLocal();
     const { position, scale, pivot } = options;

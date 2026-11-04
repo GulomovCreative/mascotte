@@ -47,6 +47,8 @@ describe('служебный доступ закрыт', () => {
         'Sphere',
         'Surface',
         'SurfaceOutline',
+        'OWNER_SEPARATOR',
+        'Styled',
       ].sort(),
     );
     const scene = new Scene();
