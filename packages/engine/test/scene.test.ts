@@ -55,6 +55,13 @@ describe('служебный доступ закрыт', () => {
         'CanvasRenderer',
         'DisplayItem',
         'DisplayList',
+        'Bucket',
+        'decalAnchor',
+        'GLCollector',
+        'PRIMITIVE_KINDS',
+        'STRIDE',
+        'triangulate',
+        'WebGLRenderer',
       ].sort(),
     );
     const scene = new Scene();

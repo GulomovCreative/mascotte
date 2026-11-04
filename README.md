@@ -33,7 +33,7 @@ pnpm build             # сборка playground
 Структура:
 
 - `packages/` — пакеты движка: `math`, `engine`, `format`, `player`;
-- `apps/playground` — примеры и отладка: эталонные сцены на новом ядре и на Zdog для сравнения;
+- `apps/playground` — примеры и отладка: сцены на WebGL2 и Canvas 2D и эталоны Zdog для сравнения;
 - `reference/` — эталонные сцены в двух версиях (копия Zdog и новое ядро) и снимки кадров Zdog в `reference/snapshots/`; кадры нового ядра сравниваются с ними;
 - `src/core/` — неизменённая копия ядра Zdog.
 

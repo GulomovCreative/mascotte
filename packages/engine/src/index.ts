@@ -3,6 +3,17 @@
 export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
 export { DisplayItem, DisplayList } from './render/display-list.ts';
+export {
+  Bucket,
+  decalAnchor,
+  GLCollector,
+  type GLFrame,
+  PRIMITIVE_KINDS,
+  type PrimitiveKind,
+  STRIDE,
+} from './render/gl/collect.ts';
+export { triangulate } from './render/gl/triangulate.ts';
+export { WebGLRenderer } from './render/gl/webgl.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,
