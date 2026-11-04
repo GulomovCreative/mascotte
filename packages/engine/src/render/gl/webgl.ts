@@ -45,30 +45,63 @@ const ORDER: readonly PrimitiveKind[] = [
   'capsule',
 ];
 
+export interface WebGLRendererOptions {
+  /**
+   * Во сколько раз по каждой оси внутренний кадр больше холста (суперсэмплинг).
+   * Глубина пишется на весь пиксель, поэтому линии пересечения фигур сглаживаются
+   * только так. По умолчанию 2; вместе с MSAA это 16 выборок на пиксель для краёв фигур.
+   */
+  supersample?: number;
+}
+
+/** Внутренние буферы кадра: многовыборочный для рисования и обычный для уменьшения. */
+interface Targets {
+  width: number;
+  height: number;
+  msaa: WebGLFramebuffer;
+  resolve: WebGLFramebuffer;
+  color: WebGLTexture;
+  renderbuffers: WebGLRenderbuffer[];
+}
+
 /**
  * Отрисовка сцены через WebGL2 с глубиной на каждый пиксель: перекрытия и пересечения
  * фигур точные и непрерывные. Шары, капсулы и поверхности — прямоугольники-заглушки,
  * форма и глубина которых считаются в каждом пикселе; заливки — треугольники.
  *
- * Контекст создаётся с `antialias: true` и `stencil: true`: сглаживание краёв идёт через
- * alpha-to-coverage, трафарет держит декали на видимых пикселях их опоры.
+ * Кадр рисуется во внутренний многовыборочный буфер в `supersample` раз больше холста
+ * (сглаживание краёв через alpha-to-coverage и MSAA), затем уменьшается с усреднением.
+ * Трафарет держит декали на видимых пикселях их опоры.
  */
 export class WebGLRenderer {
   readonly gl: WebGL2RenderingContext;
   readonly #collector = new GLCollector();
   readonly #programs: Record<PrimitiveKind, Program>;
   readonly #corners: WebGLBuffer;
+  readonly #supersample: number;
+  readonly #downsample: WebGLProgram;
+  readonly #emptyVao: WebGLVertexArrayObject;
+  #targets: Targets | null = null;
 
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: WebGLRendererOptions = {}) {
     const gl = canvas.getContext('webgl2', {
-      antialias: true,
-      stencil: true,
-      depth: true,
+      antialias: false,
+      stencil: false,
+      depth: false,
       premultipliedAlpha: true,
       alpha: true,
     }) as WebGL2RenderingContext | null;
     if (!gl) throw new Error('WebGL2 недоступен.');
     this.gl = gl;
+    const factor = options.supersample ?? 2;
+    if (!(Number.isInteger(factor) && factor >= 1 && factor <= 4)) {
+      throw new RangeError(`supersample должен быть целым от 1 до 4, получено ${factor}.`);
+    }
+    this.#supersample = factor;
+    this.#downsample = link(gl, DOWNSAMPLE_VERTEX, downsampleFragment(factor), 'downsample');
+    const empty = gl.createVertexArray();
+    if (!empty) throw new Error('Не удалось создать объекты WebGL.');
+    this.#emptyVao = empty;
     const corners = gl.createBuffer();
     if (!corners) throw new Error('Не удалось создать буфер WebGL.');
     this.#corners = corners;
@@ -87,7 +120,13 @@ export class WebGLRenderer {
       throw new RangeError('Размеры кадра и pixelRatio должны быть положительными.');
     }
     const frame = this.#collector.collect(scene, camera);
-    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    const factor = this.#supersample;
+    const targets = this.#ensureTargets(
+      gl.drawingBufferWidth * factor,
+      gl.drawingBufferHeight * factor,
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.msaa);
+    gl.viewport(0, 0, targets.width, targets.height);
     const [r, g, b, a] = background(viewport.background);
     gl.colorMask(true, true, true, true);
     gl.depthMask(true);
@@ -110,13 +149,13 @@ export class WebGLRenderer {
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
     for (const bucket of frame.opaque) {
       gl.stencilFunc(gl.ALWAYS, bucket.stencil, 0xff);
-      this.#draw(bucket, frame, half, ratio, false);
+      this.#draw(bucket, frame, half, ratio * factor, false);
     }
     // Декали: только поверх видимых пикселей своей опоры, в ближнем диапазоне глубины.
     gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
     for (const bucket of frame.decals) {
       gl.stencilFunc(gl.EQUAL, bucket.stencil, 0xff);
-      this.#draw(bucket, frame, half, ratio, true);
+      this.#draw(bucket, frame, half, ratio * factor, true);
     }
     // Полупрозрачное: по порядку, с наложением и без записи глубины.
     gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
@@ -124,10 +163,87 @@ export class WebGLRenderer {
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ZERO, gl.ONE);
     gl.depthMask(false);
     gl.stencilFunc(gl.ALWAYS, 0, 0xff);
-    for (const bucket of frame.transparent) this.#draw(bucket, frame, half, ratio, false);
+    for (const bucket of frame.transparent) this.#draw(bucket, frame, half, ratio * factor, false);
     gl.depthMask(true);
     gl.colorMask(true, true, true, true);
     gl.disable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    gl.disable(gl.STENCIL_TEST);
+
+    // Многовыборочный буфер → обычная текстура → холст с усреднением блоков.
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, targets.msaa);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, targets.resolve);
+    gl.blitFramebuffer(
+      0,
+      0,
+      targets.width,
+      targets.height,
+      0,
+      0,
+      targets.width,
+      targets.height,
+      gl.COLOR_BUFFER_BIT,
+      gl.NEAREST,
+    );
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
+    gl.useProgram(this.#downsample);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, targets.color);
+    gl.uniform1i(gl.getUniformLocation(this.#downsample, 'uColor'), 0);
+    gl.bindVertexArray(this.#emptyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.bindVertexArray(null);
+  }
+
+  /** Внутренние буферы нужного размера; пересоздаются только при смене размера. */
+  #ensureTargets(width: number, height: number): Targets {
+    const current = this.#targets;
+    if (current && current.width === width && current.height === height) return current;
+    const gl = this.gl;
+    if (current) {
+      gl.deleteFramebuffer(current.msaa);
+      gl.deleteFramebuffer(current.resolve);
+      gl.deleteTexture(current.color);
+      for (const buffer of current.renderbuffers) gl.deleteRenderbuffer(buffer);
+    }
+    const samples = Math.min(4, gl.getParameter(gl.MAX_SAMPLES) as number);
+    const msaa = gl.createFramebuffer();
+    const resolve = gl.createFramebuffer();
+    const color = gl.createTexture();
+    const colorBuffer = gl.createRenderbuffer();
+    const depthBuffer = gl.createRenderbuffer();
+    if (!msaa || !resolve || !color || !colorBuffer || !depthBuffer) {
+      throw new Error('Не удалось создать буферы кадра WebGL.');
+    }
+    gl.bindRenderbuffer(gl.RENDERBUFFER, colorBuffer);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA8, width, height);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
+    gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.DEPTH24_STENCIL8, width, height);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, msaa);
+    gl.framebufferRenderbuffer(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.RENDERBUFFER, colorBuffer);
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER,
+      gl.DEPTH_STENCIL_ATTACHMENT,
+      gl.RENDERBUFFER,
+      depthBuffer,
+    );
+    gl.bindTexture(gl.TEXTURE_2D, color);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, resolve);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    this.#targets = {
+      width,
+      height,
+      msaa,
+      resolve,
+      color,
+      renderbuffers: [colorBuffer, depthBuffer],
+    };
+    return this.#targets;
   }
 
   #draw(
@@ -198,6 +314,48 @@ export class WebGLRenderer {
     }
     return { program, vao, buffer, uniforms, instanced };
   }
+}
+
+const DOWNSAMPLE_VERTEX = `#version 300 es
+void main() {
+  // Один треугольник на весь кадр.
+  vec2 p = vec2(float((gl_VertexID << 1) & 2), float(gl_VertexID & 2));
+  gl_Position = vec4(p * 2.0 - 1.0, 0.0, 1.0);
+}
+`;
+
+/** Усреднение блока `factor × factor` пикселей внутреннего кадра. */
+function downsampleFragment(factor: number): string {
+  return `#version 300 es
+precision highp float;
+uniform sampler2D uColor;
+out vec4 outColor;
+void main() {
+  ivec2 base = ivec2(gl_FragCoord.xy) * ${factor};
+  vec4 sum = vec4(0.0);
+  for (int y = 0; y < ${factor}; y++)
+    for (int x = 0; x < ${factor}; x++)
+      sum += texelFetch(uColor, base + ivec2(x, y), 0);
+  outColor = sum / ${factor * factor}.0;
+}
+`;
+}
+
+function link(
+  gl: WebGL2RenderingContext,
+  vertex: string,
+  fragment: string,
+  kind: string,
+): WebGLProgram {
+  const program = gl.createProgram();
+  if (!program) throw new Error('Не удалось создать программу WebGL.');
+  gl.attachShader(program, compile(gl, gl.VERTEX_SHADER, vertex, kind));
+  gl.attachShader(program, compile(gl, gl.FRAGMENT_SHADER, fragment, kind));
+  gl.linkProgram(program);
+  if (!gl.getProgramParameter(program, gl.LINK_STATUS)) {
+    throw new Error(`Программа ${kind} не собралась: ${gl.getProgramInfoLog(program)}`);
+  }
+  return program;
 }
 
 function compile(
