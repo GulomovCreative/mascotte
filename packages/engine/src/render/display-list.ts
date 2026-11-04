@@ -5,6 +5,7 @@ import { PathOp } from '../shapes/path.ts';
 import { Shape } from '../shapes/shape.ts';
 import { SurfaceOutline } from '../shapes/surface.ts';
 import { DepthSorter, type Drawable } from './depth-sort.ts';
+import { type Cutter, type SplitTarget, splitPath } from './occlusion.ts';
 
 /**
  * Элемент списка отрисовки: путь в пикселях относительно центра кадра, кисть и
@@ -15,6 +16,20 @@ export class DisplayItem extends SurfaceOutline {
   node: Drawable | null = null;
   /** Итоговая непрозрачность с учётом предков. */
   opacity = 1;
+  /** @internal Элемент разрезан, вместо него рисуются части. */
+  split = false;
+  /** @internal Части чужих обводок, которые рисуются до этого перекрывателя. */
+  readonly behind: DisplayItem[] = [];
+  /** @internal Части чужих обводок, которые рисуются после этого перекрывателя. */
+  readonly inFront: DisplayItem[] = [];
+}
+
+export interface DisplayListOptions {
+  /**
+   * Резать ли обводки плоскостями перекрывателей (частичное перекрытие). По умолчанию
+   * включено; выключается, например, для сравнения кадра с Zdog.
+   */
+  partialOcclusion?: boolean;
 }
 
 const modelView = mat3x4.create();
@@ -31,27 +46,37 @@ const front: Vec3 = { x: 0, y: 0, z: 0 };
  */
 export class DisplayList {
   readonly #sorter = new DepthSorter();
+  readonly #partialOcclusion: boolean;
   readonly #items: DisplayItem[] = [];
-  #count = 0;
+  #itemCount = 0;
+  readonly #parts: DisplayItem[] = [];
+  #partCount = 0;
+  readonly #order: DisplayItem[] = [];
+  readonly #queue: DisplayItem[] = [];
+
+  constructor(options: DisplayListOptions = {}) {
+    this.#partialOcclusion = options.partialOcclusion ?? true;
+  }
 
   /** Число элементов после последней сборки. */
   get count(): number {
-    return this.#count;
+    return this.#order.length;
   }
 
-  /** Элемент `index` из первых `count`. */
+  /** Элемент `index` из первых `count` в порядке отрисовки. */
   item(index: number): DisplayItem {
-    const item = this.#items[index];
-    if (!item || index >= this.#count) throw new RangeError(`Нет элемента ${index}.`);
+    const item = this.#order[index];
+    if (!item) throw new RangeError(`Нет элемента ${index}.`);
     return item;
   }
 
   build(scene: Scene, camera: Camera): this {
-    this.#count = 0;
+    this.#itemCount = 0;
     for (const drawable of this.#sorter.sort(scene, camera)) {
       const opacity = drawable.worldOpacity;
       if (opacity <= 0) continue;
-      const item = this.#next();
+      const item = nextItem(this.#items, this.#itemCount);
+      item.resetOcclusion();
       const ready =
         drawable instanceof Shape
           ? projectShape(drawable, camera, item)
@@ -62,19 +87,174 @@ export class DisplayList {
       if (!(item.hasStroke || item.hasFill)) continue;
       item.node = drawable;
       item.opacity = opacity;
-      this.#count++;
+      this.#itemCount++;
     }
+    this.#arrange();
     return this;
   }
 
-  #next(): DisplayItem {
-    let item = this.#items[this.#count];
-    if (!item) {
-      item = new DisplayItem();
-      this.#items.push(item);
+  /** Раскладывает элементы в порядок отрисовки с учётом частичного перекрытия. */
+  #arrange(): void {
+    const items = this.#items;
+    const count = this.#itemCount;
+    const order = this.#order;
+    order.length = 0;
+    this.#partCount = 0;
+    for (let i = 0; i < count; i++) {
+      const item = items[i] as DisplayItem;
+      item.split = false;
+      item.behind.length = 0;
+      item.inFront.length = 0;
     }
-    return item;
+    if (this.#partialOcclusion) this.#split();
+    for (let i = 0; i < count; i++) {
+      const item = items[i] as DisplayItem;
+      if (item.split) continue;
+      for (const part of item.behind) order.push(part);
+      order.push(item);
+      for (const part of item.inFront) order.push(part);
+    }
   }
+
+  #split(): void {
+    const items = this.#items;
+    const count = this.#itemCount;
+    // Сначала режутся капсулы, от больших к меньшим: разрезанный перекрыватель потом
+    // не используется, поэтому части ничьих обводок к нему не прикрепятся.
+    const queue = this.#queue;
+    queue.length = 0;
+    for (let i = 0; i < count; i++) {
+      const item = items[i] as DisplayItem;
+      if (item.splittable && item.hasStroke && !item.hasFill) queue.push(item);
+    }
+    sortByRadius(queue);
+    for (const shape of queue) {
+      const index = items.indexOf(shape);
+      bounds(shape);
+      for (let j = 0; j < count; j++) {
+        const occluder = items[j] as DisplayItem;
+        if (j === index || occluder.occluder === 'none' || occluder.split) continue;
+        if (shape.occluder !== 'none' && !(occluder.occluderRadius > shape.occluderRadius))
+          continue;
+        if (!overlaps(occluder)) continue;
+        setCutter(occluder);
+        const mark = this.#partCount;
+        const back = this.#part(shape);
+        const front = this.#part(shape);
+        target[0] = back.path;
+        target[1] = front.path;
+        splitPath(shape.path, cutter, target as unknown as SplitTarget);
+        const hasBack = back.path.opCount > 0;
+        const hasFront = front.path.opCount > 0;
+        // Разрез нужен, если обводка с двух сторон перекрывателя или целиком
+        // стоит не на своей стороне в порядке отрисовки.
+        const needed = (hasBack && hasFront) || (hasBack && index > j) || (hasFront && index < j);
+        if (!needed) {
+          this.#partCount = mark;
+          continue;
+        }
+        if (hasBack) occluder.behind.push(back);
+        if (hasFront) occluder.inFront.push(front);
+        shape.split = true;
+        break;
+      }
+    }
+  }
+
+  /** Пустая часть обводки `shape` с её кистью. */
+  #part(shape: DisplayItem): DisplayItem {
+    const part = nextItem(this.#parts, this.#partCount++);
+    part.path.reset();
+    part.resetOcclusion();
+    part.node = shape.node;
+    part.opacity = shape.opacity;
+    part.lineWidth = shape.lineWidth;
+    part.lineCap = shape.lineCap;
+    part.hasStroke = true;
+    part.hasFill = false;
+    part.color = shape.color;
+    return part;
+  }
+}
+
+function nextItem(pool: DisplayItem[], index: number): DisplayItem {
+  let item = pool[index];
+  if (!item) {
+    item = new DisplayItem();
+    pool.push(item);
+  }
+  return item;
+}
+
+const target: [unknown, unknown] = [null, null];
+
+/** Сортировка вставками: сначала перекрыватели (капсулы) большего радиуса, затем остальное. */
+function sortByRadius(list: DisplayItem[]): void {
+  const key = (item: DisplayItem) => (item.occluder === 'none' ? -1 : item.occluderRadius);
+  for (let i = 1; i < list.length; i++) {
+    const item = list[i] as DisplayItem;
+    let j = i - 1;
+    while (j >= 0 && key(list[j] as DisplayItem) < key(item)) {
+      list[j + 1] = list[j] as DisplayItem;
+      j--;
+    }
+    list[j + 1] = item;
+  }
+}
+
+const cutter: Cutter = { kind: 'plane', x: 0, y: 0, depth: 0, radius: 0, scale: 1 };
+
+/** Поверхность разреза перекрывателя: сфера — её передней поверхностью, капсула — плоскостью. */
+function setCutter(occluder: DisplayItem): void {
+  cutter.kind = occluder.occluder === 'sphere' ? 'sphere' : 'plane';
+  cutter.x = occluder.occluderX;
+  cutter.y = occluder.occluderY;
+  cutter.depth = occluder.occluderDepth;
+  cutter.radius = occluder.occluderRadius;
+  cutter.scale = occluder.occluderScale;
+}
+
+// Габариты текущей разрезаемой обводки.
+let minX = 0;
+let minY = 0;
+let maxX = 0;
+let maxY = 0;
+
+function bounds(item: DisplayItem): void {
+  const { data, dataCount } = item.path;
+  const pad = item.lineWidth / 2;
+  minX = Number.POSITIVE_INFINITY;
+  minY = Number.POSITIVE_INFINITY;
+  maxX = Number.NEGATIVE_INFINITY;
+  maxY = Number.NEGATIVE_INFINITY;
+  for (let i = 0; i < dataCount; i += 2) {
+    const x = data[i] ?? 0;
+    const y = data[i + 1] ?? 0;
+    if (x < minX) minX = x;
+    if (x > maxX) maxX = x;
+    if (y < minY) minY = y;
+    if (y > maxY) maxY = y;
+  }
+  minX -= pad;
+  minY -= pad;
+  maxX += pad;
+  maxY += pad;
+}
+
+/** Пересекаются ли габариты текущей обводки с перекрывателем на экране. */
+function overlaps(occluder: DisplayItem): boolean {
+  const r = occluder.occluderRadius;
+  let ox0 = occluder.occluderX;
+  let ox1 = occluder.occluderX;
+  let oy0 = occluder.occluderY;
+  let oy1 = occluder.occluderY;
+  if (occluder.occluder === 'capsule') {
+    ox0 = Math.min(ox0, occluder.occluderX2);
+    ox1 = Math.max(ox1, occluder.occluderX2);
+    oy0 = Math.min(oy0, occluder.occluderY2);
+    oy1 = Math.max(oy1, occluder.occluderY2);
+  }
+  return minX <= ox1 + r && maxX >= ox0 - r && minY <= oy1 + r && maxY >= oy0 - r;
 }
 
 /**
@@ -124,6 +304,8 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
     out.lineWidth = 0;
     out.hasStroke = false;
     out.hasFill = true;
+    // Точка с толстой обводкой — шар, как голова маскота в Zdog: она перекрывает.
+    out.setSphereOccluder(point.x * s, point.y * s, lineWidth / 2, point.z, s);
     return true;
   }
 
@@ -134,16 +316,18 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
       project(points, index);
       const c1x = point.x * s;
       const c1y = point.y * s;
+      const c1z = point.z;
       project(points, index + 1);
       const c2x = point.x * s;
       const c2y = point.y * s;
+      const c2z = point.z;
       project(points, index + 2);
-      path.cubicTo(c1x, c1y, c2x, c2y, point.x * s, point.y * s);
+      path.cubicTo(c1x, c1y, c2x, c2y, point.x * s, point.y * s, c1z, c2z, point.z);
       index += 3;
     } else {
       project(points, index);
-      if (code === PathOp.move) path.moveTo(point.x * s, point.y * s);
-      else path.lineTo(point.x * s, point.y * s);
+      if (code === PathOp.move) path.moveTo(point.x * s, point.y * s, point.z);
+      else path.lineTo(point.x * s, point.y * s, point.z);
       index++;
     }
   }
@@ -151,6 +335,7 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   out.lineWidth = lineWidth;
   out.hasStroke = lineWidth > 0;
   out.hasFill = style.fill;
+  out.splittable = !style.fill;
   return true;
 }
 

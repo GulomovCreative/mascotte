@@ -1,6 +1,6 @@
 import type { Camera } from '../scene/camera.ts';
 import type { Scene } from '../scene/scene.ts';
-import { DisplayList } from './display-list.ts';
+import { DisplayList, type DisplayListOptions } from './display-list.ts';
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 
 /**
@@ -45,7 +45,11 @@ export interface Viewport {
  * концы линий, прозрачность) переключается только при изменении.
  */
 export class CanvasRenderer {
-  readonly list = new DisplayList();
+  readonly list: DisplayList;
+
+  constructor(options: DisplayListOptions = {}) {
+    this.list = new DisplayList(options);
+  }
 
   render(ctx: CanvasTarget, scene: Scene, camera: Camera, viewport: Viewport): void {
     const ratio = checkViewport(viewport);

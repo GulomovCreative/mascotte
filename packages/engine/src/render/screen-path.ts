@@ -21,8 +21,10 @@ const SIZE = [2, 2, 6, 6] as const;
 export class ScreenPath {
   #ops = new Uint8Array(8);
   #data = new Float64Array(32);
+  #depths = new Float64Array(16);
   #opCount = 0;
   #dataCount = 0;
+  #pointCount = 0;
   #closed = false;
 
   get ops(): Uint8Array {
@@ -41,29 +43,53 @@ export class ScreenPath {
   get closed(): boolean {
     return this.#closed;
   }
+  /**
+   * Глубина каждой точки `move`, `line` и `cubic` в пространстве камеры, по порядку
+   * (у кривой — три точки). По ней путь режется плоскостью перекрывателя. У дуг глубины нет.
+   */
+  get depths(): Float64Array {
+    return this.#depths;
+  }
+  /** Число точек с глубиной. */
+  get pointCount(): number {
+    return this.#pointCount;
+  }
 
   reset(): this {
     this.#opCount = 0;
     this.#dataCount = 0;
+    this.#pointCount = 0;
     this.#closed = false;
     return this;
   }
 
-  moveTo(x: number, y: number): this {
+  moveTo(x: number, y: number, z = 0): this {
     const i = this.#reserve(ScreenOp.move);
     this.#data[i] = x;
     this.#data[i + 1] = y;
+    this.#depth(z);
     return this;
   }
 
-  lineTo(x: number, y: number): this {
+  lineTo(x: number, y: number, z = 0): this {
     const i = this.#reserve(ScreenOp.line);
     this.#data[i] = x;
     this.#data[i + 1] = y;
+    this.#depth(z);
     return this;
   }
 
-  cubicTo(c1x: number, c1y: number, c2x: number, c2y: number, x: number, y: number): this {
+  cubicTo(
+    c1x: number,
+    c1y: number,
+    c2x: number,
+    c2y: number,
+    x: number,
+    y: number,
+    c1z = 0,
+    c2z = 0,
+    z = 0,
+  ): this {
     const i = this.#reserve(ScreenOp.cubic);
     const d = this.#data;
     d[i] = c1x;
@@ -72,6 +98,9 @@ export class ScreenPath {
     d[i + 3] = c2y;
     d[i + 4] = x;
     d[i + 5] = y;
+    this.#depth(c1z);
+    this.#depth(c2z);
+    this.#depth(z);
     return this;
   }
 
@@ -98,6 +127,15 @@ export class ScreenPath {
   close(): this {
     this.#closed = true;
     return this;
+  }
+
+  #depth(z: number): void {
+    if (this.#pointCount === this.#depths.length) {
+      const depths = new Float64Array(this.#depths.length * 2);
+      depths.set(this.#depths);
+      this.#depths = depths;
+    }
+    this.#depths[this.#pointCount++] = z;
   }
 
   /** Добавляет операцию и возвращает индекс, с которого писать её числа. */

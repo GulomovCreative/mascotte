@@ -52,11 +52,13 @@ export class Sphere extends Surface<typeof SPHERE_PARAMS> {
     this.toView(camera, o, 0, 0, 0);
     this.toView(camera, a, 1, 0, 0);
     const k = length3(a.x - o.x, a.y - o.y, a.z - o.z);
+    const radius = (this.diameter / 2) * k * s;
     out.path
       .reset()
-      .arc(o.x * s, o.y * s, (this.diameter / 2) * k * s, 0, TAU)
+      .arc(o.x * s, o.y * s, radius, 0, TAU)
       .close();
     this.applyStyle(out, this.style.stroke * k * s);
+    out.setSphereOccluder(o.x * s, o.y * s, radius + out.lineWidth / 2, o.z, s);
     return true;
   }
 }
@@ -119,15 +121,25 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
       this.applyStyle(out, 0);
       out.hasStroke = false;
       out.hasFill = true;
+      out.setSphereOccluder(o.x * s, o.y * s, width / 2, o.z, s);
       return true;
     }
     out.path
       .reset()
-      .moveTo(a.x * s, a.y * s)
-      .lineTo(b.x * s, b.y * s);
+      .moveTo(a.x * s, a.y * s, a.z)
+      .lineTo(b.x * s, b.y * s, b.z);
     this.applyStyle(out, width);
     out.hasStroke = true;
     out.hasFill = false;
+    // Капсула и режется перекрывателями, и сама перекрывает: плоскость — через середину оси.
+    out.splittable = true;
+    out.occluder = 'capsule';
+    out.occluderX = a.x * s;
+    out.occluderY = a.y * s;
+    out.occluderX2 = b.x * s;
+    out.occluderY2 = b.y * s;
+    out.occluderRadius = width / 2;
+    out.occluderDepth = o.z;
     return true;
   }
 }

@@ -231,5 +231,48 @@ const mascot3d: EngineScene = {
   },
 };
 
+const earBehindHead: EngineScene = {
+  id: 'engine-partial-occlusion',
+  title: 'Ухо за головой',
+  width: 240,
+  height: 240,
+  background: '#e8f1f2',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ zoom: 1.5 });
+    // Голова — точка с толстой обводкой, как в Zdog; уши наклонены назад и пересекают
+    // центральную плоскость головы, поэтому часть уха уходит за голову.
+    const head = new PathShape({ id: 'head', style: { stroke: 80, color: '#f6a623' } });
+    for (const side of [-1, 1]) {
+      head.add(
+        new PathShape({
+          id: side < 0 ? 'left-ear' : 'right-ear',
+          path: [
+            // Основание за центральной плоскостью головы, кончик — перед ней.
+            { type: 'move', point: { x: side * 18, y: -20, z: -20 } },
+            { type: 'line', point: { x: side * 30, y: -62, z: 14 } },
+          ],
+          style: { stroke: 16, color: '#e0861a' },
+        }),
+      );
+    }
+    // Рука-капсула: внутренний конец за головой, наружный — перед ней.
+    head.add(
+      new Capsule({
+        length: 70,
+        diameter: 14,
+        position: { x: 25, y: 20, z: 0 },
+        rotation: euler.create(0, 1, 0),
+        style: { color: '#c25', stroke: 0 },
+      }),
+    );
+    root.add(head);
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    root.setRotationFromEuler(euler.create(-0.15, Math.sin(time) * 0.8, 0));
+  },
+};
+
 /** Сцены только для нового ядра. */
-export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity, mascot3d];
+export const engineScenes: readonly EngineScene[] = [perspective, layersOpacity, mascot3d, earBehindHead];

@@ -16,6 +16,44 @@ export class SurfaceOutline {
   hasStroke = false;
   hasFill = false;
   color = '#333';
+
+  /**
+   * Можно ли резать обводку плоскостью перекрывателя: только обводки без заливки,
+   * у точек пути которых записана глубина.
+   */
+  splittable = false;
+  /**
+   * Перекрыватель для частичного перекрытия: `sphere` — круг с центром
+   * (`occluderX`, `occluderY`) и радиусом `occluderRadius`; `capsule` — отрезок
+   * (`occluderX`, `occluderY`)–(`occluderX2`, `occluderY2`) толщиной 2·`occluderRadius`.
+   * Координаты экранные, `occluderDepth` — глубина центра сферы или плоскости разреза
+   * капсулы.
+   */
+  occluder: 'none' | 'sphere' | 'capsule' = 'none';
+  occluderX = 0;
+  occluderY = 0;
+  occluderX2 = 0;
+  occluderY2 = 0;
+  occluderRadius = 0;
+  occluderDepth = 0;
+  /** Пикселей на единицу глубины у перекрывателя-сферы. */
+  occluderScale = 1;
+
+  /** Сбрасывает данные перекрытия перед сборкой. */
+  resetOcclusion(): void {
+    this.splittable = false;
+    this.occluder = 'none';
+  }
+
+  /** Записывает перекрыватель-сферу: центр и радиус в пикселях, глубина центра, масштаб. */
+  setSphereOccluder(x: number, y: number, radius: number, depth: number, scale: number): void {
+    this.occluder = 'sphere';
+    this.occluderX = x;
+    this.occluderY = y;
+    this.occluderRadius = radius;
+    this.occluderDepth = depth;
+    this.occluderScale = scale;
+  }
 }
 
 export type SurfaceOptions = StyledOptions;
