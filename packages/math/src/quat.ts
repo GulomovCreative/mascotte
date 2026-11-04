@@ -1,4 +1,4 @@
-import { approxEqual, clamp, EPSILON } from './common.ts';
+import { approxEqual, EPSILON } from './common.ts';
 import type { Euler, EulerOrder } from './euler.ts';
 import type { Vec3 } from './vec3.ts';
 
@@ -81,7 +81,7 @@ export function conjugate(out: Quat, a: Readonly<Quat>): Quat {
   return set(out, -a.x, -a.y, -a.z, a.w);
 }
 
-/** Обратный кватернион, в том числе для неединичного. */
+/** Обратный кватернион, в том числе для неединичного. Нулевой кватернион становится единичным. */
 export function invert(out: Quat, a: Readonly<Quat>): Quat {
   const lenSq = dot(a, a);
   if (lenSq === 0) return identity(out);
@@ -130,9 +130,27 @@ export function transformVec3(out: Vec3, q: Readonly<Quat>, v: Readonly<Vec3>): 
   return out;
 }
 
-/** Задают ли кватернионы один и тот же поворот (`q` и `-q` считаются равными). */
+/**
+ * Угол в радианах между поворотами единичных кватернионов `a` и `b`, от 0 до π.
+ * Точен и для очень близких поворотов.
+ */
+export function angleBetween(a: Readonly<Quat>, b: Readonly<Quat>): number {
+  // |a − b| = 2·sin(θ/4) после выбора знака b ближе к a; asin точен для малых углов.
+  const sign = dot(a, b) < 0 ? -1 : 1;
+  const dx = a.x - sign * b.x;
+  const dy = a.y - sign * b.y;
+  const dz = a.z - sign * b.z;
+  const dw = a.w - sign * b.w;
+  const half = Math.sqrt(dx * dx + dy * dy + dz * dz + dw * dw) / 2;
+  return 4 * Math.asin(Math.min(1, half));
+}
+
+/**
+ * Задают ли единичные кватернионы один и тот же поворот с точностью до угла `epsilon`
+ * радиан (`q` и `-q` считаются равными).
+ */
 export function equalsRotation(a: Readonly<Quat>, b: Readonly<Quat>, epsilon = EPSILON): boolean {
-  return approxEqual(Math.abs(dot(a, b)), 1, epsilon);
+  return angleBetween(a, b) <= epsilon;
 }
 
 export function equals(a: Readonly<Quat>, b: Readonly<Quat>, epsilon = EPSILON): boolean {
@@ -167,9 +185,10 @@ export function fromEuler(out: Quat, euler: Readonly<Euler>): Quat {
 }
 
 /**
- * Углы Эйлера для единичного кватерниона в заданном порядке. Средний угол лежит
- * в диапазоне [-π/2, π/2], крайние в [-π, π]. В блокировке осей (средний угол ±π/2)
- * третий угол обнуляется.
+ * Углы Эйлера для единичного кватерниона в заданном порядке (по умолчанию `out.order`).
+ * Средний угол лежит в диапазоне [-π/2, π/2], крайние в [-π, π]. В блокировке осей
+ * (средний угол ±π/2) последний по порядку угол обнуляется, а поворот целиком
+ * переносится на первый.
  */
 export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.order): Euler {
   const { x, y, z, w } = q;
@@ -183,15 +202,19 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
   const m31 = 2 * (x * z - w * y);
   const m32 = 2 * (y * z + w * x);
   const m33 = 1 - 2 * (x * x + y * y);
-  const limit = 1 - 1e-7;
   let ex = 0;
   let ey = 0;
   let ez = 0;
+  // Средний угол считается через atan2, а не asin: asin теряет точность около ±π/2.
+  // Блокировка осей наступает, только когда косинус среднего угла неотличим от нуля.
+  const lock = 1e-9;
+  let cos: number;
 
   switch (order) {
     case 'XYZ':
-      ey = Math.asin(clamp(m13, -1, 1));
-      if (Math.abs(m13) < limit) {
+      cos = Math.sqrt(m11 * m11 + m12 * m12);
+      ey = Math.atan2(m13, cos);
+      if (cos > lock) {
         ex = Math.atan2(-m23, m33);
         ez = Math.atan2(-m12, m11);
       } else {
@@ -199,8 +222,9 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
       }
       break;
     case 'XZY':
-      ez = Math.asin(-clamp(m12, -1, 1));
-      if (Math.abs(m12) < limit) {
+      cos = Math.sqrt(m11 * m11 + m13 * m13);
+      ez = Math.atan2(-m12, cos);
+      if (cos > lock) {
         ex = Math.atan2(m32, m22);
         ey = Math.atan2(m13, m11);
       } else {
@@ -208,8 +232,9 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
       }
       break;
     case 'YXZ':
-      ex = Math.asin(-clamp(m23, -1, 1));
-      if (Math.abs(m23) < limit) {
+      cos = Math.sqrt(m21 * m21 + m22 * m22);
+      ex = Math.atan2(-m23, cos);
+      if (cos > lock) {
         ey = Math.atan2(m13, m33);
         ez = Math.atan2(m21, m22);
       } else {
@@ -217,8 +242,9 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
       }
       break;
     case 'YZX':
-      ez = Math.asin(clamp(m21, -1, 1));
-      if (Math.abs(m21) < limit) {
+      cos = Math.sqrt(m11 * m11 + m31 * m31);
+      ez = Math.atan2(m21, cos);
+      if (cos > lock) {
         ex = Math.atan2(-m23, m22);
         ey = Math.atan2(-m31, m11);
       } else {
@@ -226,8 +252,9 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
       }
       break;
     case 'ZXY':
-      ex = Math.asin(clamp(m32, -1, 1));
-      if (Math.abs(m32) < limit) {
+      cos = Math.sqrt(m31 * m31 + m33 * m33);
+      ex = Math.atan2(m32, cos);
+      if (cos > lock) {
         ey = Math.atan2(-m31, m33);
         ez = Math.atan2(-m12, m22);
       } else {
@@ -235,8 +262,9 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
       }
       break;
     case 'ZYX':
-      ey = Math.asin(-clamp(m31, -1, 1));
-      if (Math.abs(m31) < limit) {
+      cos = Math.sqrt(m32 * m32 + m33 * m33);
+      ey = Math.atan2(-m31, cos);
+      if (cos > lock) {
         ex = Math.atan2(m32, m33);
         ez = Math.atan2(m21, m11);
       } else {

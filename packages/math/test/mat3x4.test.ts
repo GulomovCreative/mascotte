@@ -33,7 +33,24 @@ describe('mat3x4', () => {
       const expected = vec3.mul(vec3.create(), v, scale);
       quat.transformVec3(expected, rotation, expected);
       vec3.add(expected, expected, translation);
-      expectClose(point(m, v), expected);
+      expectClose(point(m, v), expected, 7);
+    }
+  });
+
+  it('pivot: поворот и масштаб вокруг точки для произвольных точек', () => {
+    const next = random(4);
+    for (let i = 0; i < 50; i++) {
+      const { translation, rotation, scale } = randomTransform(next);
+      const pivot = vec3.create(range(next, -20, 20), range(next, -20, 20), range(next, -20, 20));
+      const m = mat3x4.compose(mat3x4.create(), translation, rotation, scale, pivot);
+      const v = vec3.create(range(next, -10, 10), range(next, -10, 10), range(next, -10, 10));
+      // R · (S · (v − p)) + p + t
+      const expected = vec3.sub(vec3.create(), v, pivot);
+      vec3.mul(expected, expected, scale);
+      quat.transformVec3(expected, rotation, expected);
+      vec3.add(expected, expected, pivot);
+      vec3.add(expected, expected, translation);
+      expectClose(point(m, v), expected, 7);
     }
   });
 
@@ -72,8 +89,7 @@ describe('mat3x4', () => {
       const { translation, rotation, scale } = randomTransform(next);
       const m = mat3x4.compose(mat3x4.create(), translation, rotation, scale);
       const inv = mat3x4.invert(mat3x4.create(), m);
-      expect(inv).not.toBeNull();
-      if (!inv) return;
+      if (!inv) throw new Error('матрица должна обращаться');
       expect(mat3x4.equals(mat3x4.multiply(mat3x4.create(), m, inv), mat3x4.create(), 1e-9)).toBe(
         true,
       );
@@ -93,6 +109,60 @@ describe('mat3x4', () => {
     const out = mat3x4.create();
     expect(mat3x4.invert(out, singular)).toBeNull();
     expect(mat3x4.equals(out, mat3x4.create())).toBe(true);
+  });
+
+  it('отрицательный масштаб: отражение с det < 0 обращается', () => {
+    const rotation = quat.setAxisAngle(quat.create(), vec3.create(0, 0, 1), 0.4);
+    const m = mat3x4.compose(
+      mat3x4.create(),
+      vec3.create(3, 1, 2),
+      rotation,
+      vec3.create(-1, 1, 1),
+    );
+    expect(mat3x4.determinant(m)).toBeCloseTo(-1);
+    const inv = mat3x4.invert(mat3x4.create(), m);
+    if (!inv) throw new Error('отражение должно обращаться');
+    expect(mat3x4.equals(mat3x4.multiply(mat3x4.create(), inv, m), mat3x4.create(), 1e-12)).toBe(
+      true,
+    );
+  });
+
+  it('очень маленький, но честный масштаб обращается', () => {
+    const tiny = vec3.create(1e-5, 1e-5, 1e-5);
+    const m = mat3x4.compose(mat3x4.create(), vec3.create(1, 2, 3), quat.create(), tiny);
+    const inv = mat3x4.invert(mat3x4.create(), m);
+    if (!inv) throw new Error('масштаб 1e-5 должен обращаться');
+    const v = vec3.create(4, -5, 6);
+    expectClose(point(inv, point(m, v)), v, 6);
+  });
+
+  it('матрица с параллельными столбцами вырождена', () => {
+    const m = mat3x4.fromArray([1, 2, 3, 2, 4, 6, 0, 0, 1, 5, 5, 5]);
+    expect(mat3x4.invert(mat3x4.create(), m)).toBeNull();
+  });
+
+  it('fromArray проверяет длину', () => {
+    expect(() => mat3x4.fromArray(new Float64Array(16))).toThrow(RangeError);
+    const values = [1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 8, 9];
+    expect(Array.from(mat3x4.fromArray(values))).toEqual(values);
+  });
+
+  it('copy и identity перезаписывают матрицу целиком', () => {
+    const dirty = mat3x4.fromArray([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]);
+    expect(mat3x4.equals(mat3x4.identity(dirty), mat3x4.create())).toBe(true);
+    const source = mat3x4.fromArray([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
+    expect(Array.from(mat3x4.copy(mat3x4.create(), source))).toEqual(Array.from(source));
+  });
+
+  it('transformPoint и transformDirection допускают out = v', () => {
+    const rotation = quat.setAxisAngle(quat.create(), vec3.create(1, 0, 0), 0.9);
+    const m = mat3x4.compose(mat3x4.create(), vec3.create(1, 2, 3), rotation, vec3.create(2, 1, 3));
+    const v = vec3.create(0.5, -1, 2);
+    const p = point(m, v);
+    const d = mat3x4.transformDirection(vec3.create(), m, v);
+    expect(mat3x4.transformPoint(vec3.clone(v), m, vec3.clone(v))).toEqual(p);
+    const w = vec3.clone(v);
+    expect(mat3x4.transformDirection(w, m, w)).toEqual(d);
   });
 
   it('determinant равен произведению масштабов', () => {

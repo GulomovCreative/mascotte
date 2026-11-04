@@ -65,7 +65,10 @@ export function dot(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
   return a.x * b.x + a.y * b.y;
 }
 
-/** Z-компонента векторного произведения: положительна, если `b` повёрнут от `a` к оси Y. */
+/**
+ * Z-компонента векторного произведения. Положительна, если кратчайший поворот от `a` к `b`
+ * идёт в ту же сторону, что от оси X к оси Y.
+ */
 export function cross(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
   return a.x * b.y - a.y * b.x;
 }
@@ -75,11 +78,13 @@ export function lengthSq(a: Readonly<Vec2>): number {
 }
 
 export function length(a: Readonly<Vec2>): number {
-  return Math.hypot(a.x, a.y);
+  return Math.sqrt(a.x * a.x + a.y * a.y);
 }
 
 export function distance(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
-  return Math.hypot(a.x - b.x, a.y - b.y);
+  const dx = a.x - b.x;
+  const dy = a.y - b.y;
+  return Math.sqrt(dx * dx + dy * dy);
 }
 
 /** Нормирует вектор. Нулевой вектор остаётся нулевым. */

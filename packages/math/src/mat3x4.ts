@@ -11,9 +11,13 @@ import type { Vec3 } from './vec3.ts';
  * | m[2] m[5] m[8] m[11] |
  * ```
  *
- * Нижняя строка подразумевается равной `0 0 0 1`.
+ * Нижняя строка подразумевается равной `0 0 0 1`. Матрицу создают только `create`,
+ * `clone` и `fromArray`, поэтому в ней всегда ровно 12 элементов, и чтение по индексу
+ * помечено `!` без проверки на `undefined`.
  */
-export type Mat3x4 = Float64Array;
+export type Mat3x4 = Float64Array & { readonly [brand]: 'Mat3x4' };
+
+declare const brand: unique symbol;
 
 /*
  * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
@@ -21,11 +25,19 @@ export type Mat3x4 = Float64Array;
  */
 
 export function create(): Mat3x4 {
-  return identity(new Float64Array(12));
+  return identity(new Float64Array(12) as Mat3x4);
 }
 
 export function clone(a: Readonly<Mat3x4>): Mat3x4 {
-  return new Float64Array(a);
+  return new Float64Array(a) as Mat3x4;
+}
+
+/** Матрица из 12 чисел по столбцам. Бросает ошибку при другой длине. */
+export function fromArray(values: ArrayLike<number>): Mat3x4 {
+  if (values.length !== 12) {
+    throw new RangeError(`Mat3x4 требует 12 элементов, получено ${values.length}.`);
+  }
+  return Float64Array.from(values) as Mat3x4;
 }
 
 export function copy(out: Mat3x4, a: Readonly<Mat3x4>): Mat3x4 {
@@ -43,30 +55,30 @@ export function identity(out: Mat3x4): Mat3x4 {
 
 /** `out = a · b`: сначала применяется `b`, потом `a`. */
 export function multiply(out: Mat3x4, a: Readonly<Mat3x4>, b: Readonly<Mat3x4>): Mat3x4 {
-  const a0 = a[0] ?? 0;
-  const a1 = a[1] ?? 0;
-  const a2 = a[2] ?? 0;
-  const a3 = a[3] ?? 0;
-  const a4 = a[4] ?? 0;
-  const a5 = a[5] ?? 0;
-  const a6 = a[6] ?? 0;
-  const a7 = a[7] ?? 0;
-  const a8 = a[8] ?? 0;
-  const a9 = a[9] ?? 0;
-  const a10 = a[10] ?? 0;
-  const a11 = a[11] ?? 0;
-  const b0 = b[0] ?? 0;
-  const b1 = b[1] ?? 0;
-  const b2 = b[2] ?? 0;
-  const b3 = b[3] ?? 0;
-  const b4 = b[4] ?? 0;
-  const b5 = b[5] ?? 0;
-  const b6 = b[6] ?? 0;
-  const b7 = b[7] ?? 0;
-  const b8 = b[8] ?? 0;
-  const b9 = b[9] ?? 0;
-  const b10 = b[10] ?? 0;
-  const b11 = b[11] ?? 0;
+  const a0 = a[0]!;
+  const a1 = a[1]!;
+  const a2 = a[2]!;
+  const a3 = a[3]!;
+  const a4 = a[4]!;
+  const a5 = a[5]!;
+  const a6 = a[6]!;
+  const a7 = a[7]!;
+  const a8 = a[8]!;
+  const a9 = a[9]!;
+  const a10 = a[10]!;
+  const a11 = a[11]!;
+  const b0 = b[0]!;
+  const b1 = b[1]!;
+  const b2 = b[2]!;
+  const b3 = b[3]!;
+  const b4 = b[4]!;
+  const b5 = b[5]!;
+  const b6 = b[6]!;
+  const b7 = b[7]!;
+  const b8 = b[8]!;
+  const b9 = b[9]!;
+  const b10 = b[10]!;
+  const b11 = b[11]!;
   out[0] = a0 * b0 + a3 * b1 + a6 * b2;
   out[1] = a1 * b0 + a4 * b1 + a7 * b2;
   out[2] = a2 * b0 + a5 * b1 + a8 * b2;
@@ -146,40 +158,46 @@ export function compose(
 }
 
 export function determinant(m: Readonly<Mat3x4>): number {
-  const m0 = m[0] ?? 0;
-  const m1 = m[1] ?? 0;
-  const m2 = m[2] ?? 0;
-  const m3 = m[3] ?? 0;
-  const m4 = m[4] ?? 0;
-  const m5 = m[5] ?? 0;
-  const m6 = m[6] ?? 0;
-  const m7 = m[7] ?? 0;
-  const m8 = m[8] ?? 0;
+  const m0 = m[0]!;
+  const m1 = m[1]!;
+  const m2 = m[2]!;
+  const m3 = m[3]!;
+  const m4 = m[4]!;
+  const m5 = m[5]!;
+  const m6 = m[6]!;
+  const m7 = m[7]!;
+  const m8 = m[8]!;
   return m0 * (m4 * m8 - m7 * m5) - m3 * (m1 * m8 - m7 * m2) + m6 * (m1 * m5 - m4 * m2);
 }
 
 /**
- * Обратная матрица. Если матрица вырождена (например, масштаб 0 по одной из осей),
- * возвращает `null` и не меняет `out`.
+ * Обратная матрица. Если матрица вырождена (например, масштаб 0 по одной из осей
+ * или два столбца параллельны), возвращает `null` и не меняет `out`. Порог задан
+ * относительно длин столбцов, поэтому очень маленький, но честный масштаб обращается.
  */
 export function invert(out: Mat3x4, m: Readonly<Mat3x4>): Mat3x4 | null {
-  const m0 = m[0] ?? 0;
-  const m1 = m[1] ?? 0;
-  const m2 = m[2] ?? 0;
-  const m3 = m[3] ?? 0;
-  const m4 = m[4] ?? 0;
-  const m5 = m[5] ?? 0;
-  const m6 = m[6] ?? 0;
-  const m7 = m[7] ?? 0;
-  const m8 = m[8] ?? 0;
-  const tx = m[9] ?? 0;
-  const ty = m[10] ?? 0;
-  const tz = m[11] ?? 0;
+  const m0 = m[0]!;
+  const m1 = m[1]!;
+  const m2 = m[2]!;
+  const m3 = m[3]!;
+  const m4 = m[4]!;
+  const m5 = m[5]!;
+  const m6 = m[6]!;
+  const m7 = m[7]!;
+  const m8 = m[8]!;
+  const tx = m[9]!;
+  const ty = m[10]!;
+  const tz = m[11]!;
   const c0 = m4 * m8 - m7 * m5;
   const c1 = m7 * m2 - m1 * m8;
   const c2 = m1 * m5 - m4 * m2;
   const det = m0 * c0 + m3 * c1 + m6 * c2;
-  if (Math.abs(det) < 1e-12) return null;
+  // |det| не больше произведения длин столбцов (неравенство Адамара); их отношение
+  // показывает, насколько матрица близка к вырожденной, независимо от масштаба.
+  const columns = Math.sqrt(
+    (m0 * m0 + m1 * m1 + m2 * m2) * (m3 * m3 + m4 * m4 + m5 * m5) * (m6 * m6 + m7 * m7 + m8 * m8),
+  );
+  if (!(Math.abs(det) > 1e-12 * columns)) return null;
   const inv = 1 / det;
   const i0 = c0 * inv;
   const i1 = c1 * inv;
@@ -208,25 +226,25 @@ export function invert(out: Mat3x4, m: Readonly<Mat3x4>): Mat3x4 | null {
 /** Преобразует точку: линейная часть и перенос. */
 export function transformPoint(out: Vec3, m: Readonly<Mat3x4>, v: Readonly<Vec3>): Vec3 {
   const { x, y, z } = v;
-  out.x = (m[0] ?? 0) * x + (m[3] ?? 0) * y + (m[6] ?? 0) * z + (m[9] ?? 0);
-  out.y = (m[1] ?? 0) * x + (m[4] ?? 0) * y + (m[7] ?? 0) * z + (m[10] ?? 0);
-  out.z = (m[2] ?? 0) * x + (m[5] ?? 0) * y + (m[8] ?? 0) * z + (m[11] ?? 0);
+  out.x = m[0]! * x + m[3]! * y + m[6]! * z + m[9]!;
+  out.y = m[1]! * x + m[4]! * y + m[7]! * z + m[10]!;
+  out.z = m[2]! * x + m[5]! * y + m[8]! * z + m[11]!;
   return out;
 }
 
 /** Преобразует направление: только линейная часть, без переноса. */
 export function transformDirection(out: Vec3, m: Readonly<Mat3x4>, v: Readonly<Vec3>): Vec3 {
   const { x, y, z } = v;
-  out.x = (m[0] ?? 0) * x + (m[3] ?? 0) * y + (m[6] ?? 0) * z;
-  out.y = (m[1] ?? 0) * x + (m[4] ?? 0) * y + (m[7] ?? 0) * z;
-  out.z = (m[2] ?? 0) * x + (m[5] ?? 0) * y + (m[8] ?? 0) * z;
+  out.x = m[0]! * x + m[3]! * y + m[6]! * z;
+  out.y = m[1]! * x + m[4]! * y + m[7]! * z;
+  out.z = m[2]! * x + m[5]! * y + m[8]! * z;
   return out;
 }
 
 export function getTranslation(out: Vec3, m: Readonly<Mat3x4>): Vec3 {
-  out.x = m[9] ?? 0;
-  out.y = m[10] ?? 0;
-  out.z = m[11] ?? 0;
+  out.x = m[9]!;
+  out.y = m[10]!;
+  out.z = m[11]!;
   return out;
 }
 

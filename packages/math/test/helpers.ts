@@ -17,8 +17,12 @@ export function range(next: () => number, min: number, max: number): number {
   return min + (max - min) * next();
 }
 
-/** Проверяет, что поля объекта совпадают с ожидаемыми с точностью до `digits` знаков. */
+/**
+ * Проверяет, что у объектов одинаковый набор полей, а числовые поля совпадают
+ * с точностью до `digits` знаков после запятой.
+ */
 export function expectClose<T extends object>(actual: T, expected: T, digits = 9): void {
+  expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort());
   for (const key of Object.keys(expected) as (keyof T)[]) {
     const value = expected[key];
     if (typeof value === 'number') {

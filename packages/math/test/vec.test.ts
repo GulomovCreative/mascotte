@@ -84,3 +84,78 @@ describe('vec3', () => {
     expect(a.x).toBe(1);
   });
 });
+
+describe('vec2: остальные операции', () => {
+  it('set, copy, clone, scale, negate, lerp, lengthSq, equals', () => {
+    const a = vec2.set(vec2.create(), 3, -4);
+    expect(vec2.copy(vec2.create(), a)).toEqual({ x: 3, y: -4 });
+    const c = vec2.clone(a);
+    c.x = 0;
+    expect(a.x).toBe(3);
+    expect(vec2.scale(vec2.create(), a, 2)).toEqual({ x: 6, y: -8 });
+    expect(vec2.negate(vec2.create(), a)).toEqual({ x: -3, y: 4 });
+    expect(vec2.lerp(vec2.create(), a, vec2.create(5, 0), 0.5)).toEqual({ x: 4, y: -2 });
+    expect(vec2.lengthSq(a)).toBe(25);
+    expect(vec2.length(a)).toBe(5);
+    expect(vec2.equals(a, vec2.create(3, -4 + 1e-9))).toBe(true);
+    expect(vec2.equals(a, vec2.create(3, -4.1))).toBe(false);
+  });
+
+  it('все операции допускают out = аргумент', () => {
+    const b = vec2.create(-2, 5);
+    const cases: [string, (out: vec2.Vec2, a: vec2.Vec2) => vec2.Vec2][] = [
+      ['add', (out, a) => vec2.add(out, a, b)],
+      ['sub', (out, a) => vec2.sub(out, a, b)],
+      ['scale', (out, a) => vec2.scale(out, a, 3)],
+      ['scaleAndAdd', (out, a) => vec2.scaleAndAdd(out, a, b, 2)],
+      ['negate', (out, a) => vec2.negate(out, a)],
+      ['normalize', (out, a) => vec2.normalize(out, a)],
+      ['lerp', (out, a) => vec2.lerp(out, a, b, 0.3)],
+      ['rotate', (out, a) => vec2.rotate(out, a, 0.7)],
+    ];
+    for (const [name, op] of cases) {
+      const expected = op(vec2.create(), vec2.create(1.5, -0.5));
+      const a = vec2.create(1.5, -0.5);
+      expect(op(a, a), name).toEqual(expected);
+    }
+  });
+});
+
+describe('vec3: остальные операции', () => {
+  it('scale, scaleAndAdd, length, distance, set, copy', () => {
+    const a = vec3.set(vec3.create(), 1, 2, 2);
+    expect(vec3.copy(vec3.create(), a)).toEqual(a);
+    expect(vec3.scale(vec3.create(), a, -2)).toEqual({ x: -2, y: -4, z: -4 });
+    expect(vec3.scaleAndAdd(vec3.create(), a, vec3.create(1, 0, -1), 3)).toEqual({
+      x: 4,
+      y: 2,
+      z: -1,
+    });
+    expect(vec3.length(a)).toBe(3);
+    expect(vec3.lengthSq(a)).toBe(9);
+    expect(vec3.distance(a, vec3.create(1, 2, -2))).toBe(4);
+  });
+
+  it('все операции допускают out = аргумент', () => {
+    const b = vec3.create(-2, 5, 0.5);
+    const cases: [string, (out: vec3.Vec3, a: vec3.Vec3) => vec3.Vec3][] = [
+      ['add', (out, a) => vec3.add(out, a, b)],
+      ['sub', (out, a) => vec3.sub(out, a, b)],
+      ['mul', (out, a) => vec3.mul(out, a, b)],
+      ['scale', (out, a) => vec3.scale(out, a, 3)],
+      ['scaleAndAdd a', (out, a) => vec3.scaleAndAdd(out, a, b, 2)],
+      ['scaleAndAdd b', (out, a) => vec3.scaleAndAdd(out, b, a, 2)],
+      ['negate', (out, a) => vec3.negate(out, a)],
+      ['normalize', (out, a) => vec3.normalize(out, a)],
+      ['lerp a', (out, a) => vec3.lerp(out, a, b, 0.3)],
+      ['lerp b', (out, a) => vec3.lerp(out, b, a, 0.3)],
+      ['cross a', (out, a) => vec3.cross(out, a, b)],
+      ['cross b', (out, a) => vec3.cross(out, b, a)],
+    ];
+    for (const [name, op] of cases) {
+      const expected = op(vec3.create(), vec3.create(1.5, -0.5, 2));
+      const a = vec3.create(1.5, -0.5, 2);
+      expect(op(a, a), name).toEqual(expected);
+    }
+  });
+});

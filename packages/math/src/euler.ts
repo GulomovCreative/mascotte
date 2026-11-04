@@ -5,7 +5,19 @@
  */
 export type EulerOrder = 'XYZ' | 'XZY' | 'YXZ' | 'YZX' | 'ZXY' | 'ZYX';
 
-export const EULER_ORDERS: readonly EulerOrder[] = ['XYZ', 'XZY', 'YXZ', 'YZX', 'ZXY', 'ZYX'];
+export const EULER_ORDERS = [
+  'XYZ',
+  'XZY',
+  'YXZ',
+  'YZX',
+  'ZXY',
+  'ZYX',
+] as const satisfies readonly EulerOrder[];
+
+/** Является ли строка допустимым порядком осей. Нужна при разборе документа. */
+export function isEulerOrder(value: string): value is EulerOrder {
+  return (EULER_ORDERS as readonly string[]).includes(value);
+}
 
 /** Углы Эйлера в радианах. Используются только для ввода: внутри повороты хранятся кватернионами. */
 export interface Euler {
