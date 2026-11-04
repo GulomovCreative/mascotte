@@ -15,13 +15,22 @@ describe('служебный доступ закрыт', () => {
   it('пакет не экспортирует внутренние объекты, у Scene и Node нет служебных методов', () => {
     expect(Object.keys(engine).sort()).toEqual(
       [
+        'ARC_HANDLE',
         'AUTO_ID_PREFIX',
         'Camera',
         'createProjectedPoint',
+        'Ellipse',
         'Node',
         'ObservedQuat',
         'ObservedVec3',
+        'PathBuilder',
+        'PathOp',
+        'PathShape',
+        'Polygon',
+        'Rect',
+        'RoundedRect',
         'Scene',
+        'Shape',
       ].sort(),
     );
     const scene = new Scene();

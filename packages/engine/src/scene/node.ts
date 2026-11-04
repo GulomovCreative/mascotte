@@ -144,7 +144,7 @@ export class Node {
     }
   }
 
-  /** Счётчик изменений `visible` и `opacity` самого узла (без учёта предков). */
+  /** Счётчик изменений внешнего вида самого узла (`visible`, `opacity` и стиль фигур), без учёта предков. */
   get appearanceVersion(): number {
     return this.#appearanceVersion;
   }
@@ -342,6 +342,11 @@ export class Node {
 
   /** Вызывается, когда мировая матрица узла становится устаревшей. */
   protected onWorldInvalidated(): void {}
+
+  /** Для подклассов со своими параметрами внешнего вида (цвет, обводка): увеличивает `appearanceVersion`. */
+  protected markAppearanceChanged(): void {
+    this.#appearanceVersion++;
+  }
 
   // ----- жизненный цикл ----- //
 
