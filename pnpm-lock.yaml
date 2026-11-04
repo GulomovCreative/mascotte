@@ -193,7 +193,11 @@ importers:
 
   packages/format: {}
 
-  packages/math: {}
+  packages/math:
+    devDependencies:
+      '@mascotte/zdog-reference':
+        specifier: workspace:*
+        version: link:../../src/core
 
   packages/player: {}
 

@@ -92,6 +92,7 @@ docs/
 - `Vec2`, `Vec3`, `Mat3x4` (аффинная матрица), `Quat`.
 - Операции без аллокаций: запись в выходной аргумент, пулы временных объектов.
 - Повороты хранятся кватернионами. В редакторе и документе их можно задавать углами Эйлера с выбранным порядком осей.
+- Порядок `'XYZ'` означает матрицу `Rx · Ry · Rz`. Поворот Zdog `rotate: {x, y, z}` равен углам `{x, -y, z}` в этом порядке: у Zdog обратный знак поворота вокруг Y.
 - Цвет: хранение в линейном RGB или OKLab для интерполяции, разбор строк CSS.
 - Плавность: стандартный набор (in/out/inOut для quad, cubic, back, elastic, bounce), произвольная `cubic-bezier`, ступенька.
 
@@ -238,9 +239,9 @@ docs/
 
 ### Этап 1. Ядро рендера
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
+Статус: **в работе** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
 
-- [ ] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
+- [x] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
 - [ ] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
 - [ ] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
 - [ ] Камера: ортография и слабая перспектива ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
