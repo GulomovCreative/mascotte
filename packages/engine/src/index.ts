@@ -1,5 +1,6 @@
 // Сцена, примитивы, сортировка, рендер, анимация и риг. См. docs/PLAN.md, разделы 5.4–5.12.
 
+export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {
   Camera,
@@ -8,7 +9,14 @@ export {
   type ProjectedPoint,
   type Projection,
 } from './scene/camera.ts';
-export { AUTO_ID_PREFIX, Node, type NodeOptions, OWNER_SEPARATOR } from './scene/node.ts';
+export {
+  AUTO_ID_PREFIX,
+  getSortSettingsVersion,
+  Node,
+  type NodeOptions,
+  OWNER_SEPARATOR,
+  type SortMode,
+} from './scene/node.ts';
 export { ObservedQuat, ObservedVec3 } from './scene/observed.ts';
 export { Scene } from './scene/scene.ts';
 export type { ParamSchema, ParamSpec, StyleParamSpec } from './shapes/params.ts';

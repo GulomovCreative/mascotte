@@ -49,6 +49,9 @@ describe('служебный доступ закрыт', () => {
         'SurfaceOutline',
         'OWNER_SEPARATOR',
         'Styled',
+        'DepthSorter',
+        'getSortSettingsVersion',
+        'isDrawable',
       ].sort(),
     );
     const scene = new Scene();

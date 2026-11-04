@@ -1,7 +1,13 @@
 import type { Vec3 } from '@mascotte/math';
 import { ObservedVec3 } from '../scene/observed.ts';
 import type { ParamSchema } from './params.ts';
-import { PathBuilder, type PathCommand, type PathGeometry, type PathPoint } from './path.ts';
+import {
+  PathBuilder,
+  type PathCommand,
+  type PathGeometry,
+  PathOp,
+  type PathPoint,
+} from './path.ts';
 import { Styled, type StyledOptions } from './styled.ts';
 
 export interface ShapeOptions extends StyledOptions {
@@ -38,6 +44,8 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
   };
   #geometryDirty = true;
   #geometryVersion = 0;
+  readonly #sortPoint: Vec3 = { x: 0, y: 0, z: 0 };
+  #sortPointVersion = -1;
 
   constructor(options: ShapeOptions = {}) {
     super(options);
@@ -82,6 +90,58 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
   get geometryVersion(): number {
     this.geometry;
     return this.#geometryVersion;
+  }
+
+  /**
+   * Точка сортировки — среднее концов команд пути, как в Zdog. Если путь возвращается
+   * в начальную точку, повтор не учитывается.
+   */
+  override getSortPoint(out: Vec3): Vec3 {
+    const version = this.geometryVersion;
+    const point = this.#sortPoint;
+    if (version !== this.#sortPointVersion) {
+      const { ops, points, opCount } = this.geometry;
+      let x = 0;
+      let y = 0;
+      let z = 0;
+      let index = 0;
+      let firstX = 0;
+      let firstY = 0;
+      let firstZ = 0;
+      let lastX = 0;
+      let lastY = 0;
+      let lastZ = 0;
+      for (let op = 0; op < opCount; op++) {
+        index += ops[op] === PathOp.cubic ? 3 : 1;
+        const i = (index - 1) * 3;
+        lastX = points[i] ?? 0;
+        lastY = points[i + 1] ?? 0;
+        lastZ = points[i + 2] ?? 0;
+        if (op === 0) {
+          firstX = lastX;
+          firstY = lastY;
+          firstZ = lastZ;
+        }
+        x += lastX;
+        y += lastY;
+        z += lastZ;
+      }
+      let count = opCount;
+      if (count > 2 && lastX === firstX && lastY === firstY && lastZ === firstZ) {
+        x -= lastX;
+        y -= lastY;
+        z -= lastZ;
+        count--;
+      }
+      point.x = x / count;
+      point.y = y / count;
+      point.z = z / count;
+      this.#sortPointVersion = version;
+    }
+    out.x = point.x;
+    out.y = point.y;
+    out.z = point.z;
+    return out;
   }
 
   /** Строит путь в локальных координатах. */

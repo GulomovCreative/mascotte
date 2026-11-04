@@ -33,6 +33,45 @@ export interface NodeOptions {
   pivot?: Readonly<Vec3>;
   visible?: boolean;
   opacity?: number;
+  /** Режим сортировки по глубине, см. `SortMode`. */
+  sortMode?: SortMode;
+  /** Смещение глубины при сортировке: больше — ближе к зрителю. Допускаются ±Infinity. */
+  zBias?: number;
+  /** Слой для режима `layer`: отрицательные под основным содержимым, положительные над ним. */
+  layer?: number;
+}
+
+/**
+ * Как узел участвует в сортировке по глубине.
+ * - `auto` — по глубине своей точки сортировки; узел без рисования прозрачен для сортировки,
+ *   его потомки сортируются вместе с соседями;
+ * - `group` — поддерево сортируется как одно целое по глубине точки сортировки узла,
+ *   а внутри — своим порядком;
+ * - `attached` — декаль на поверхности ближайшего рисуемого предка (глаз, рот, пятно):
+ *   рисуется сразу после него и видна, только когда обращена лицевой стороной к камере;
+ * - `layer` — в фиксированном слое `layer` под или над остальным содержимым списка.
+ */
+export type SortMode = 'auto' | 'group' | 'attached' | 'layer';
+
+let sortSettingsVersion = 0;
+
+/**
+ * Счётчик изменений настроек сортировки во всех узлах (`sortMode`, `zBias`, `layer`).
+ * Сортировщик пересобирает свою структуру, когда он меняется. Видимость проверяется
+ * при каждой сортировке и пересборки не требует.
+ */
+export function getSortSettingsVersion(): number {
+  return sortSettingsVersion;
+}
+
+function checkBias(value: number): number {
+  if (Number.isNaN(value)) throw new RangeError('zBias не может быть NaN.');
+  return value;
+}
+
+function checkLayer(value: number): number {
+  if (!Number.isInteger(value)) throw new RangeError(`layer должен быть целым, получено ${value}.`);
+  return value;
 }
 
 /** Префикс автоматических идентификаторов. Документам он запрещён, поэтому совпадений нет. */
@@ -105,6 +144,9 @@ export class Node {
   #visible: boolean;
   #opacity: number;
   #appearanceVersion = 0;
+  #sortMode: SortMode;
+  #zBias: number;
+  #layer: number;
 
   #parent: Node | null = null;
   readonly #children: Node[] = [];
@@ -135,6 +177,57 @@ export class Node {
     this.pivot = new ObservedVec3(invalidate, pivot?.x, pivot?.y, pivot?.z);
     this.#visible = options.visible ?? true;
     this.#opacity = checkOpacity(options.opacity ?? 1);
+    this.#sortMode = options.sortMode ?? (this.constructor as typeof Node).defaultSortMode;
+    this.#zBias = checkBias(options.zBias ?? 0);
+    this.#layer = checkLayer(options.layer ?? 0);
+  }
+
+  /** Режим сортировки по умолчанию для класса. */
+  static readonly defaultSortMode: SortMode = 'auto';
+
+  // ----- сортировка ----- //
+
+  get sortMode(): SortMode {
+    return this.#sortMode;
+  }
+  set sortMode(value: SortMode) {
+    if (value !== this.#sortMode) {
+      this.#sortMode = value;
+      sortSettingsVersion++;
+    }
+  }
+
+  /** Смещение глубины при сортировке: больше — ближе к зрителю. Допускаются ±Infinity. */
+  get zBias(): number {
+    return this.#zBias;
+  }
+  set zBias(value: number) {
+    if (checkBias(value) !== this.#zBias) {
+      this.#zBias = value;
+      sortSettingsVersion++;
+    }
+  }
+
+  /** Слой для режима `layer`. */
+  get layer(): number {
+    return this.#layer;
+  }
+  set layer(value: number) {
+    if (checkLayer(value) !== this.#layer) {
+      this.#layer = value;
+      sortSettingsVersion++;
+    }
+  }
+
+  /**
+   * Точка в локальных координатах, по глубине которой узел сортируется. По умолчанию —
+   * начало координат; фигуры и составные фигуры уточняют её.
+   */
+  getSortPoint(out: Vec3): Vec3 {
+    out.x = 0;
+    out.y = 0;
+    out.z = 0;
+    return out;
   }
 
   // ----- внешний вид ----- //

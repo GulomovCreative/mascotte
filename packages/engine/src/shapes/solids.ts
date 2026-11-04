@@ -1,5 +1,6 @@
 import { TAU, type Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
+import type { SortMode } from '../scene/node.ts';
 import type { ParamSchema } from './params.ts';
 import { Ellipse, Rect } from './primitives.ts';
 import type { ShapeStyle } from './style.ts';
@@ -285,9 +286,15 @@ export type SolidOptions = StyledOptions;
  * и параметры. При каждой синхронизации у детей перезаписываются стиль, размеры
  * и положение, поэтому менять их напрямую не нужно. Перспектива всех частей считается
  * по глубине начала самой фигуры, чтобы части не расходились.
+ *
+ * По умолчанию фигура сортируется как группа. Боковые части (купол, бок цилиндра,
+ * поверхность конуса) имеют `zBias = -Infinity` и внутри группы рисуются первыми,
+ * основания и грани — по глубине, как в Zdog.
  */
 export abstract class Solid<S extends ParamSchema = ParamSchema> extends Styled<S> {
   static override readonly defaultStyle = { fill: true };
+  /** Составная фигура сортируется как одно целое, части — внутри неё. */
+  static override readonly defaultSortMode: SortMode = 'group';
 
   protected override onStyleChanged(): void {
     this.markAppearanceChanged();
@@ -327,7 +334,7 @@ export class Hemisphere extends Solid<typeof HEMISPHERE_PARAMS> {
 
   constructor(options: HemisphereOptions = {}) {
     super(options);
-    this.dome = new HemisphereDome({ owner: this, id: 'dome' });
+    this.dome = new HemisphereDome({ owner: this, id: 'dome', zBias: Number.NEGATIVE_INFINITY });
     this.base = new Ellipse({ owner: this, id: 'base' });
     this.add(this.dome).add(this.base);
     this.sync();
@@ -338,6 +345,14 @@ export class Hemisphere extends Solid<typeof HEMISPHERE_PARAMS> {
   }
   set diameter(value: number) {
     this.setParam('diameter', value);
+  }
+
+  /** Центроид полусферы: 3/8 радиуса от основания к вершине, как в Zdog. */
+  override getSortPoint(out: Vec3): Vec3 {
+    out.x = 0;
+    out.y = 0;
+    out.z = (this.diameter / 2) * (3 / 8);
+    return out;
   }
 
   protected sync(): void {
@@ -375,7 +390,7 @@ export class Cylinder extends Solid<typeof CYLINDER_PARAMS> {
   constructor(options: CylinderOptions = {}) {
     super(options);
     this.#frontFaceColor = options.frontFaceColor ?? null;
-    this.body = new CylinderBody({ owner: this, id: 'body' });
+    this.body = new CylinderBody({ owner: this, id: 'body', zBias: Number.NEGATIVE_INFINITY });
     // Как в Zdog: переднее основание развёрнуто лицевой стороной внутрь.
     this.frontBase = new Ellipse({
       owner: this,
@@ -451,7 +466,11 @@ export class Cone extends Solid<typeof CONE_PARAMS> {
 
   constructor(options: ConeOptions = {}) {
     super(options);
-    this.surface = new ConeSurface({ owner: this, id: 'surface' });
+    this.surface = new ConeSurface({
+      owner: this,
+      id: 'surface',
+      zBias: Number.NEGATIVE_INFINITY,
+    });
     this.base = new Ellipse({ owner: this, id: 'base' });
     this.add(this.surface).add(this.base);
     this.sync();
@@ -469,6 +488,14 @@ export class Cone extends Solid<typeof CONE_PARAMS> {
   }
   set length(value: number) {
     this.setParam('length', value);
+  }
+
+  /** Центроид конуса: треть высоты от основания, как в Zdog. */
+  override getSortPoint(out: Vec3): Vec3 {
+    out.x = 0;
+    out.y = 0;
+    out.z = this.length / 3;
+    return out;
   }
 
   protected sync(): void {
