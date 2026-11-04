@@ -26,6 +26,9 @@ export type CanvasTarget = Pick<
   | 'lineCap'
   | 'lineJoin'
   | 'globalAlpha'
+  | 'save'
+  | 'restore'
+  | 'clip'
 >;
 
 export interface Viewport {
@@ -74,6 +77,14 @@ export class CanvasRenderer {
     let fillStyle = '';
     for (let i = 0; i < list.count; i++) {
       const item = list.item(i);
+      const clipped = item.clip === 'circle';
+      if (clipped) {
+        // После restore контекст возвращается к состоянию до save: кэш тоже сбрасывается.
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
+        ctx.clip();
+      }
       if (item.opacity !== alpha) {
         alpha = item.opacity;
         ctx.globalAlpha = alpha;
@@ -100,6 +111,14 @@ export class CanvasRenderer {
           ctx.fillStyle = fillStyle;
         }
         ctx.fill();
+      }
+      if (clipped) {
+        ctx.restore();
+        alpha = Number.NaN;
+        lineCap = '';
+        lineWidth = Number.NaN;
+        strokeStyle = '';
+        fillStyle = '';
       }
     }
     ctx.globalAlpha = 1;

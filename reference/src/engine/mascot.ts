@@ -19,8 +19,8 @@ export const mascotEngine: EngineVersion = {
           style: { stroke: 16, color: '#e0861a' },
         }),
       );
-      // Глаз — декаль на голове: рисуется только по видимой части головы. С выключенным
-      // перекрытием в Canvas 2D кадр совпадает с Zdog.Group.
+      // Глаз — декаль на голове: рисуется сразу после неё и только по её видимой части,
+      // голова его не режет. С выключенным перекрытием в Canvas 2D кадр совпадает с Zdog.Group.
       const eye = new Node({ sortMode: 'attached', position: { x: side * 14, y: -6, z: 36 } });
       eye
         .add(new Ellipse({ diameter: 8, style: { stroke: 6, fill: true, color: '#fff' } }))

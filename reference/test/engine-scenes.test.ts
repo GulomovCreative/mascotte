@@ -12,6 +12,14 @@ describe('сцены только для нового ядра', () => {
       expect(result.status, JSON.stringify(result)).toBe(expectedStatus);
     });
 
+    for (const [i, time] of (scene.snapshotTimes ?? []).entries()) {
+      it(`${scene.id} в момент ${time.toFixed(2)} совпадает со снимком`, () => {
+        const png = renderEngineSceneToPng(scene, { pixelRatio: 2, time });
+        const result = matchSnapshot(`${scene.id}-${i + 1}`, png);
+        expect(result.status, JSON.stringify(result)).toBe(expectedStatus);
+      });
+    }
+
     it(`${scene.id}: pose меняет кадр`, () => {
       const a = renderEngineSceneToPng(scene);
       const b = renderEngineSceneToPng(scene, { time: 1.5 });

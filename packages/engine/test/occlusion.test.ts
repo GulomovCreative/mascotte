@@ -6,7 +6,7 @@ import {
   type Cutter,
   cutValue,
   DisplayList,
-  type Node,
+  Node,
   PathShape,
   Rect,
   Scene,
@@ -193,10 +193,10 @@ describe('частичное перекрытие в списке отрисов
     head.add(ear({ x: 10, y: -10, z: -20 }, { x: 20, y: -60, z: 10 }));
     const list = new DisplayList().build(sceneWith(head), camera);
     expect(order(list)).toEqual(['ear', 'head', 'ear']);
-    // Ухо до самого края силуэта остаётся позади передней поверхности, поэтому шов — на краю
-    // силуэта головы (радиус 40 на экране).
+    // Ухо до самого края силуэта остаётся позади передней поверхности. Сфера при разрезе
+    // раздута на полтолщины уха (5), поэтому шов — на расстоянии 45 от центра на экране.
     const [x = 0, y = 0] = points(list.item(2).path)[0] ?? [];
-    expect(Math.hypot(x, y)).toBeCloseTo(40, 6);
+    expect(Math.hypot(x, y)).toBeCloseTo(45, 6);
   });
 
   it('обводка целиком за головой, но позже по дереву, переносится до неё', () => {
@@ -271,5 +271,70 @@ describe('частичное перекрытие в списке отрисов
     list.build(scene, camera);
     expect([list.item(0), list.item(2)]).toEqual(parts);
     expect(list.item(0)).toBe(parts[0]);
+  });
+});
+
+describe('декали на сфере', () => {
+  const camera = new Camera();
+
+  function face() {
+    const head = new PathShape({ id: 'head', style: { stroke: 80 } });
+    // Рот лежит внутри сферы головы (z = 38 при радиусе 40), как в Zdog-маскоте.
+    const mouth = new PathShape({
+      id: 'mouth',
+      sortMode: 'attached',
+      position: { x: 0, y: 12, z: 38 },
+      path: [
+        { type: 'move', point: { x: -6 } },
+        { type: 'line', point: { x: 6 } },
+      ],
+      style: { stroke: 4 },
+    });
+    const eye = new Node({ sortMode: 'attached', position: { x: 14, y: -6, z: 36 } });
+    eye.add(new PathShape({ id: 'white', style: { stroke: 10 } }));
+    head.add(mouth).add(eye);
+    return { head, scene: sceneWith(head) };
+  }
+
+  it('опора не режет декаль, декаль обрезается по силуэту опоры', () => {
+    const { scene } = face();
+    const list = new DisplayList().build(scene, camera);
+    // Декали сортируются между собой по глубине: рот (z = 38) ближе глаза (z = 36).
+    expect(order(list)).toEqual(['head', 'white', 'mouth']);
+    for (const id of ['mouth', 'white']) {
+      const item = Array.from({ length: list.count }, (_, i) => list.item(i)).find(
+        (x) => x.node?.id === id,
+      );
+      expect([item?.clip, item?.clipX, item?.clipY, item?.clipRadius], id).toEqual([
+        'circle',
+        0,
+        0,
+        40,
+      ]);
+    }
+  });
+
+  it('обычный ребёнок внутри сферы закрыт ей, а не обрезан', () => {
+    const head = new PathShape({ id: 'head', style: { stroke: 80 } });
+    head.add(
+      new PathShape({
+        id: 'inside',
+        position: { x: 0, y: 12, z: 38 },
+        path: [
+          { type: 'move', point: { x: -6 } },
+          { type: 'line', point: { x: 6 } },
+        ],
+        style: { stroke: 4 },
+      }),
+    );
+    const list = new DisplayList().build(sceneWith(head), camera);
+    expect(order(list)).toEqual(['inside', 'head']);
+    expect(list.item(0).clip).toBe('none');
+  });
+
+  it('без частичного перекрытия декали не обрезаются', () => {
+    const { scene } = face();
+    const list = new DisplayList({ partialOcclusion: false }).build(scene, camera);
+    for (let i = 0; i < list.count; i++) expect(list.item(i).clip).toBe('none');
   });
 });
