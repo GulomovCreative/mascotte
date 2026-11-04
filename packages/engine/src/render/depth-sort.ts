@@ -15,14 +15,15 @@ export function isDrawable(node: Node): node is Drawable {
 /** Элемент сортировки: рисуемый узел или группа. */
 interface Unit {
   readonly node: Node;
-  /** Сам узел, если он рисуется, иначе `null` (группа без своего рисования). */
+  /** Сам узел, если это рисуемый элемент; у группы — `null`. */
   readonly drawable: Drawable | null;
   /** Порядок в дереве: при равной глубине раньше рисуется то, что раньше в дереве. */
   readonly index: number;
   readonly layer: number;
-  readonly group: boolean;
-  /** У группы — её члены, у рисуемого узла — прикреплённые к нему декали. */
-  readonly children: Unit[];
+  /** Члены группы (у рисуемого элемента пусто). */
+  readonly members: Unit[];
+  /** Декали, прикреплённые к элементу или группе: рисуются сразу после них. */
+  readonly decals: Unit[];
   depth: number;
 }
 
@@ -34,11 +35,16 @@ const front: Vec3 = { x: 0, y: 0, z: 0 };
  * Сортировка сцены по глубине для отрисовки: возвращает рисуемые узлы от дальних
  * к ближним с учётом режимов `SortMode`, `zBias` и слоёв.
  *
+ * Группой сортируются: узел в режиме `group`, составная фигура (всегда) и узел без
+ * рисования в режиме `layer` или `attached`. Режим такого узла определяет, куда
+ * попадает группа: в список по глубине, в слой или в декали ближайшего рисуемого
+ * предка или группы.
+ *
  * Структура (группы, декали, слои) собирается заново только при изменении дерева
- * или настроек сортировки. В остальных кадрах пересчитываются глубины, а списки
- * досортировываются вставками: порядок между кадрами почти не меняется, поэтому это
- * быстро и не создаёт объектов. Результат — один и тот же массив, перезаписываемый
- * при каждом вызове.
+ * или режимов и слоёв. В остальных кадрах пересчитываются глубины (вместе с `zBias`),
+ * а списки досортировываются вставками: порядок между кадрами почти не меняется,
+ * поэтому это быстро и не создаёт объектов. Результат — один и тот же массив,
+ * перезаписываемый при каждом вызове.
  */
 export class DepthSorter {
   #top: Unit[] = [];
@@ -70,53 +76,57 @@ export class DepthSorter {
     this.#settingsVersion = getSortSettingsVersion();
     this.#next = 0;
     this.#top = [];
-    this.#add(scene.root, this.#top, null, true);
+    // Корень сцены прозрачен: его дети — верхний список.
+    const root = scene.root;
+    if (isDrawable(root)) this.#place(root, this.#unit(root, root), this.#top, null, true);
+    else for (const child of root.children) this.#add(child, this.#top, null);
   }
 
-  #unit(node: Node, drawable: Drawable | null, group: boolean): Unit {
+  #unit(node: Node, drawable: Drawable | null): Unit {
     return {
       node,
       drawable,
       index: this.#next++,
       layer: node.sortMode === 'layer' ? node.layer : 0,
-      group,
-      children: [],
+      members: [],
+      decals: [],
       depth: 0,
     };
   }
 
-  /** Добавляет узел и его потомков в список `list`; `anchor` — ближайший рисуемый предок. */
-  #add(node: Node, list: Unit[], anchor: Unit | null, isRoot = false): void {
+  /** Кладёт элемент в список или, если это декаль с опорой, в декали опоры. */
+  #place(node: Node, unit: Unit, list: Unit[], anchor: Unit | null, isRoot = false): void {
+    if (!isRoot && node.sortMode === 'attached' && anchor) anchor.decals.push(unit);
+    else list.push(unit);
+  }
+
+  /** Добавляет узел и его потомков; `anchor` — ближайший рисуемый предок или группа. */
+  #add(node: Node, list: Unit[], anchor: Unit | null): void {
     const drawable = isDrawable(node) ? node : null;
     const mode = node.sortMode;
+    const type = node.constructor as typeof Node;
+    const group = mode === 'group' || type.sortsAsGroup || (!drawable && mode !== 'auto');
 
-    if (mode === 'group' && !isRoot) {
-      const group = this.#unit(node, null, true);
-      list.push(group);
-      let inner: Unit | null = null;
+    if (group) {
+      const unit = this.#unit(node, null);
+      this.#place(node, unit, list, anchor);
+      let inner: Unit = unit;
       if (drawable) {
-        inner = this.#unit(node, drawable, false);
-        group.children.push(inner);
+        inner = this.#unit(node, drawable);
+        unit.members.push(inner);
       }
-      for (const child of node.children) this.#add(child, group.children, inner);
-      return;
-    }
-
-    if (drawable && mode === 'attached' && anchor) {
-      const unit = this.#unit(node, drawable, false);
-      anchor.children.push(unit);
-      for (const child of node.children) this.#add(child, list, unit);
+      for (const child of node.children) this.#add(child, unit.members, inner);
       return;
     }
 
     if (drawable) {
-      const unit = this.#unit(node, drawable, false);
-      list.push(unit);
+      const unit = this.#unit(node, drawable);
+      this.#place(node, unit, list, anchor);
       for (const child of node.children) this.#add(child, list, unit);
       return;
     }
 
-    // Узел без рисования прозрачен: потомки сортируются вместе с его соседями.
+    // Узел без рисования в режиме auto прозрачен: потомки сортируются вместе с соседями.
     for (const child of node.children) this.#add(child, list, anchor);
   }
 
@@ -130,17 +140,14 @@ export class DepthSorter {
 
   #emitUnit(unit: Unit, camera: Camera): void {
     if (!unit.node.visibleInTree) return;
-    if (unit.group) {
-      this.#emitList(unit.children, camera);
-      return;
-    }
     if (unit.drawable) this.#out.push(unit.drawable);
-    const decals = unit.children;
+    else this.#emitList(unit.members, camera);
+    const decals = unit.decals;
     if (decals.length === 0) return;
     for (const decal of decals) decal.depth = this.#depth(decal.node, camera);
     insertionSort(decals);
     for (const decal of decals) {
-      if (decal.drawable && isFacing(decal.drawable, camera)) this.#emitUnit(decal, camera);
+      if (isFacing(decal.node, camera)) this.#emitUnit(decal, camera);
     }
   }
 
@@ -151,23 +158,23 @@ export class DepthSorter {
   }
 }
 
-/** Обращена ли лицевая сторона декали к камере. */
-function isFacing(drawable: Drawable, camera: Camera): boolean {
-  if (drawable instanceof Shape) {
-    front.x = drawable.front.x;
-    front.y = drawable.front.y;
-    front.z = drawable.front.z;
+/** Обращена ли лицевая сторона декали к камере: у фигур — `front`, у остальных — +z. */
+function isFacing(node: Node, camera: Camera): boolean {
+  if (node instanceof Shape) {
+    front.x = node.front.x;
+    front.y = node.front.y;
+    front.z = node.front.z;
   } else {
     front.x = 0;
     front.y = 0;
     front.z = 1;
   }
-  drawable.localToWorld(world, front);
+  node.localToWorld(world, front);
   const facing = camera.toView(world, world).z;
   local.x = 0;
   local.y = 0;
   local.z = 0;
-  drawable.localToWorld(front, local);
+  node.localToWorld(front, local);
   return facing > camera.toView(front, front).z;
 }
 
