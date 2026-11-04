@@ -206,14 +206,15 @@ const mascot3d: EngineScene = {
         }),
       );
     }
-    // Рот — трубка точно по поверхности головы: улыбка из точек на сфере.
+    // Рот — трубка, лежащая на поверхности головы: центр трубки чуть больше чем на
+    // полтолщины над сферой, иначе отрезки между точками заходят в голову и режутся.
     const mouth = [];
     for (let i = 0; i <= 8; i++) {
       const x = -9 + (18 * i) / 8;
       const y = 12 + (1 - (x / 9) ** 2) * 5;
       mouth.push({
         type: i === 0 ? ('move' as const) : ('line' as const),
-        point: onSphere(x, y, radius),
+        point: along(onSphere(x, y, radius), radius + 2.5),
       });
     }
     head.add(new PathShape({ path: mouth, closed: false, style: { stroke: 4, color: '#8a3b12' } }));
