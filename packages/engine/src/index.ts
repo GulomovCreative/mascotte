@@ -8,10 +8,10 @@ export {
   type ProjectedPoint,
   type Projection,
 } from './scene/camera.ts';
-export { AUTO_ID_PREFIX, Node, type NodeOptions } from './scene/node.ts';
+export { AUTO_ID_PREFIX, Node, type NodeOptions, OWNER_SEPARATOR } from './scene/node.ts';
 export { ObservedQuat, ObservedVec3 } from './scene/observed.ts';
 export { Scene } from './scene/scene.ts';
-export type { ParamSchema, ParamSpec } from './shapes/params.ts';
+export type { ParamSchema, ParamSpec, StyleParamSpec } from './shapes/params.ts';
 export {
   ARC_HANDLE,
   PathBuilder,
@@ -30,19 +30,12 @@ export {
   RoundedRect,
   type RoundedRectOptions,
 } from './shapes/primitives.ts';
-export {
-  PathShape,
-  type PathShapeOptions,
-  Shape,
-  type ShapeOptions,
-  ShapeStyle,
-  type ShapeStyleValues,
-} from './shapes/shape.ts';
+export { PathShape, type PathShapeOptions, Shape, type ShapeOptions } from './shapes/shape.ts';
 export {
   BOX_FACES,
   Box,
   type BoxFace,
-  type BoxFaceValue,
+  type BoxFaceSettings,
   type BoxOptions,
   Capsule,
   type CapsuleOptions,
@@ -60,4 +53,6 @@ export {
   Sphere,
   type SphereOptions,
 } from './shapes/solids.ts';
+export { ShapeStyle, type ShapeStyleValues } from './shapes/style.ts';
+export { Styled, type StyledOptions } from './shapes/styled.ts';
 export { Surface, type SurfaceOptions, SurfaceOutline } from './shapes/surface.ts';

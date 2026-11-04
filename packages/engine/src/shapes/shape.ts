@@ -1,105 +1,10 @@
 import type { Vec3 } from '@mascotte/math';
-import { Node, type NodeOptions } from '../scene/node.ts';
 import { ObservedVec3 } from '../scene/observed.ts';
-import { checkLength, type ParamSchema, ParamStore } from './params.ts';
+import type { ParamSchema } from './params.ts';
 import { PathBuilder, type PathCommand, type PathGeometry, type PathPoint } from './path.ts';
+import { Styled, type StyledOptions } from './styled.ts';
 
-/** Значения стиля фигуры. */
-export interface ShapeStyleValues {
-  /** Толщина обводки в единицах сцены; 0 — без обводки. */
-  stroke: number;
-  fill: boolean;
-  /** Цвет CSS. */
-  color: string;
-  /** Рисовать ли обратную сторону. */
-  backfaceVisible: boolean;
-  /** Цвет обратной стороны; `null` — тот же, что у лицевой. */
-  backfaceColor: string | null;
-}
-
-/**
- * Стиль фигуры одним объектом: так его проще сохранять в документ и позже заменить
- * цвет материалом. Каждое изменение увеличивает `appearanceVersion` фигуры.
- */
-export class ShapeStyle implements ShapeStyleValues {
-  static readonly params = {
-    stroke: { kind: 'length', default: 1 },
-    fill: { kind: 'boolean', default: false },
-    color: { kind: 'color', default: '#333' },
-    backfaceVisible: { kind: 'boolean', default: true },
-    backfaceColor: { kind: 'optionalColor', default: null },
-  } as const satisfies ParamSchema;
-
-  #stroke: number;
-  #fill: boolean;
-  #color: string;
-  #backfaceVisible: boolean;
-  #backfaceColor: string | null;
-  readonly #onChange: () => void;
-
-  constructor(onChange: () => void, values: Partial<ShapeStyleValues> = {}) {
-    const p = ShapeStyle.params;
-    this.#onChange = onChange;
-    this.#stroke = checkLength('stroke', values.stroke ?? p.stroke.default);
-    this.#fill = values.fill ?? p.fill.default;
-    this.#color = values.color ?? p.color.default;
-    this.#backfaceVisible = values.backfaceVisible ?? p.backfaceVisible.default;
-    this.#backfaceColor = values.backfaceColor ?? p.backfaceColor.default;
-  }
-
-  get stroke(): number {
-    return this.#stroke;
-  }
-  set stroke(value: number) {
-    if (checkLength('stroke', value) !== this.#stroke) {
-      this.#stroke = value;
-      this.#onChange();
-    }
-  }
-
-  get fill(): boolean {
-    return this.#fill;
-  }
-  set fill(value: boolean) {
-    if (value !== this.#fill) {
-      this.#fill = value;
-      this.#onChange();
-    }
-  }
-
-  get color(): string {
-    return this.#color;
-  }
-  set color(value: string) {
-    if (value !== this.#color) {
-      this.#color = value;
-      this.#onChange();
-    }
-  }
-
-  get backfaceVisible(): boolean {
-    return this.#backfaceVisible;
-  }
-  set backfaceVisible(value: boolean) {
-    if (value !== this.#backfaceVisible) {
-      this.#backfaceVisible = value;
-      this.#onChange();
-    }
-  }
-
-  get backfaceColor(): string | null {
-    return this.#backfaceColor;
-  }
-  set backfaceColor(value: string | null) {
-    if (value !== this.#backfaceColor) {
-      this.#backfaceColor = value;
-      this.#onChange();
-    }
-  }
-}
-
-export interface ShapeOptions extends NodeOptions {
-  style?: Partial<ShapeStyleValues>;
+export interface ShapeOptions extends StyledOptions {
   /** Замыкать ли контур. По умолчанию — `defaultClosed` класса фигуры. */
   closed?: boolean;
   /** Направление лицевой стороны в локальных координатах. */
@@ -111,22 +16,18 @@ export interface ShapeOptions extends NodeOptions {
  * координатах, и пересобирается только после изменения параметров. Изменение
  * трансформации её не трогает: проекция использует мировую матрицу.
  *
- * Числовые параметры примитивов описаны статической схемой `params` и хранятся
- * в общем хранилище: подклассы объявляют схему, переопределяют `buildPath` и читают
- * и пишут параметры через `getParam` и `setParam`.
+ * Числовые параметры примитивов описаны статической схемой `params`: подклассы
+ * объявляют схему, переопределяют `buildPath` и читают и пишут параметры через
+ * `getParam` и `setParam`, имена которых проверяет компилятор.
  */
-export abstract class Shape extends Node {
-  /** Схема числовых параметров фигуры. */
-  static readonly params: ParamSchema = {};
+export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<S> {
   /** Замкнут ли контур по умолчанию. */
   static readonly defaultClosed: boolean = true;
 
-  readonly style: ShapeStyle;
   /** Направление лицевой стороны. Его изменение меняет только внешний вид. */
   readonly front: ObservedVec3;
 
   #closed: boolean;
-  readonly #params: ParamStore;
   readonly #builder = new PathBuilder();
   readonly #view: { -readonly [K in keyof PathGeometry]: PathGeometry[K] } = {
     ops: new Uint8Array(0),
@@ -140,13 +41,9 @@ export abstract class Shape extends Node {
 
   constructor(options: ShapeOptions = {}) {
     super(options);
-    const markAppearance = () => this.markAppearanceChanged();
-    this.style = new ShapeStyle(markAppearance, options.style);
     const front = options.front ?? { x: 0, y: 0, z: 1 };
-    this.front = new ObservedVec3(markAppearance, front.x, front.y, front.z);
-    const type = this.constructor as typeof Shape;
-    this.#closed = options.closed ?? type.defaultClosed;
-    this.#params = new ParamStore(type.params, options, () => this.invalidateGeometry());
+    this.front = new ObservedVec3(() => this.markAppearanceChanged(), front.x, front.y, front.z);
+    this.#closed = options.closed ?? (this.constructor as typeof Shape).defaultClosed;
   }
 
   /** Замыкать ли контур. Влияет на геометрию. */
@@ -195,14 +92,8 @@ export abstract class Shape extends Node {
     this.#geometryDirty = true;
   }
 
-  /** Значение числового параметра из схемы `params`. */
-  protected getParam(name: string): number {
-    return this.#params.get(name);
-  }
-
-  /** Проверяет и записывает числовой параметр; при изменении помечает геометрию устаревшей. */
-  protected setParam(name: string, value: number): void {
-    this.#params.set(name, value);
+  protected onParamsChanged(): void {
+    this.invalidateGeometry();
   }
 }
 

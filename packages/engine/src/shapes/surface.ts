@@ -1,9 +1,8 @@
 import type { Vec3 } from '@mascotte/math';
 import { ScreenPath } from '../render/screen-path.ts';
 import type { Camera } from '../scene/camera.ts';
-import { Node, type NodeOptions } from '../scene/node.ts';
-import { type ParamSchema, ParamStore } from './params.ts';
-import { ShapeStyle, type ShapeStyleValues } from './shape.ts';
+import type { ParamSchema } from './params.ts';
+import { Styled, type StyledOptions } from './styled.ts';
 
 /**
  * Контур экранной поверхности для отрисовки: путь в пикселях относительно центра кадра
@@ -14,38 +13,24 @@ export class SurfaceOutline {
   /** Толщина обводки в пикселях. */
   lineWidth = 0;
   lineCap: 'round' | 'butt' = 'round';
-  stroke = false;
-  fill = false;
+  hasStroke = false;
+  hasFill = false;
   color = '#333';
 }
 
-export interface SurfaceOptions extends NodeOptions {
-  style?: Partial<ShapeStyleValues>;
-}
+export type SurfaceOptions = StyledOptions;
 
 /**
  * Экранная поверхность: часть фигуры, которую нельзя описать трёхмерным путём
- * и которая строится сразу в экранных координатах по камере (сфера, купол полусферы,
- * бок цилиндра, поверхность конуса, капсула). Формулы повторяют Zdog.
+ * и которая строится сразу в экранных координатах по камере (сфера, капсула, купол
+ * полусферы, бок цилиндра, поверхность конуса). Формулы повторяют Zdog.
  *
- * Отрисовка вызывает `buildOutline` в каждом кадре; метод не создаёт объектов.
+ * Отрисовка вызывает `buildOutline` в каждом кадре. Метод не создаёт объектов: буферы
+ * пути растут только при первом заполнении. Перспектива считается по глубине
+ * `perspectiveReference`, обводка масштабируется вместе с узлом.
  */
-export abstract class Surface extends Node {
-  static readonly params: ParamSchema = {};
-
-  readonly style: ShapeStyle;
-  readonly #params: ParamStore;
-
-  constructor(options: SurfaceOptions = {}) {
-    super(options);
-    this.style = new ShapeStyle(() => this.markAppearanceChanged(), {
-      fill: true,
-      ...options.style,
-    });
-    this.#params = new ParamStore((this.constructor as typeof Surface).params, options, () =>
-      this.markAppearanceChanged(),
-    );
-  }
+export abstract class Surface<S extends ParamSchema = ParamSchema> extends Styled<S> {
+  static override readonly defaultStyle = { fill: true };
 
   /**
    * Строит контур в `out` для камеры `camera`. Возвращает `false`, если рисовать нечего
@@ -53,12 +38,17 @@ export abstract class Surface extends Node {
    */
   abstract buildOutline(camera: Camera, out: SurfaceOutline): boolean;
 
-  protected getParam(name: string): number {
-    return this.#params.get(name);
+  protected onParamsChanged(): void {
+    this.markAppearanceChanged();
   }
 
-  protected setParam(name: string, value: number): void {
-    this.#params.set(name, value);
+  /**
+   * Масштаб перспективы и увеличения по глубине опорного узла или `null`, если опорный
+   * узел за глазом камеры.
+   */
+  protected screenScale(camera: Camera): number | null {
+    camera.toView(reference, this.perspectiveReference.getWorldPosition(reference));
+    return camera.isInFront(reference.z) ? camera.scaleAt(reference.z) : null;
   }
 
   /** Переводит локальную точку узла в пространство камеры. */
@@ -70,11 +60,11 @@ export abstract class Surface extends Node {
     return camera.toView(out, out);
   }
 
-  /** Заполняет стиль контура из стиля поверхности. */
+  /** Заполняет кисть контура из стиля поверхности. */
   protected applyStyle(out: SurfaceOutline, lineWidth: number): void {
     const style = this.style;
-    out.stroke = style.stroke > 0;
-    out.fill = style.fill;
+    out.hasStroke = style.stroke > 0;
+    out.hasFill = style.fill;
     out.color = style.color;
     out.lineWidth = lineWidth;
     out.lineCap = 'round';
@@ -82,3 +72,4 @@ export abstract class Surface extends Node {
 }
 
 const local: Vec3 = { x: 0, y: 0, z: 0 };
+const reference: Vec3 = { x: 0, y: 0, z: 0 };
