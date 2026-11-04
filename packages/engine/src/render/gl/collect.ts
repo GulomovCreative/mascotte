@@ -3,11 +3,16 @@ import type { Camera } from '../../scene/camera.ts';
 import type { Node } from '../../scene/node.ts';
 import type { Scene } from '../../scene/scene.ts';
 import { PathOp } from '../../shapes/path.ts';
+import { Ellipse, Rect } from '../../shapes/primitives.ts';
 import { Shape } from '../../shapes/shape.ts';
 import {
+  Box,
   Capsule,
+  Cone,
   ConeSurface,
+  Cylinder,
   CylinderBody,
+  Hemisphere,
   HemisphereDome,
   Solid,
   Sphere,
@@ -118,6 +123,13 @@ export function decalAnchor(node: Node): Node | null {
 }
 
 const modelView = mat3x4.create();
+const corner: Vec3 = { x: 0, y: 0, z: 0 };
+const CORNERS: readonly (readonly [number, number])[] = [
+  [-1, -1],
+  [1, -1],
+  [1, 1],
+  [-1, 1],
+];
 const scratch: Vec3 = { x: 0, y: 0, z: 0 };
 const local: Vec3 = { x: 0, y: 0, z: 0 };
 
@@ -316,6 +328,24 @@ export class GLCollector {
     const facingBack = front < origin;
     if (facingBack && !style.backfaceVisible) return;
     const css = facingBack ? (style.backfaceColor ?? style.color) : style.color;
+
+    // Крышки и грани залитых объёмных фигур — сплошные плоскости полного размера
+    // с учётом обводки. Трубка-обводка по краю почти совпала бы по глубине с боком
+    // цилиндра или с трубкой соседней грани, и они спорили бы за пиксели.
+    const owner = shape.owner;
+    if (
+      style.fill &&
+      shape instanceof Ellipse &&
+      (owner instanceof Cylinder || owner instanceof Cone || owner instanceof Hemisphere)
+    ) {
+      this.#cap(shape, camera, s, bucket, css, opacity);
+      return;
+    }
+    if (style.fill && shape instanceof Rect && owner instanceof Box) {
+      this.#boxFace(shape, owner, camera, s, bucket, css, opacity);
+      return;
+    }
+
     const world = shape.worldMatrix;
     const nodeScale = Math.sqrt(
       Math.hypot(world[0] ?? 0, world[1] ?? 0, world[2] ?? 0) *
@@ -421,6 +451,78 @@ export class GLCollector {
       }
     }
     flush();
+  }
+
+  /** Крышка цилиндра, конуса или полусферы: диск радиусом основания плюс полтолщины обводки. */
+  #cap(
+    base: Ellipse,
+    camera: Camera,
+    s: number,
+    bucket: Bucket,
+    css: string,
+    opacity: number,
+  ): void {
+    const rx = base.width / 2 + base.style.stroke / 2;
+    const ry = base.height / 2 + base.style.stroke / 2;
+    const xs = this.#xs;
+    const ys = this.#ys;
+    const zs = this.#zs;
+    xs.length = 0;
+    ys.length = 0;
+    zs.length = 0;
+    // Число точек — по размеру на экране, примерно по 3 пикселя дуги.
+    const k = this.#axisScale(base, camera, 1, 0, 0) * s;
+    const steps = Math.min(128, Math.max(16, Math.ceil((2 * Math.PI * Math.max(rx, ry) * k) / 3)));
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const p = this.#screen(base, camera, s, Math.cos(angle) * rx, Math.sin(angle) * ry, 0);
+      xs.push(p.x);
+      ys.push(p.y);
+      zs.push(p.z);
+    }
+    this.#fill(bucket, css, opacity, steps);
+  }
+
+  /**
+   * Грань залитой коробки: коробка раздута на полтолщины обводки во все стороны,
+   * грани плоские и сходятся точно по рёбрам.
+   */
+  #boxFace(
+    face: Rect,
+    box: Box,
+    camera: Camera,
+    s: number,
+    bucket: Bucket,
+    css: string,
+    opacity: number,
+  ): void {
+    const pad = box.style.stroke / 2;
+    const xs = this.#xs;
+    const ys = this.#ys;
+    const zs = this.#zs;
+    xs.length = 0;
+    ys.length = 0;
+    zs.length = 0;
+    const local = face.localMatrix;
+    for (const [cx, cy] of CORNERS) {
+      corner.x = (cx * face.width) / 2;
+      corner.y = (cy * face.height) / 2;
+      corner.z = 0;
+      // Угол в координатах коробки: каждая координата — ±половина размера, раздуваем её.
+      mat3x4.transformPoint(corner, local, corner);
+      const p = this.#screen(
+        box,
+        camera,
+        s,
+        corner.x + Math.sign(corner.x) * pad,
+        corner.y + Math.sign(corner.y) * pad,
+        corner.z + Math.sign(corner.z) * pad,
+      );
+      xs.push(p.x);
+      ys.push(p.y);
+      zs.push(p.z);
+    }
+    this.#fill(bucket, css, opacity, 4);
   }
 
   /** Заливка первых `n` точек текущей ломаной треугольниками. */

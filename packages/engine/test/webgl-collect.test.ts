@@ -1,6 +1,7 @@
 import { euler } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
 import {
+  Box,
   type Bucket,
   Camera,
   Capsule,
@@ -177,8 +178,9 @@ describe('GLCollector', () => {
     expect([counts('sphere'), counts('hemisphere'), counts('cylinder'), counts('cone')]).toEqual([
       1, 1, 1, 1,
     ]);
-    // Капсула-поверхность и ободки оснований — капсулы.
-    expect(counts('capsule')).toBeGreaterThan(1);
+    // Капсула — одна; крышки цилиндра, конуса и полусферы — сплошные диски без трубок по краю.
+    expect(counts('capsule')).toBe(1);
+    expect(counts('fill')).toBeGreaterThan(0);
     // Радиус шара — половина диаметра плюс половина обводки.
     expect(instances(frame.opaque[0], 'sphere')[0]?.[3]).toBe(5.5);
   });
@@ -211,5 +213,22 @@ describe('GLCollector', () => {
     const second = collector.collect(scene, camera).opaque[0];
     expect(second).toBe(first);
     expect(second?.data.capsule.data).toBe(data);
+  });
+
+  it('крышки — диски полного радиуса, грани коробки — раздутые на полтолщины обводки', () => {
+    const cylinder = new Cylinder({ diameter: 20, length: 10, style: { stroke: 4 } });
+    const frame = new GLCollector().collect(sceneWith(cylinder), camera);
+    const fills = frame.opaque.flatMap((b) => instances(b, 'fill'));
+    const radii = fills.map(([x = 0, y = 0]) => Math.hypot(x, y));
+    // Радиус крышки = радиусу бока: (20 + 4) / 2.
+    expect(Math.max(...radii)).toBeCloseTo(12, 6);
+    const body = frame.opaque.flatMap((b) => instances(b, 'cylinder'))[0];
+    expect(body?.[6]).toBeCloseTo(12, 9);
+
+    const box = new Box({ width: 10, height: 10, depth: 10, style: { stroke: 2 } });
+    const boxFrame = new GLCollector().collect(sceneWith(box), camera);
+    const corners = boxFrame.opaque.flatMap((b) => instances(b, 'fill'));
+    expect(Math.max(...corners.map(([x = 0]) => x))).toBeCloseTo(6, 9);
+    expect(boxFrame.opaque.reduce((n, b) => n + b.count('capsule'), 0)).toBe(0);
   });
 });

@@ -174,7 +174,8 @@ export const cylinderProgram = {
   float k2 = baba - bard * bard;
   if (k2 < 1e-6 * max(baba, 1e-6)) discard;
   float d = segmentDistance(vPos, vA.xy, vB.xy);
-  float r = vRadius + 1.0 / uPx;
+  // Радиус точно как у крышек: расширение ради сглаживания вылезло бы каймой за край крышки.
+  float r = vRadius;
   float k1 = baba * dot(oc, rd) - baoc * bard;
   float k0 = baba * dot(oc, oc) - baoc * baoc - r * r * baba;
   float h = k1 * k1 - k2 * k0;
@@ -241,7 +242,8 @@ export const coneProgram = {
     CONE_PASS,
     /* glsl */ `
   // Боковая поверхность конуса от основания (радиус vRadius) к вершине.
-  float ra = vRadius + 1.0 / uPx;
+  // Радиус точно как у основания, иначе бок вылезет каймой за его край.
+  float ra = vRadius;
   vec3 ba = vApex - vBase;
   vec3 oa = ro - vBase;
   float m0 = dot(ba, ba);
