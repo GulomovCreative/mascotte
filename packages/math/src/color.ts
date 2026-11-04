@@ -12,7 +12,10 @@ export interface Color {
   a: number;
 }
 
-/** Цвет в OKLab: светлота `l` от 0 до 1, оси `a` (зелёный–красный) и `b` (синий–жёлтый). */
+/**
+ * Цвет в OKLab: светлота `l` от 0 до 1, оси `a` (зелёный–красный) и `b` (синий–жёлтый).
+ * Здесь `a` — это ось цвета, а непрозрачность хранится в `alpha`, в отличие от `Color.a`.
+ */
 export interface Oklab {
   l: number;
   a: number;
@@ -105,19 +108,23 @@ export function fromOklab(out: Color, lab: Readonly<Oklab>): Color {
 /**
  * Интерполяция в OKLab с предумножением на альфу, как в CSS `color-mix`.
  * Поэтому переход из прозрачного цвета не темнеет и не сереет.
+ *
+ * При `t` вне [0, 1] (недолёт и перелёт кривых `back`, `elastic`) компоненты
+ * продолжаются линейно без предумножения, а альфа обрезается до [0, 1]: деление
+ * на почти нулевую альфу раздуло бы цвет.
  */
 export function mixOklab(out: Oklab, x: Readonly<Oklab>, y: Readonly<Oklab>, t: number): Oklab {
-  const alpha = x.alpha + (y.alpha - x.alpha) * t;
-  if (alpha <= 0) {
+  const xa = x.alpha;
+  const ya = y.alpha;
+  const alpha = xa + (ya - xa) * t;
+  if (t < 0 || t > 1 || alpha <= 0) {
     out.l = x.l + (y.l - x.l) * t;
     out.a = x.a + (y.a - x.a) * t;
     out.b = x.b + (y.b - x.b) * t;
-    out.alpha = 0;
+    out.alpha = clamp(alpha, 0, 1);
     return out;
   }
   const inv = 1 / alpha;
-  const xa = x.alpha;
-  const ya = y.alpha;
   out.l = (x.l * xa + (y.l * ya - x.l * xa) * t) * inv;
   out.a = (x.a * xa + (y.a * ya - x.a * xa) * t) * inv;
   out.b = (x.b * xa + (y.b * ya - x.b * xa) * t) * inv;
@@ -144,10 +151,18 @@ const HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const FUNCTION = /^(rgba?|hsla?|oklab|oklch)\(\s*(.*?)\s*\)$/i;
 
 /**
- * Разбирает цвет CSS: `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa`, `rgb()`/`rgba()`,
- * `hsl()`/`hsla()`, `oklab()`, `oklch()` (через запятые или пробелы, с альфой через `/`)
- * и `transparent`. Именованные цвета, кроме `transparent`, не поддерживаются.
- * Возвращает `null`, если строку разобрать нельзя.
+ * Разбирает цвет CSS и возвращает `null`, если строку разобрать нельзя. В этом случае
+ * `out` не меняется.
+ *
+ * Поддерживается:
+ * - `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` и `transparent`;
+ * - `rgb()`/`rgba()` и `hsl()`/`hsla()` в старом синтаксисе через запятые (без `none`,
+ *   каналы `rgb` либо все числами, либо все в процентах);
+ * - `rgb()`, `hsl()`, `oklab()`, `oklch()` в новом синтаксисе через пробелы, с альфой
+ *   через `/` и ключевым словом `none` (считается нулём);
+ * - проценты, числа с экспонентой, единицы угла `deg`, `grad`, `rad`, `turn`.
+ *
+ * Других именованных цветов, кроме `transparent`, нет: редактор пишет hex.
  */
 export function parse(input: string, out: Color = create()): Color | null {
   const text = input.trim().toLowerCase();
@@ -159,39 +174,49 @@ export function parse(input: string, out: Color = create()): Color | null {
   const match = FUNCTION.exec(text);
   if (!match) return null;
   const name = match[1] ?? '';
-  const args = splitArguments(match[2] ?? '');
-  if (!args || args.length < 3 || args.length > 4) return null;
+  const isRgb = name.startsWith('rgb');
+  const isHsl = name.startsWith('hsl');
+  const body = match[2] ?? '';
+  const legacy = body.includes(',');
+  if (legacy && !isRgb && !isHsl) return null;
+  const args = legacy ? splitLegacy(body) : splitModern(body);
+  if (!args) return null;
   const [first = '', second = '', third = '', fourth] = args;
-  const alpha = fourth === undefined ? 1 : parseAlpha(fourth);
+  const alpha = fourth === undefined ? 1 : parseAlpha(fourth, legacy);
   if (alpha === null) return null;
 
-  if (name.startsWith('rgb')) {
-    const r = parseChannel(first);
-    const g = parseChannel(second);
-    const b = parseChannel(third);
+  if (isRgb) {
+    if (legacy && new Set(args.slice(0, 3).map((arg) => arg.endsWith('%'))).size > 1) return null;
+    const r = parseChannel(first, legacy);
+    const g = parseChannel(second, legacy);
+    const b = parseChannel(third, legacy);
     if (r === null || g === null || b === null) return null;
     return set(out, r, g, b, alpha);
   }
-  if (name.startsWith('hsl')) {
-    const h = parseHue(first);
-    const s = parsePercent(second);
-    const l = parsePercent(third);
+  if (isHsl) {
+    const h = parseHue(first, legacy);
+    // В старом синтаксисе s и l обязаны быть процентами, в новом допускаются числа 0–100.
+    const s = legacy ? parsePercent(second) : parseNumberOrPercent(second, 100, legacy);
+    const l = legacy ? parsePercent(third) : parseNumberOrPercent(third, 100, legacy);
     if (h === null || s === null || l === null) return null;
-    return hslToRgb(out, h, clamp(s, 0, 1), clamp(l, 0, 1), alpha);
+    const scale = legacy ? 1 : 1 / 100;
+    return hslToRgb(out, h, clamp(s * scale, 0, 1), clamp(l * scale, 0, 1), alpha);
   }
-  const l = parseNumberOrPercent(first, 1);
+  const l = parseNumberOrPercent(first, 1, legacy);
   if (l === null) return null;
+  const lightness = clamp(l, 0, 1);
   if (name === 'oklab') {
-    const a = parseNumberOrPercent(second, 0.4);
-    const b = parseNumberOrPercent(third, 0.4);
+    const a = parseNumberOrPercent(second, 0.4, legacy);
+    const b = parseNumberOrPercent(third, 0.4, legacy);
     if (a === null || b === null) return null;
-    return fromOklab(out, { l, a, b, alpha });
+    return fromOklab(out, { l: lightness, a, b, alpha });
   }
-  const chroma = parseNumberOrPercent(second, 0.4);
-  const hue = parseHue(third);
+  const chroma = parseNumberOrPercent(second, 0.4, legacy);
+  const hue = parseHue(third, legacy);
   if (chroma === null || hue === null) return null;
+  const c = Math.max(0, chroma);
   const angle = (hue / 180) * Math.PI;
-  return fromOklab(out, { l, a: chroma * Math.cos(angle), b: chroma * Math.sin(angle), alpha });
+  return fromOklab(out, { l: lightness, a: c * Math.cos(angle), b: c * Math.sin(angle), alpha });
 }
 
 /** Разбирает цвет CSS и бросает ошибку, если это не удалось. */
@@ -211,15 +236,19 @@ function parseHex(out: Color, hex: string): Color {
   return set(out, digit(0) / 255, digit(1) / 255, digit(2) / 255, alpha);
 }
 
-/** Аргументы через запятые (`1, 2, 3, 0.5`) или пробелы (`1 2 3 / 0.5`). */
-function splitArguments(body: string): string[] | null {
-  if (body.includes(',')) {
-    if (body.includes('/')) return null;
-    return body.split(',').map((part) => part.trim());
-  }
+/** Старый синтаксис: `1, 2, 3` или `1, 2, 3, 0.5`. */
+function splitLegacy(body: string): string[] | null {
+  if (body.includes('/')) return null;
+  const parts = body.split(',').map((part) => part.trim());
+  return parts.length === 3 || parts.length === 4 ? parts : null;
+}
+
+/** Новый синтаксис: ровно три компонента через пробелы и, возможно, `/ альфа`. */
+function splitModern(body: string): string[] | null {
   const [main = '', alpha, extra] = body.split('/');
   if (extra !== undefined) return null;
   const parts = main.trim().split(/\s+/);
+  if (parts.length !== 3) return null;
   if (alpha !== undefined) parts.push(alpha.trim());
   return parts;
 }
@@ -227,7 +256,9 @@ function splitArguments(body: string): string[] | null {
 const NUMBER = /^[+-]?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?$/;
 
 function parseNumber(text: string): number | null {
-  return NUMBER.test(text) ? Number(text) : null;
+  if (!NUMBER.test(text)) return null;
+  const value = Number(text);
+  return Number.isFinite(value) ? value : null;
 }
 
 function parsePercent(text: string): number | null {
@@ -236,8 +267,9 @@ function parsePercent(text: string): number | null {
   return value === null ? null : value / 100;
 }
 
-/** Число или процент, где 100% соответствует `full`. */
-function parseNumberOrPercent(text: string, full: number): number | null {
+/** Число, процент (100% соответствует `full`) или `none` в новом синтаксисе. */
+function parseNumberOrPercent(text: string, full: number, legacy: boolean): number | null {
+  if (text === 'none') return legacy ? null : 0;
   if (text.endsWith('%')) {
     const percent = parsePercent(text);
     return percent === null ? null : percent * full;
@@ -246,26 +278,32 @@ function parseNumberOrPercent(text: string, full: number): number | null {
 }
 
 /** Канал rgb: число 0–255 или процент. */
-function parseChannel(text: string): number | null {
-  const value = text.endsWith('%') ? parsePercent(text) : parseNumber(text);
-  if (value === null) return null;
-  return clamp(text.endsWith('%') ? value : value / 255, 0, 1);
+function parseChannel(text: string, legacy: boolean): number | null {
+  if (text.endsWith('%')) {
+    const percent = parsePercent(text);
+    return percent === null ? null : clamp(percent, 0, 1);
+  }
+  const value = parseNumberOrPercent(text, 1, legacy);
+  return value === null ? null : clamp(value / 255, 0, 1);
 }
 
-function parseAlpha(text: string): number | null {
-  const value = parseNumberOrPercent(text, 1);
+function parseAlpha(text: string, legacy: boolean): number | null {
+  const value = parseNumberOrPercent(text, 1, legacy);
   return value === null ? null : clamp(value, 0, 1);
 }
 
-/** Угол в градусах: число, `deg`, `rad`, `grad` или `turn`. */
-function parseHue(text: string): number | null {
-  const units: [string, number][] = [
-    ['deg', 1],
-    ['grad', 0.9],
-    ['rad', 180 / Math.PI],
-    ['turn', 360],
-  ];
-  for (const [unit, factor] of units) {
+const HUE_UNITS: readonly (readonly [string, number])[] = [
+  ['deg', 1],
+  // `grad` проверяется раньше `rad`: строка с `grad` тоже оканчивается на `rad`.
+  ['grad', 0.9],
+  ['rad', 180 / Math.PI],
+  ['turn', 360],
+];
+
+/** Угол в градусах: число, `deg`, `grad`, `rad`, `turn` или `none` в новом синтаксисе. */
+function parseHue(text: string, legacy: boolean): number | null {
+  if (text === 'none') return legacy ? null : 0;
+  for (const [unit, factor] of HUE_UNITS) {
     if (text.endsWith(unit)) {
       const value = parseNumber(text.slice(0, -unit.length));
       return value === null ? null : value * factor;
@@ -291,8 +329,9 @@ function hexByte(value: number): string {
   return HEX_DIGITS.charAt(byte >> 4) + HEX_DIGITS.charAt(byte & 15);
 }
 
-/** Цвет в виде `#rrggbb` или `#rrggbbaa`, если он не полностью непрозрачен. */
+/** Цвет в виде `#rrggbb` или `#rrggbbaa`, если альфа после округления до байта меньше `ff`. */
 export function toHex(c: Readonly<Color>): string {
   const hex = `#${hexByte(c.r)}${hexByte(c.g)}${hexByte(c.b)}`;
-  return c.a >= 1 ? hex : hex + hexByte(c.a);
+  const alpha = hexByte(c.a);
+  return alpha === 'ff' ? hex : hex + alpha;
 }
