@@ -1,4 +1,4 @@
-import { type ExampleControls, examples } from './examples.ts';
+import { type Example, type ExampleControls, examples } from './examples.ts';
 
 function element<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
@@ -11,6 +11,16 @@ const viewport = element<HTMLElement>('viewport');
 const title = element<HTMLHeadingElement>('example-title');
 const animateToggle = element<HTMLInputElement>('animate');
 const fpsLabel = element<HTMLSpanElement>('fps');
+
+/** Показывает ошибку вместо примера и пишет её в консоль. */
+function showError(error: unknown): void {
+  console.error(error);
+  fpsLabel.textContent = 'ошибка';
+  const message = document.createElement('pre');
+  message.className = 'error';
+  message.textContent = error instanceof Error ? (error.stack ?? error.message) : String(error);
+  viewport.replaceChildren(message);
+}
 
 let frames = 0;
 let fpsStart = performance.now();
@@ -27,9 +37,10 @@ const controls: ExampleControls = {
       fpsStart = now;
     }
   },
+  error: showError,
 };
 
-const groups = new Map<string, typeof examples>();
+const groups = new Map<string, Example[]>();
 for (const example of examples) {
   groups.set(example.group, [...(groups.get(example.group) ?? []), example]);
 }
@@ -49,15 +60,31 @@ for (const [group, items] of groups) {
 let unmount: (() => void) | undefined;
 
 function show(id: string): void {
-  const example = examples.find((item) => item.id === id) ?? examples[0];
-  if (!example) return;
   unmount?.();
+  unmount = undefined;
+  viewport.replaceChildren();
+  fpsLabel.textContent = '';
+
+  const example = examples.find((item) => item.id === id) ?? examples[0];
+  if (!example) {
+    title.textContent = 'Примеров нет';
+    return;
+  }
+  if (example.id !== id) {
+    if (id) console.warn(`Пример «${id}» не найден, показан «${example.id}».`);
+    history.replaceState(null, '', `#${example.id}`);
+  }
+
   title.textContent = example.title;
   for (const link of nav.querySelectorAll('a')) {
     if (link.dataset.id === example.id) link.setAttribute('aria-current', 'page');
     else link.removeAttribute('aria-current');
   }
-  unmount = example.mount(viewport, controls);
+  try {
+    unmount = example.mount(viewport, controls);
+  } catch (error) {
+    showError(error);
+  }
 }
 
 window.addEventListener('hashchange', () => show(location.hash.slice(1)));

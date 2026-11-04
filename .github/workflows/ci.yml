@@ -23,6 +23,7 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - run: pnpm build
       - name: Upload snapshot diffs
         if: failure()
         uses: actions/upload-artifact@v7
@@ -30,4 +31,3 @@ jobs:
           name: snapshot-diffs
           path: reference/test/__diff__/
           if-no-files-found: ignore
-      - run: pnpm build

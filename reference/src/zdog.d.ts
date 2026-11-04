@@ -1,5 +1,21 @@
 // Минимальные типы для копии Zdog из src/core. Описано только то, что нужно эталонным сценам.
 declare module '@mascotte/zdog-reference' {
+  /** Методы двумерного контекста, которые вызывает рендерер Zdog. */
+  type CanvasContext = Pick<
+    CanvasRenderingContext2D,
+    | 'beginPath'
+    | 'moveTo'
+    | 'lineTo'
+    | 'bezierCurveTo'
+    | 'arc'
+    | 'closePath'
+    | 'stroke'
+    | 'fill'
+    | 'strokeStyle'
+    | 'fillStyle'
+    | 'lineWidth'
+  >;
+
   interface VectorLike {
     x?: number;
     y?: number;
@@ -21,7 +37,7 @@ declare module '@mascotte/zdog-reference' {
   }
 
   interface ShapeOptions extends AnchorOptions {
-    stroke?: number | false;
+    stroke?: number | boolean;
     fill?: boolean;
     color?: string;
     closed?: boolean;
@@ -44,7 +60,7 @@ declare module '@mascotte/zdog-reference' {
     scale: Vector;
     children: Anchor[];
     updateGraph(): void;
-    renderGraphCanvas(ctx: CanvasRenderingContext2D): void;
+    renderGraphCanvas(ctx: CanvasContext): void;
   }
 
   class Shape extends Anchor {
@@ -65,36 +81,35 @@ declare module '@mascotte/zdog-reference' {
     );
   }
 
+  interface EllipseOptions extends ShapeOptions {
+    diameter?: number;
+    width?: number;
+    height?: number;
+    quarters?: number;
+  }
+
   class Ellipse extends Shape {
-    constructor(
-      options?: ShapeOptions & {
-        diameter?: number;
-        width?: number;
-        height?: number;
-        quarters?: number;
-      },
-    );
+    constructor(options?: EllipseOptions);
   }
 
   class Polygon extends Shape {
     constructor(options?: ShapeOptions & { radius?: number; sides?: number });
   }
 
-  class Hemisphere extends Shape {
-    constructor(options?: ShapeOptions & { diameter?: number });
+  class Hemisphere extends Ellipse {
+    constructor(options?: EllipseOptions);
   }
+
+  /** Грань: `false` убирает её, строка задаёт цвет, `true` берёт цвет фигуры. */
+  type Face = boolean | string;
 
   class Cylinder extends Shape {
-    constructor(
-      options?: ShapeOptions & { diameter?: number; length?: number; frontFace?: string },
-    );
+    constructor(options?: ShapeOptions & { diameter?: number; length?: number; frontFace?: Face });
   }
 
-  class Cone extends Shape {
-    constructor(options?: ShapeOptions & { diameter?: number; length?: number });
+  class Cone extends Ellipse {
+    constructor(options?: EllipseOptions & { length?: number });
   }
-
-  type Face = boolean | string;
 
   class Box extends Anchor {
     constructor(
@@ -128,6 +143,6 @@ declare module '@mascotte/zdog-reference' {
     Box: typeof Box;
   };
 
-  export type { Anchor };
+  export type { Anchor, CanvasContext };
   export default Zdog;
 }
