@@ -114,6 +114,8 @@ export interface SnapshotOptions extends CompareOptions {
   snapshotDir?: string;
   /** Папка для отличающихся кадров. По умолчанию `reference/test/__diff__`. */
   diffDir?: string;
+  /** Команда, которой создаются снимки, — для сообщения об ошибке. По умолчанию `pnpm snapshots:update`. */
+  updateCommand?: string;
 }
 
 export type SnapshotResult =
@@ -157,7 +159,8 @@ export function matchSnapshot(
     return { status: 'written', path };
   }
   if (!existsSync(path)) {
-    throw new Error(`Нет снимка ${path}. Создайте его командой pnpm snapshots:update.`);
+    const command = options.updateCommand ?? 'pnpm snapshots:update';
+    throw new Error(`Нет снимка ${path}. Создайте его командой ${command}.`);
   }
 
   const result = compareImages(readFileSync(path), png, options);

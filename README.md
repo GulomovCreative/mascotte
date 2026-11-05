@@ -40,7 +40,7 @@ pnpm build             # сборка playground
 
 Если тест снимка упал, фактический кадр и карта отличий лежат в `reference/test/__diff__/` (для WebGL — в `reference/test/__diff__/gl/`). Снимки создаются и обновляются только командами `pnpm snapshots:update` и `pnpm snapshots:update:gl`, обычный прогон тестов их не пишет. В CI обновление запрещено.
 
-Тестам WebGL нужен Chromium для Playwright: один раз выполните `pnpm exec playwright install chromium`. Снимки WebGL лежат в `reference/snapshots/gl/`.
+Тестам WebGL нужен Chromium для Playwright: один раз выполните `pnpm exec playwright install --only-shell chromium` (в Linux можно добавить `--with-deps`, чтобы поставить системные библиотеки). Снимки WebGL лежат в `reference/snapshots/gl/` и привязаны к версии Chromium, которую задаёт `playwright` в `pnpm-lock.yaml`: после её обновления снимки может понадобиться пересоздать.
 
 ## Лицензия
 
