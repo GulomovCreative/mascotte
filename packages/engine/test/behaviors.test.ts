@@ -1,5 +1,6 @@
+import { color } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
-import { Animator, type Behavior, type BehaviorSet, Node, PathShape, Scene } from '../src/index.ts';
+import { Animator, type Behavior, type BehaviorSet, Node, PathShape, Rect, Scene } from '../src/index.ts';
 
 function setup() {
   const scene = new Scene();
@@ -226,5 +227,139 @@ describe('behaviors on layers', () => {
     );
     expect(play({ kind: 'noise', frequency: 1, from: 2 })).toThrow(/from value 2 is outside/);
     expect(play({ kind: 'noise', frequency: 1, target: 'nobody' })).toThrow(/nobody/);
+  });
+});
+
+describe('behavior curves in detail', () => {
+  it('a phase shifts the oscillation forward in time', () => {
+    const base = weights({ kind: 'oscillate', period: 4 }, [1, 2, 3]);
+    const shifted = weights({ kind: 'oscillate', period: 4, phase: 0.25 }, [0, 1, 2]);
+    for (let i = 0; i < 3; i++) expect(shifted[i]).toBeCloseTo(base[i] as number);
+    expect(shifted[1]).toBeCloseTo(1);
+  });
+
+  it('blink shape: smoothly up in the first third, back down by the end', () => {
+    // Equal intervals: blinks start exactly every 2 s.
+    const regular = { ...blink, minInterval: 2, maxInterval: 2 };
+    const at = (x: number) => 2 + 0.3 * x;
+    const [early, sixth, top, twoThirds, late, after] = weights(
+      regular,
+      [0.05, 1 / 6, 1 / 3, 2 / 3, 0.95, 1.01].map(at),
+    );
+    // smoothstep(0.15), not the linear 0.15.
+    expect(early).toBeCloseTo(0.15 * 0.15 * (3 - 0.3), 6);
+    expect(sixth).toBeCloseTo(0.5);
+    expect(top).toBeCloseTo(1);
+    expect(twoThirds).toBeCloseTo(0.5);
+    expect(late).toBeGreaterThan(0);
+    expect(late).toBeLessThan(0.05);
+    expect(after).toBe(0);
+    expect(weights(regular, [4.1, 6.1, 1.9])).toEqual([
+      expect.closeTo(1, 1),
+      expect.closeTo(1, 1),
+      0,
+    ]);
+    // A blink as long as the interval is allowed.
+    expect(() => weights({ ...regular, duration: 2 }, [1])).not.toThrow();
+  });
+
+  it('noise frequency scales time and the value passes the middle once per cell', () => {
+    const times = [0.13, 0.4, 0.77, 1.9, 3.3];
+    const slow = weights({ kind: 'noise', frequency: 2, seed: 5 }, times);
+    const fast = weights(
+      { kind: 'noise', frequency: 4, seed: 5 },
+      times.map((t) => t / 2),
+    );
+    for (let i = 0; i < times.length; i++) expect(fast[i]).toBeCloseTo(slow[i] as number, 9);
+    for (const value of weights({ kind: 'noise', frequency: 4, seed: 5 }, [0.25, 0.5, 2.75])) {
+      expect(value).toBeCloseTo(0.5, 9);
+    }
+  });
+
+  it('noise uses most of the range over time', () => {
+    const times = Array.from({ length: 10_000 }, (_, i) => i * 0.01);
+    const values = weights({ kind: 'noise', frequency: 2, seed: 5 }, times);
+    expect(Math.min(...values)).toBeLessThan(0.15);
+    expect(Math.max(...values)).toBeGreaterThan(0.85);
+  });
+
+  it('negative times are deterministic and in range', () => {
+    const times = [-3.7, -0.01, -100];
+    for (const behavior of [
+      blink,
+      { kind: 'noise', frequency: 2, seed: 1 } as const,
+      { kind: 'oscillate', period: 3 } as const,
+    ]) {
+      const values = weights(behavior, times);
+      expect(weights(behavior, times)).toEqual(values);
+      for (const value of values) {
+        expect(value).toBeGreaterThanOrEqual(0);
+        expect(value).toBeLessThanOrEqual(1);
+      }
+    }
+  });
+
+  it('colors oscillate in OKLab like clip keys', () => {
+    const scene = new Scene();
+    const rect = new Rect({ id: 'rect', style: { color: '#000000' } });
+    scene.root.add(rect);
+    const animator = new Animator(scene);
+    const layer = animator.addLayer();
+    layer.play(
+      set({
+        kind: 'oscillate',
+        target: 'rect',
+        property: 'style.color',
+        from: '#000000',
+        to: '#ffffff',
+        period: 2,
+      }),
+    );
+    layer.time = 0.5;
+    animator.evaluate();
+    const black = color.parseOrThrow('#000000');
+    const white = color.parseOrThrow('#ffffff');
+    expect(rect.style.color).toBe(color.toHex(color.mix(color.create(), black, white, 0.5)));
+  });
+
+  it('a behavior set is compiled again when its node was replaced', () => {
+    const { scene, eye, animator } = setup();
+    const motion = set({
+      target: 'eye',
+      property: 'opacity',
+      from: 0,
+      to: 1,
+      kind: 'oscillate',
+      period: 2,
+    });
+    const layer = animator.addLayer();
+    layer.play(motion, { time: 1 });
+    animator.evaluate();
+    expect(eye.opacity).toBeCloseTo(1);
+    eye.destroy();
+    const replacement = new PathShape({ id: 'eye' });
+    scene.root.add(replacement);
+    layer.play(motion, { time: 0.5 });
+    animator.evaluate();
+    expect(replacement.opacity).toBeCloseTo(0.5);
+  });
+
+  it('rejects negative, zero and NaN parameters by name', () => {
+    const { animator } = setup();
+    const layer = animator.addLayer();
+    const base = { target: 'eye', property: 'opacity', from: 0, to: 1 };
+    const play = (behavior: object) => () => layer.play(set({ ...base, ...behavior } as Behavior));
+    const cases: [object, string][] = [
+      [{ kind: 'oscillate', period: -1 }, 'period'],
+      [{ ...blink, duration: 0 }, 'duration'],
+      [{ ...blink, duration: -0.1 }, 'duration'],
+      [{ ...blink, minInterval: Number.NaN }, 'minInterval'],
+      [{ ...blink, maxInterval: Number.NaN }, 'maxInterval'],
+      [{ kind: 'noise', frequency: -1 }, 'frequency'],
+    ];
+    for (const [behavior, name] of cases) {
+      expect(play(behavior)).toThrow(RangeError);
+      expect(play(behavior)).toThrow(new RegExp(name));
+    }
   });
 });

@@ -136,7 +136,7 @@ const waveClip: Clip = {
   ],
 };
 
-/** Breathing and a slight sway of the head, added on top of the clip. */
+/** Breathing (body scale and a head bob) and a slight sway of the head, added on top of the clip. */
 const idle: BehaviorSet = {
   behaviors: [
     {

@@ -375,7 +375,8 @@ function sampleTrack(track: SampledTrack, out: Float64Array, touched?: Uint8Arra
 }
 
 /**
- * Samples a track of two keys at fraction `w` between them, through the channel rules (stepped
+ * Samples a track of two keys at fraction `w` between them, ignoring key times and easings,
+ * through the channel rules (stepped
  * values and `null` colors switch at `w >= 0.5`), into `out`, and marks its channel in
  * `touched`.
  */
@@ -437,7 +438,7 @@ export interface TrackSource {
 export interface Naming {
   /** `Track`: errors start with `Track head.rotation:`. */
   readonly what: string;
-  /** `key 2`. */
+  /** How errors name key `index`, e.g. `key 2` or `from`. */
   key(index: number): string;
 }
 
@@ -474,7 +475,7 @@ export function compileTrack(
       fail(what, track, `${naming.key(k)} time ${time} is outside the clip [0, ${duration}].`);
     }
     if (k > 0 && time < (times[k - 1] as number)) {
-      fail(what, track, `${naming.key(k)} is earlier than key ${k - 1}.`);
+      fail(what, track, `${naming.key(k)} is earlier than ${naming.key(k - 1)}.`);
     }
     times[k] = time;
     try {
