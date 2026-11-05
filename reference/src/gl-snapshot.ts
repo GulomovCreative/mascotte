@@ -17,17 +17,19 @@ export const matchGLSnapshot: BrowserCommand<[name: string, dataUrl: string]> = 
   dataUrl,
 ): SnapshotResult => {
   const comma = dataUrl.indexOf(',');
-  if (!dataUrl.startsWith('data:image/png;base64,') || comma < 0) {
+  if (!dataUrl.startsWith('data:image/png;base64,')) {
     throw new Error(`Ожидался data URL PNG для снимка ${name}.`);
   }
   const png = Buffer.from(dataUrl.slice(comma + 1), 'base64');
-  // SwiftShader детерминирован: повторный прогон даёт тот же кадр. Допуск оставлен на
-  // мелкие различия сглаживания между версиями; пропавшие зрачки маскота (0,19 % кадра)
-  // он уже не пропускает.
+  // SwiftShader детерминирован: повторный прогон на той же версии Chromium (её задаёт
+  // playwright в pnpm-lock.yaml) даёт тот же кадр. Обновление Chromium может сдвинуть
+  // сглаживание краёв — тогда снимки пересоздаются. Допуск 0,05 % оставлен на мелкие
+  // различия; пропавшие зрачки маскота отличались на 0,19 % кадра.
   return matchSnapshot(name, png, {
     snapshotDir: glSnapshotDir,
     diffDir: glDiffDir,
     maxDiffRatio: 0.0005,
+    updateCommand: 'pnpm snapshots:update:gl',
   });
 };
 

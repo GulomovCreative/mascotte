@@ -29,7 +29,9 @@ function draw(scene: Scene, camera: Camera, viewport: Viewport): HTMLCanvasEleme
     const copy = document.createElement('canvas');
     copy.width = canvas.width;
     copy.height = canvas.height;
-    copy.getContext('2d')?.drawImage(canvas, 0, 0);
+    const ctx = copy.getContext('2d');
+    if (!ctx) throw new Error('Нет 2D-контекста.');
+    ctx.drawImage(canvas, 0, 0);
     return copy;
   } finally {
     renderer.destroy();
@@ -130,7 +132,8 @@ describe('пиксели WebGL', () => {
           0,
       );
     }
-    expect([...tones]).toEqual([128]);
+    // Один тон на всём кольце; на стыках с двойным смешиванием он упал бы примерно до 64.
+    for (const tone of tones) expect(Math.abs(tone - 128)).toBeLessThanOrEqual(1);
   });
 
   it('пересечение по пикселям: каждая из двух сфер ближе на своей половине', () => {
@@ -170,7 +173,7 @@ describe('пиксели WebGL', () => {
     expect(pixel(canvas, 60, 50).slice(0, 3)).toEqual([0, 0, 255]);
   });
 
-  it('декаль рисуется только на опоре и не режется ею', () => {
+  it('декаль видна только внутри силуэта опоры и не скрыта ею, хотя чуть глубже', () => {
     const head = new Sphere({ diameter: 40, style: { color: '#f00', stroke: 0 } });
     // Точка на краю головы и чуть внутри неё: снаружи силуэта не видна.
     head.add(
@@ -205,6 +208,71 @@ describe('пиксели WebGL', () => {
     expect(Math.abs(g - 128)).toBeLessThanOrEqual(1);
     expect(b).toBe(255);
   });
+  it('полупрозрачная декаль на непрозрачной опоре смешивается с ней', () => {
+    const head = new Sphere({ diameter: 60, style: { color: '#f00', stroke: 0 } });
+    head.add(
+      new PathShape({
+        sortMode: 'attached',
+        opacity: 0.3,
+        position: { x: 0, y: 0, z: 28 },
+        style: { stroke: 16, color: '#00f' },
+      }),
+    );
+    const canvas = draw(sceneWith(head), camera, { ...small, background: '#000' });
+    // Смешивание: 0,7 красного и 0,3 синего. Без него alpha-to-coverage закрыла бы лишь
+    // часть выборок, кратную четверти, — около (192, 0, 64).
+    const [r = 0, g = 0, b = 0, a = 0] = pixel(canvas, 50, 50);
+    expect(Math.abs(r - 178.5)).toBeLessThanOrEqual(1);
+    expect(g).toBe(0);
+    expect(Math.abs(b - 76.5)).toBeLessThanOrEqual(1);
+    expect(a).toBe(255);
+  });
+
+  it('номера опор не переходят в следующий слой', () => {
+    // Обе опоры получают номер 1 в своих слоях. Декаль правой опоры заходит на левую:
+    // там её быть не должно, иначе номер левой опоры остался в трафарете.
+    const left = new Sphere({
+      diameter: 30,
+      position: { x: -15, y: 0, z: 0 },
+      style: { color: '#f00', stroke: 0 },
+    });
+    left.add(new PathShape({ sortMode: 'attached', position: { x: 0, y: 12, z: 14 } }));
+    const right = new Sphere({
+      sortMode: 'layer',
+      layer: 1,
+      diameter: 30,
+      position: { x: 15, y: 0, z: 0 },
+      style: { color: '#0f0', stroke: 0 },
+    });
+    right.add(
+      new PathShape({
+        sortMode: 'attached',
+        position: { x: -30, y: 0, z: 0 },
+        style: { stroke: 20, color: '#00f' },
+      }),
+    );
+    const canvas = draw(sceneWith(left, right), camera, { ...small, background: '#fff' });
+    expect(pixel(canvas, 35, 50).slice(0, 3)).toEqual([255, 0, 0]);
+  });
+
+  it('после 127 полупрозрачных фигур номера в трафарете начинаются заново без пропусков', () => {
+    // 128 точек не перекрываются; 129-я — поверх первой и должна смешаться с ней.
+    const dots: Node[] = [];
+    const dot = (x: number, y: number) =>
+      new PathShape({
+        opacity: 0.5,
+        position: { x, y, z: 0 },
+        style: { stroke: 4, color: '#000' },
+      });
+    for (let j = 0; j < 8; j++) {
+      for (let i = 0; i < 16; i++) dots.push(dot(-45 + 6 * i, -21 + 6 * j));
+    }
+    dots.push(dot(-45, -21));
+    const canvas = draw(sceneWith(...dots), camera, { width: 100, height: 60, background: '#fff' });
+    // Одна точка — 128, две друг на друге — 64.
+    expect(Math.abs((pixel(canvas, 5, 9)[0] ?? 0) - 64)).toBeLessThanOrEqual(1);
+    expect(Math.abs((pixel(canvas, 11, 9)[0] ?? 0) - 128)).toBeLessThanOrEqual(1);
+  });
 });
 
 describe('жизненный цикл WebGLRenderer', () => {
@@ -224,8 +292,8 @@ describe('жизненный цикл WebGLRenderer', () => {
     lose?.loseContext();
     expect(renderer.contextLost).toBe(true);
     expect(() => renderer.render(scene, camera, viewport)).not.toThrow();
-    // Восстановить можно только после события потери, оно приходит асинхронно, и не в той
-    // же задаче: вызов прямо из обработчика Chrome пропускает.
+    // Событие потери приходит асинхронно. Восстанавливать можно только после него и не в той
+    // же задаче, что и обработчик: такой вызов restoreContext Chrome пропускает.
     await lost;
     await new Promise((resolve) => setTimeout(resolve, 0));
     const restored = event('webglcontextrestored');
