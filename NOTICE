@@ -1,9 +1,15 @@
-Mascotte includes source code from Zdog, a pseudo-3D engine.
+Mascotte is based on ideas and geometry from Zdog, a pseudo-3D engine.
 
   Project:    https://github.com/metafizzy/zdog
-  Copied:     js/ directory, commit dde8684 -> src/core/
   Copyright:  Copyright 2020 Metafizzy
   License:    MIT (as stated in the upstream package.json and README)
 
-The copied files keep their original headers. Changes made by this project
-are documented in the git history of this repository.
+Taken from Zdog: the drawing style (round strokes, a dot as a sphere, fill with
+stroke), path commands and the 9/16 arc approximation, and the geometry of the
+composite primitives (hemisphere, cylinder, cone, box). The engine code itself is
+written from scratch.
+
+An unmodified copy of the Zdog core (js/ directory, upstream commit dde8684) was
+kept in src/core/ as a visual reference until the new engine reached parity. It has
+been removed. Frames and numbers it produced are kept as frozen test references in
+reference/snapshots/zdog/ and packages/*/test/fixtures/zdog/.

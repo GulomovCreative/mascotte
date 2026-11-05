@@ -6,8 +6,5 @@
   "sideEffects": false,
   "exports": {
     ".": "./src/index.ts"
-  },
-  "devDependencies": {
-    "@mascotte/zdog-reference": "workspace:*"
   }
 }

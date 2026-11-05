@@ -1,7 +1,9 @@
-import Zdog from '@mascotte/zdog-reference';
 import { describe, it } from 'vitest';
 import { euler, quat, vec3 } from '../src/index.ts';
 import { expectClose, random, range } from './helpers.ts';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('rotations');
 
 /*
  * Zdog поворачивает вектор сначала вокруг Z, потом вокруг Y, потом вокруг X,
@@ -19,12 +21,11 @@ describe('совместимость поворотов с Zdog', () => {
       };
       const point = { x: range(next, -20, 20), y: range(next, -20, 20), z: range(next, -20, 20) };
 
-      const zdog = new Zdog.Vector(point);
-      zdog.rotate(rotation);
+      const expected = zdog.next<{ x: number; y: number; z: number }>('rotate');
 
       const q = quat.fromEuler(quat.create(), euler.create(rotation.x, -rotation.y, rotation.z));
       const ours = quat.transformVec3(vec3.create(), q, point);
-      expectClose(ours, { x: zdog.x, y: zdog.y, z: zdog.z });
+      expectClose(ours, expected);
     }
   });
 });

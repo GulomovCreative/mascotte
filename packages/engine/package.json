@@ -8,8 +8,7 @@
     ".": "./src/index.ts"
   },
   "devDependencies": {
-    "@mascotte/math": "workspace:*",
-    "@mascotte/zdog-reference": "workspace:*"
+    "@mascotte/math": "workspace:*"
   },
   "peerDependencies": {
     "@mascotte/math": "workspace:*"

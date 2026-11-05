@@ -1,5 +1,8 @@
 import { euler } from '@mascotte/math';
-import Zdog from '@mascotte/zdog-reference';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('depth-sort');
+
 import { describe, expect, it } from 'vitest';
 import {
   Box,
@@ -250,7 +253,6 @@ describe('составные фигуры', () => {
 describe('совместимость с Zdog в режиме auto', () => {
   it('порядок плоских фигур совпадает с сортировкой Zdog', () => {
     const rotate = { x: -0.35, y: 0.9, z: 0.2 };
-    const zdogRoot = new Zdog.Anchor({ rotate });
     const specs = [
       { translate: { x: -40, y: 0, z: 10 } },
       { translate: { x: 0, y: 10, z: -30 } },
@@ -258,31 +260,7 @@ describe('совместимость с Zdog в режиме auto', () => {
       { translate: { x: 5, y: 25, z: 40 } },
       { translate: { x: -15, y: -25, z: -12 } },
     ];
-    const zdogShapes = [
-      new Zdog.Rect({ addTo: zdogRoot, width: 20, height: 10, ...specs[0] }),
-      new Zdog.Ellipse({ addTo: zdogRoot, diameter: 14, ...specs[1] }),
-      new Zdog.Polygon({ addTo: zdogRoot, radius: 9, sides: 5, ...specs[2] }),
-      new Zdog.RoundedRect({
-        addTo: zdogRoot,
-        width: 16,
-        height: 12,
-        cornerRadius: 3,
-        ...specs[3],
-      }),
-      new Zdog.Shape({
-        addTo: zdogRoot,
-        path: [
-          { x: -5, z: -8 },
-          { x: 5, z: 8 },
-        ],
-        ...specs[4],
-      }),
-    ];
-    zdogRoot.updateGraph();
-    const graph = (zdogRoot as unknown as { flatGraph: unknown[] }).flatGraph;
-    const zdogOrder = graph
-      .filter((item) => zdogShapes.includes(item as never))
-      .map((item) => zdogShapes.indexOf(item as never));
+    const zdogOrder = zdog.next<number[]>('плоские фигуры');
 
     const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
     const at = (i: number) => {
@@ -541,7 +519,6 @@ describe('совместимость с Zdog: несколько поворот�
 
   it('порядок плоских фигур совпадает с Zdog в нескольких ракурсах', () => {
     for (const rotate of rotations) {
-      const zdogRoot = new Zdog.Anchor({ rotate });
       const translates = [
         { x: -40, y: 0, z: 10 },
         { x: 0, y: 10, z: -30 },
@@ -549,17 +526,7 @@ describe('совместимость с Zdog: несколько поворот�
         { x: 5, y: 25, z: 40 },
       ];
       const at = (i: number) => translates[i] ?? { x: 0, y: 0, z: 0 };
-      const zdogShapes = [
-        new Zdog.Rect({ addTo: zdogRoot, width: 20, height: 10, translate: at(0) }),
-        new Zdog.Ellipse({ addTo: zdogRoot, diameter: 14, translate: at(1) }),
-        new Zdog.Polygon({ addTo: zdogRoot, radius: 9, sides: 5, translate: at(2) }),
-        new Zdog.RoundedRect({ addTo: zdogRoot, width: 16, height: 12, translate: at(3) }),
-      ];
-      zdogRoot.updateGraph();
-      const graph = (zdogRoot as unknown as { flatGraph: unknown[] }).flatGraph;
-      const zdogOrder = graph
-        .filter((item) => zdogShapes.includes(item as never))
-        .map((item) => zdogShapes.indexOf(item as never));
+      const zdogOrder = zdog.next<number[]>('ракурсы');
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       const p = (i: number) => ({ id: `s${i}`, position: at(i) });
@@ -576,16 +543,8 @@ describe('совместимость с Zdog: несколько поворот�
   });
 
   it('грани отдельной коробки — в том же порядке, что у Zdog', () => {
-    const names = ['front', 'rear', 'left', 'right', 'top', 'bottom'];
     for (const rotate of rotations) {
-      const zdogRoot = new Zdog.Anchor({ rotate });
-      const zdogBox = new Zdog.Box({ addTo: zdogRoot, width: 20, height: 30, depth: 40 });
-      zdogRoot.updateGraph();
-      const faces = zdogBox.children as unknown[];
-      const graph = (zdogRoot as unknown as { flatGraph: unknown[] }).flatGraph;
-      const zdogOrder = graph
-        .filter((item) => faces.includes(item))
-        .map((item) => names[faces.indexOf(item)]);
+      const zdogOrder = zdog.next<string[]>('коробка');
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       root.add(new Box({ id: 'box', width: 20, height: 30, depth: 40 }));

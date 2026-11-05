@@ -3,33 +3,19 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Camera, CanvasRenderer, Scene } from '@mascotte/engine';
-import type { Anchor } from '@mascotte/zdog-reference';
 import { createCanvas } from '@napi-rs/canvas';
 import pixelmatch from 'pixelmatch';
 import { PNG } from 'pngjs';
 import type { EngineScene } from './engine-only/scenes.ts';
-import { type ReferenceScene, type RenderOptions, renderScene } from './scene.ts';
+import type { ReferenceScene, RenderOptions } from './scene.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const snapshotDir = join(root, 'snapshots');
 export const diffDir = join(root, 'test', '__diff__');
+/** Снимки, которые нарисовала копия Zdog до удаления: замороженный эталон эталонных сцен. */
+export const zdogSnapshotDir = join(snapshotDir, 'zdog');
 
-/**
- * Рисует сцену в canvas Node и возвращает PNG. По умолчанию граф строится заново,
- * но можно передать уже построенный корень, чтобы рисовать один граф несколько раз.
- */
-export function renderSceneToPng(
-  scene: ReferenceScene,
-  options: RenderOptions = {},
-  sceneRoot: Anchor = scene.build(),
-): Buffer {
-  const pixelRatio = options.pixelRatio ?? 1;
-  const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
-  renderScene(scene, sceneRoot, canvas.getContext('2d'), options);
-  return canvas.toBuffer('image/png');
-}
-
-/** Рисует версию сцены на новом ядре в canvas Node и возвращает PNG того же размера, что у Zdog. */
+/** Рисует эталонную сцену на новом ядре в canvas Node и возвращает PNG того же размера, что снимок Zdog. */
 export function renderEngineToPng(scene: ReferenceScene, options: RenderOptions = {}): Buffer {
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);

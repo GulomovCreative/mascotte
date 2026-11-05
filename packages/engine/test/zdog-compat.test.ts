@@ -1,7 +1,9 @@
 import { euler, vec3 } from '@mascotte/math';
-import Zdog from '@mascotte/zdog-reference';
 import { describe, expect, it } from 'vitest';
 import { Node } from '../src/index.ts';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('hierarchy');
 
 /*
  * Иерархия трансформаций должна совпадать с Zdog: точка узла проходит через
@@ -23,11 +25,8 @@ describe('совместимость иерархии с Zdog', () => {
     // Точка внутри листа: на её положение влияют его собственные поворот и масштаб.
     const offset = { x: 1, y: -2, z: 3 };
 
-    const zdogRoot = new Zdog.Anchor(levels[0]);
-    const zdogMiddle = new Zdog.Anchor({ addTo: zdogRoot, ...levels[1] });
-    const zdogLeaf = new Zdog.Anchor({ addTo: zdogMiddle, ...levels[2] });
-    const zdogPoint = new Zdog.Anchor({ addTo: zdogLeaf, translate: offset });
-    zdogRoot.updateGraph();
+    // Мировые позиции корня, середины, листа и точки внутри листа у Zdog.
+    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins');
 
     const nodes = levels.map(
       ({ translate, rotate, scale }) =>
@@ -41,20 +40,18 @@ describe('совместимость иерархии с Zdog', () => {
     root.add(middle);
     middle.add(leaf);
 
-    const pairs = [
-      [root, zdogRoot],
-      [middle, zdogMiddle],
-      [leaf, zdogLeaf],
-    ] as const;
-    for (const [node, anchor] of pairs) {
-      const position = node.getWorldPosition(vec3.create());
-      expect(position.x).toBeCloseTo(anchor.renderOrigin.x, 9);
-      expect(position.y).toBeCloseTo(anchor.renderOrigin.y, 9);
-      expect(position.z).toBeCloseTo(anchor.renderOrigin.z, 9);
-    }
-    const point = leaf.localToWorld(vec3.create(), offset);
-    expect(point.x).toBeCloseTo(zdogPoint.renderOrigin.x, 9);
-    expect(point.y).toBeCloseTo(zdogPoint.renderOrigin.y, 9);
-    expect(point.z).toBeCloseTo(zdogPoint.renderOrigin.z, 9);
+    const ours = [
+      root.getWorldPosition(vec3.create()),
+      middle.getWorldPosition(vec3.create()),
+      leaf.getWorldPosition(vec3.create()),
+      leaf.localToWorld(vec3.create(), offset),
+    ];
+    expect(origins).toHaveLength(4);
+    ours.forEach((position, i) => {
+      const origin = origins[i] ?? { x: Number.NaN, y: Number.NaN, z: Number.NaN };
+      expect(position.x).toBeCloseTo(origin.x, 9);
+      expect(position.y).toBeCloseTo(origin.y, 9);
+      expect(position.z).toBeCloseTo(origin.z, 9);
+    });
   });
 });

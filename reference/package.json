@@ -9,8 +9,7 @@
   },
   "dependencies": {
     "@mascotte/engine": "workspace:*",
-    "@mascotte/math": "workspace:*",
-    "@mascotte/zdog-reference": "workspace:*"
+    "@mascotte/math": "workspace:*"
   },
   "devDependencies": {
     "@napi-rs/canvas": "1.1.0",
