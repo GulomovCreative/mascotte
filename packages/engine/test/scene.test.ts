@@ -62,6 +62,7 @@ describe('internal access is closed', () => {
         'Ticker',
         'Animator',
         'BLEND_MODES',
+        'BEHAVIOR_KINDS',
         'bindClip',
         'clipTime',
         'segmentAt',

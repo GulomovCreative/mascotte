@@ -1,4 +1,5 @@
 import {
+  Animator,
   bindClip,
   Camera,
   CanvasRenderer,
@@ -9,6 +10,7 @@ import {
 } from '@mascotte/engine';
 import { pauseWhenOffscreen } from '@mascotte/player';
 import {
+  animatedMascot,
   buildBenchmark,
   type EngineScene,
   engineScenes,
@@ -470,12 +472,60 @@ function clipExampleGL(): Example {
   };
 }
 
+/**
+ * The animated mascot on animation layers. Every frame sets the layer times to the loop time
+ * and evaluates, which is the same as playing (seeking is exact).
+ */
+function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
+  const scene = animatedMascot;
+  return {
+    id: `${backend === 'gl' ? 'webgl' : 'engine'}/${scene.id}`,
+    title: scene.title,
+    group: backend === 'gl' ? 'WebGL2' : 'Canvas 2D',
+    mount(container, controls) {
+      const { root, camera } = scene.build();
+      const world = new Scene(root);
+      const animator = new Animator(world);
+      scene.animate(animator);
+      const pose = (time: number) => {
+        for (const layer of animator.layers) layer.time = time;
+        animator.evaluate();
+      };
+      const options = (pixelRatio: number) => ({
+        width: scene.width,
+        height: scene.height,
+        pixelRatio,
+        background: scene.background,
+      });
+      if (backend === 'gl') {
+        return mountGL(
+          container,
+          controls,
+          scene,
+          (renderer, pixelRatio, time) => {
+            pose(time);
+            renderer.render(world, camera, options(pixelRatio));
+          },
+          { scene: world, camera },
+        );
+      }
+      const renderer = new CanvasRenderer();
+      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
+        pose(time);
+        renderer.render(ctx, world, camera, options(pixelRatio));
+      });
+    },
+  };
+}
+
 export const examples: Example[] = [
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
   clipExampleGL(),
+  animatedMascotExample('gl'),
   benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
+  animatedMascotExample('canvas'),
   benchmarkCanvas(),
 ];

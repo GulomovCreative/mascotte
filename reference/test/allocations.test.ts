@@ -1,5 +1,6 @@
 import {
   Animator,
+  type Behavior,
   bindClip,
   Camera,
   type Clip,
@@ -197,6 +198,54 @@ describe('allocations in the frame loop', () => {
     // `apply`. Reallocating the sample buffers per frame would go over the threshold.
     expect(bytes, `${Math.round(bytes)} bytes for ${tracks.length} tracks`).toBeLessThan(
       tracks.length * 2 * 75,
+    );
+  }, 60_000);
+
+  it('procedural behaviors on an additive layer', async () => {
+    const world = new Scene();
+    const behaviors: Behavior[] = [];
+    for (let i = 0; i < 20; i++) {
+      world.root.add(new Node({ id: `n${i}` }));
+      behaviors.push(
+        {
+          kind: 'oscillate',
+          target: `n${i}`,
+          property: 'scale',
+          from: { x: 1, y: 1, z: 1 },
+          to: { x: 1.05, y: 0.97, z: 1.05 },
+          period: 3,
+        },
+        {
+          kind: 'blink',
+          target: `n${i}`,
+          property: 'opacity',
+          from: 1,
+          to: 0,
+          duration: 0.2,
+          minInterval: 0.5,
+          maxInterval: 1,
+          seed: i,
+        },
+        {
+          kind: 'noise',
+          target: `n${i}`,
+          property: 'rotation',
+          from: { x: 0, y: -0.1, z: 0, w: 1 },
+          to: { x: 0, y: 0.1, z: 0, w: 1 },
+          frequency: 1,
+          seed: i,
+        },
+      );
+    }
+    const animator = new Animator(world);
+    animator.addLayer({ mode: 'additive' }).play({ behaviors });
+    const bytes = await allocatedBytesPerCall(() => animator.update(1 / 60), {
+      warmup: 3000,
+      runs: 300,
+    });
+    // Like clip tracks: boxed numbers at polymorphic calls, no buffers.
+    expect(bytes, `${Math.round(bytes)} bytes for ${behaviors.length} behaviors`).toBeLessThan(
+      behaviors.length * 75,
     );
   }, 60_000);
 });

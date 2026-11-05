@@ -191,6 +191,8 @@ Without shading mascots look flat; with shading they gain volume. Shading stays 
 - wobble noise;
 - following the pointer via `lookAt`.
 
+A behavior is data: it moves one property of one node between two values, `from` (the neutral one) and `to`, by a curve of time. `oscillate` goes there and back once per `period` (with a `phase`); `blink` goes to `to` and back for `duration` seconds at random moments from `minInterval` to `maxInterval` apart; `noise` wanders smoothly between the values around their middle (gradient noise, about `frequency` changes of direction per second). Values mix like clip keys, so booleans switch half way and a blink can swap an open eye for a closed one. Randomness comes from a 32-bit `seed` through `random.hash` and `random.noise` in `@mascotte/math`, which are pure functions, so a behavior's value depends only on time and seeking is exact. Behaviors play on animation layers in sets (`{ behaviors: [...] }`) exactly like clips: with weights, masks, fades and the additive mode, whose reference is the neutral value at time 0. Following the pointer comes with `lookAt` in the rig (#22). The playground mascot (`animatedMascot` in `@mascotte/reference`) waves with a clip, breathes and sways with an additive behavior layer and blinks on a layer masked to the head.
+
 **Secondary motion.** Springs on nodes make ears, tails and antennae sway and give overshoot when motion stops. Springs keep state, so they are evaluated at a fixed step after the clips. For seeking in the editor they can be disabled or re-simulated from the start.
 
 **Ticker.** One shared loop per page (`Ticker.shared`): subscriptions receive `dt` in seconds and their own time, large jumps are capped (`maxDelta`, 0.1 s by default), and after a pause the paused time does not go into `dt`. Pauses are set by reasons so that sources do not interfere with each other: the ticker has `'hidden'` (tab hidden) and `'reduced-motion'` (`prefers-reduced-motion`), a subscription has `'offscreen'` (its canvas is outside the viewport, `IntersectionObserver`). While there are no active subscriptions or the ticker is paused, no frames are requested. The core knows nothing about the DOM: frames are requested by a pluggable scheduler (`requestAnimationFrame` by default), and `@mascotte/player` connects it to the page (`bindTickerToPage`, `pauseWhenOffscreen`).
@@ -301,7 +303,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 - [x] Animatable property registry ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
 - [x] Clips, tracks and keys ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
 - [x] Layers, masks, weights and transitions ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
-- [ ] Procedural behaviors ([#20](https://github.com/GulomovCreative/mascotte/issues/20))
+- [x] Procedural behaviors ([#20](https://github.com/GulomovCreative/mascotte/issues/20))
 - [ ] Springs and secondary motion ([#21](https://github.com/GulomovCreative/mascotte/issues/21))
 
 **Done when** the example mascot breathes, blinks and waves, and seeking a clip gives the same frame as playback.

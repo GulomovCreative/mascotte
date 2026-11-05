@@ -3,6 +3,7 @@ import { flatPrimitives } from './scenes/flat-primitives.ts';
 import { mascot } from './scenes/mascot.ts';
 import { solidPrimitives } from './scenes/solid-primitives.ts';
 
+export { animatedMascot } from './engine-only/animated-mascot.ts';
 export {
   type Benchmark,
   type BenchmarkOptions,
