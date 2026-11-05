@@ -190,6 +190,9 @@ importers:
       '@mascotte/engine':
         specifier: workspace:*
         version: link:../../packages/engine
+      '@mascotte/player':
+        specifier: workspace:*
+        version: link:../../packages/player
       '@mascotte/reference':
         specifier: workspace:*
         version: link:../../reference
@@ -208,7 +211,11 @@ importers:
 
   packages/math: {}
 
-  packages/player: {}
+  packages/player:
+    dependencies:
+      '@mascotte/engine':
+        specifier: workspace:*
+        version: link:../engine
 
   reference:
     dependencies:

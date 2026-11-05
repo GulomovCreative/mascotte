@@ -1,4 +1,10 @@
+import { Ticker } from '@mascotte/engine';
+import { bindTickerToPage } from '@mascotte/player';
 import { type Example, type ExampleControls, examples } from './examples.ts';
+
+// Один цикл кадров на страницу: стоит, пока вкладка скрыта. Плейграунд — инструмент
+// отладки, поэтому `prefers-reduced-motion` здесь не останавливает анимацию.
+bindTickerToPage(Ticker.shared, { reducedMotion: 'ignore' });
 
 function element<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
