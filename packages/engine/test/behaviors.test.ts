@@ -1,6 +1,14 @@
 import { color } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
-import { Animator, type Behavior, type BehaviorSet, Node, PathShape, Rect, Scene } from '../src/index.ts';
+import {
+  Animator,
+  type Behavior,
+  type BehaviorSet,
+  Node,
+  PathShape,
+  Rect,
+  Scene,
+} from '../src/index.ts';
 
 function setup() {
   const scene = new Scene();
