@@ -9,15 +9,19 @@ import { type ChannelSet, compileTrack, type SampledTrack, sampleBetween } from 
  * - `oscillate` goes from `from` to `to` and back once per `period` (breathing, bobbing);
  * - `blink` stays at `from` and goes to `to` and back for `duration` seconds at random
  *   intervals from `minInterval` to `maxInterval` (blinking);
- * - `noise` wanders smoothly between `from` and `to` around their middle, about `frequency`
- *   times a second (sway, wobble).
+ * - `noise` wanders smoothly between `from` and `to` around their middle, passing the middle
+ *   `frequency` times a second (sway, wobble).
  * Values mix like clip keys: numbers and vectors linearly, rotations with slerp, colors in
- * OKLab, and booleans and enums switch half way, so a blink can also show and hide shapes.
+ * OKLab, and booleans and enums switch half way, so a blink can also show and hide shapes
+ * (with `noise`, a boolean flips at least `frequency` times a second). Two behaviors of one
+ * set on the same property do not combine: the later one wins, as with clip tracks; put them
+ * on separate layers instead.
  *
  * The value at time `t` depends only on `t` (randomness comes from the `seed`), so seeking
  * gives the same frame as playback. At time 0 every behavior is at its neutral value (`from`
- * for `oscillate` with phase 0 and for `blink`, the middle for `noise`), which additive
- * layers take as the reference. Behaviors are played on animation layers in sets
+ * for `oscillate` with phase 0 and for `blink`, the middle for `noise`). Additive layers take
+ * the value at time 0 as the reference, so an `oscillate` with a phase adds relative to its
+ * phased start. Behaviors are played on animation layers in sets
  * (`BehaviorSet`), like clips.
  */
 
@@ -46,8 +50,10 @@ export interface Oscillate extends BehaviorBase {
 }
 
 /**
- * At `from`, and for `duration` seconds at random moments: quickly to `to` (in the first
- * third) and back. Blinks start from `minInterval` to `maxInterval` seconds apart.
+ * At `from`, and for `duration` seconds at random moments: to `to` in the first third and
+ * back over the other two. Booleans and enums show `to` for the middle half of `duration`.
+ * Blinks start from `minInterval` to `maxInterval` seconds apart; the first one starts within
+ * `(maxInterval - minInterval) / 2` seconds after time 0.
  */
 export interface Blink extends BehaviorBase {
   readonly kind: 'blink';
@@ -55,16 +61,29 @@ export interface Blink extends BehaviorBase {
   readonly duration: number;
   readonly minInterval: number;
   readonly maxInterval: number;
-  /** A 32-bit integer; behaviors with the same seed and intervals blink together. Default 0. */
+  /**
+   * A 32-bit integer (negative seeds wrap: -1 equals 2^32 - 1); behaviors with the same seed
+   * and intervals blink together. Default 0.
+   */
   readonly seed?: number;
 }
 
-/** Smooth noise between `from` and `to`, at their middle at time 0. */
+/**
+ * Smooth noise between `from` and `to`, at their middle at time 0. It stays mostly near the
+ * middle and rarely comes close to either end, so set `from` and `to` wider than the sway
+ * you want.
+ */
 export interface Noise extends BehaviorBase {
   readonly kind: 'noise';
-  /** Changes of direction per second, on average. */
+  /**
+   * Noise cells per second: the value passes the middle every `1 / frequency` seconds and
+   * turns about 1.5 times per cell on average.
+   */
   readonly frequency: number;
-  /** A 32-bit integer. Default 0. */
+  /**
+   * A 32-bit integer. Behaviors with the same seed and frequency move together; give
+   * independent motions different seeds. Default 0.
+   */
   readonly seed?: number;
 }
 
@@ -81,7 +100,10 @@ interface CompiledBehavior {
   readonly track: SampledTrack;
   /** Period for `oscillate`, the mean interval for `blink`, frequency for `noise`. */
   readonly a: number;
-  /** Phase for `oscillate`, the spread of blink starts for `blink`. */
+  /**
+   * Phase for `oscillate`; for `blink`, how far after its slot start a blink may begin (half
+   * of `maxInterval - minInterval`).
+   */
   readonly b: number;
   /** Blink duration. */
   readonly c: number;
@@ -105,22 +127,20 @@ function weightAt(behavior: CompiledBehavior, t: number): number {
     case 'oscillate':
       return (1 - Math.cos(2 * Math.PI * (t / behavior.a + behavior.b))) / 2;
     case 'blink': {
-      // Blink `j` starts in the slot [j·mean, j·mean + spread]: starts are from
-      // mean − spread = minInterval to mean + spread = maxInterval apart, and a blink is
-      // never longer than minInterval, so only the blinks of this slot and the previous one
-      // can be running.
+      // Blink `j` starts in the slot [j·mean, (j + 1)·mean), within `spread` of its start:
+      // starts are from mean − spread = minInterval to mean + spread = maxInterval apart. A
+      // blink lasts at most minInterval, so it ends by j·mean + spread + minInterval =
+      // (j + 1)·mean, inside its slot: only the blink of the current slot can be running.
       const mean = behavior.a;
-      const duration = behavior.c;
       const slot = Math.floor(t / mean);
-      for (let j = slot; j >= slot - 1; j--) {
-        const start = j * mean + random.hash(behavior.seed, j) * behavior.b;
-        const x = (t - start) / duration;
-        if (x >= 0 && x < 1) return x < 1 / 3 ? smoothstep(3 * x) : smoothstep(1.5 * (1 - x));
-      }
-      return 0;
+      const start = slot * mean + random.hash(behavior.seed, slot) * behavior.b;
+      const x = (t - start) / behavior.c;
+      if (!(x >= 0 && x < 1)) return 0;
+      return x < 1 / 3 ? smoothstep(3 * x) : smoothstep(1.5 * (1 - x));
     }
     case 'noise':
-      return Math.min(1, Math.max(0, 0.5 + random.noise(behavior.seed, t * behavior.a)));
+      // The noise is within [-0.5, 0.5].
+      return 0.5 + random.noise(behavior.seed, t * behavior.a);
   }
 }
 

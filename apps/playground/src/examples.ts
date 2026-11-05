@@ -473,8 +473,8 @@ function clipExampleGL(): Example {
 }
 
 /**
- * The animated mascot on animation layers. Every frame sets the layer times to the loop time
- * and evaluates, which is the same as playing (seeking is exact).
+ * The animated mascot on animation layers. Every frame sets the layer times to the example's
+ * time and evaluates, which gives the same frame as playing (seeking is exact).
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;

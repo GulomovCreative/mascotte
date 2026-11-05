@@ -43,4 +43,16 @@ describe('random.noise', () => {
     expect(random.noise(3, 1.37)).toBe(random.noise(3, 1.37));
     expect(random.noise(3, 1.37)).not.toBe(random.noise(4, 1.37));
   });
+
+  it('has a continuous slope at integers and uses most of its range', () => {
+    const h = 1e-5;
+    for (let i = -5; i <= 5; i++) {
+      const left = (random.noise(3, i) - random.noise(3, i - h)) / h;
+      const right = (random.noise(3, i + h) - random.noise(3, i)) / h;
+      expect(Math.abs(left - right)).toBeLessThan(1e-3);
+    }
+    let max = 0;
+    for (let x = 0; x < 200; x += 0.01) max = Math.max(max, Math.abs(random.noise(5, x)));
+    expect(max).toBeGreaterThan(0.4);
+  });
 });

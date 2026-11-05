@@ -13,14 +13,14 @@ import { type Clip, clipTime, compileClip } from './clip.ts';
 
 /*
  * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
- * procedural behaviors (see behaviors.ts); below, "clip" stands for either. Every property
- * animated by a clip played on the
- * animator becomes a channel; its value when such a clip is first played is its rest pose,
- * and it is not updated later. Each frame starts from the rest pose, and every layer blends
+ * procedural behaviors (see behaviors.ts); in this file, "clip" stands for either. Every
+ * property animated by a clip played on the animator becomes a channel; its value when such a
+ * clip is first played is its rest pose, and it is not updated later (a behavior's `from` is
+ * not the rest pose: an override layer below full weight blends it with rest). Each frame starts from the rest pose, and every layer blends
  * its clips into it in order:
  * - an override layer moves the pose towards its clips by its weight;
- * - an additive layer adds how far its clips are from their first frame, scaled by its weight
- *   (rotations compose). Booleans, enums and `null` colors are not additive.
+ * - an additive layer adds how far its clips are from their value at time 0, scaled by its
+ *   weight (rotations compose). Booleans, enums and `null` colors are not additive.
  * A mask limits a layer to a node and its descendants. Playing a clip with a fade fades it in
  * over what the layer showed before, even in the middle of another fade. The result is
  * written to the nodes once per frame.
@@ -112,7 +112,7 @@ interface Playing {
   compiled: CompiledMotion;
   time: number;
   sample: Float64Array;
-  /** The clip's first frame, the reference of additive layers. */
+  /** The clip at time 0, the reference of additive layers. */
   reference: Float64Array;
   /** 1 for the channels the clip animates. */
   touched: Uint8Array;

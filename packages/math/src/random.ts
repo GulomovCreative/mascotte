@@ -25,8 +25,8 @@ export function hash(seed: number, index: number): number {
 
 /**
  * Smooth one-dimensional gradient noise at `x` for `seed`: continuous with a continuous
- * slope, in `[-0.5, 0.5]`, and 0 at every integer. One feature (a rise or a fall) per unit
- * on average.
+ * slope, in `[-0.5, 0.5]`, and 0 at every integer. It turns about 1.5 times per unit on
+ * average (once or twice between integers).
  */
 export function noise(seed: number, x: number): number {
   const i = Math.floor(x);
