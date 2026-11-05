@@ -179,7 +179,7 @@ Without shading mascots look flat; with shading they gain volume. Shading stays 
 
 ### 5.9. Animation
 
-**Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry.
+**Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry. `propertiesOf(node or class)` lists inherited properties first; `findProperty` looks one up by name (`position`, `style.color`, `width`). Numeric shape parameters come from the classes' `params` schemas and style fields from `ShapeStyle.params`, with defaults taken from the class (`defaultStyle`, `defaultClosed`). Values are read and written without allocations (vectors and quaternions are read into an `out` object), and writes go through the node's own setters, so they are validated and mark the scene as changed. Structural settings (`sortMode`, `layer`, camera `projection`) are listed but not animatable. Custom node types add theirs with `registerProperties`. Per-face settings of a box (`setFace`) are not in the registry yet.
 
 **Clips.** A clip contains a duration, a loop mode and tracks. A track specifies a target (a node or a rig slot), a property and keys `{ time, value, easing }`. The clip value at time `t` is computed by a pure function, so seeking in the editor is exact.
 
@@ -298,7 +298,7 @@ Status: **done**, except the 60 fps check on an average laptop · [milestone](ht
 Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
 
 - [x] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
-- [ ] Animatable property registry ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
+- [x] Animatable property registry ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
 - [ ] Clips, tracks and keys ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
 - [ ] Layers, masks, weights and transitions ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
 - [ ] Procedural behaviors ([#20](https://github.com/GulomovCreative/mascotte/issues/20))

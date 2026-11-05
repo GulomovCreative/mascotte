@@ -87,6 +87,7 @@ export class Camera extends Node {
     if (value !== this.#projection) {
       this.#projection = value;
       this.#projectionVersion++;
+      this.markChanged();
     }
   }
 
@@ -97,6 +98,7 @@ export class Camera extends Node {
     if (checkPositive('zoom', value) !== this.#zoom) {
       this.#zoom = value;
       this.#projectionVersion++;
+      this.markChanged();
     }
   }
 
@@ -107,6 +109,7 @@ export class Camera extends Node {
     if (checkPositive('distance', value) !== this.#distance) {
       this.#distance = value;
       this.#projectionVersion++;
+      this.markChanged();
     }
   }
 

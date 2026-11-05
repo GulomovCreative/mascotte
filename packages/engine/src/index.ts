@@ -1,6 +1,19 @@
 // Scene, primitives, sorting, rendering, animation and rig. See docs/PLAN.md, sections 5.4–5.12.
 
 export {
+  type BoolProperty,
+  type ColorProperty,
+  type EnumProperty,
+  findProperty,
+  type NumberProperty,
+  type Property,
+  type PropertyType,
+  propertiesOf,
+  type QuatProperty,
+  registerProperties,
+  type Vec3Property,
+} from './animation/properties.ts';
+export {
   defaultScheduler,
   type FrameScheduler,
   type TickCallback,
