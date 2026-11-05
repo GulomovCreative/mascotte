@@ -486,6 +486,14 @@ export class Node {
     this.#changed();
   }
 
+  /**
+   * Для подклассов с собственным состоянием, которое меняет кадр, но не внешний вид в
+   * смысле `appearanceVersion` (например, геометрия пути): увеличивает `Scene.changeVersion`.
+   */
+  protected markChanged(): void {
+    this.#changed();
+  }
+
   // ----- жизненный цикл ----- //
 
   /**

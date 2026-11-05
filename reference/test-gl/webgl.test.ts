@@ -325,3 +325,66 @@ describe('жизненный цикл WebGLRenderer', () => {
     expect(pixel(canvas, 50, 50).slice(0, 3)).toEqual([0, 0, 255]);
   });
 });
+
+describe('пропуск неизменного кадра', () => {
+  it('каждое изменение входов рисует кадр заново, и на холсте новое состояние', () => {
+    const canvas = document.createElement('canvas');
+    canvas.width = 100;
+    canvas.height = 100;
+    const renderer = new WebGLRenderer(canvas);
+    const ball = new Sphere({ diameter: 40, style: { stroke: 0, color: '#f00' } });
+    const scene = sceneWith(ball);
+    const view = new Camera();
+    let viewport: Viewport = { width: 100, height: 100, background: '#fff', pixelRatio: 1 };
+    const render = () => renderer.render(scene, view, viewport);
+    expect(render()).toBe(true);
+    expect(render()).toBe(false);
+    const redraws = (name: string, change: () => void) => {
+      change();
+      expect(render(), name).toBe(true);
+      expect(render(), name).toBe(false);
+    };
+    redraws('зум камеры', () => {
+      view.zoom = 2;
+    });
+    redraws('положение камеры', () => {
+      view.position.x = 3;
+    });
+    redraws('фон', () => {
+      viewport = { ...viewport, background: '#000' };
+    });
+    redraws('плотность пикселей', () => {
+      viewport = { ...viewport, pixelRatio: 2 };
+    });
+    redraws('ширина кадра', () => {
+      viewport = { ...viewport, width: 90 };
+    });
+    redraws('размер холста', () => {
+      canvas.width = 120;
+    });
+    redraws('другая сцена', () => {
+      scene.root.add(new Sphere({ diameter: 4, position: { x: 30, y: 30, z: 0 } }));
+    });
+    // Присвоение холсту того же размера очищает его, но входы те же: нужен invalidate().
+    canvas.width = 120;
+    expect(render()).toBe(false);
+    renderer.invalidate();
+    expect(render()).toBe(true);
+
+    // Перерисованный кадр показывает новое состояние, а не прошлое.
+    view.zoom = 1;
+    view.position.x = 0;
+    canvas.width = 100;
+    viewport = { width: 100, height: 100, background: '#fff', pixelRatio: 1 };
+    ball.style.color = '#00f';
+    expect(render()).toBe(true);
+    const copy = document.createElement('canvas');
+    copy.width = 100;
+    copy.height = 100;
+    const ctx = copy.getContext('2d');
+    if (!ctx) throw new Error('Нет 2D-контекста.');
+    ctx.drawImage(canvas, 0, 0);
+    expect(Array.from(ctx.getImageData(50, 50, 1, 1).data).slice(0, 3)).toEqual([0, 0, 255]);
+    renderer.destroy();
+  });
+});

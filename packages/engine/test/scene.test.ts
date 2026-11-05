@@ -357,11 +357,18 @@ describe('typeName', () => {
 
 describe('Scene.changeVersion', () => {
   it('растёт при любом изменении сцены и не растёт от чтения', async () => {
-    const { PathShape: Path, Sphere: Ball } = await import('../src/index.ts');
+    const engine = await import('../src/index.ts');
+    const { PathShape: Path, Sphere: Ball } = engine;
     const scene = new Scene();
     const ball = new Ball({ diameter: 10 });
     const path = new Path({ style: { stroke: 2 } });
+    const rect = new engine.Rect({ width: 10, height: 10 });
+    const rounded = new engine.RoundedRect({ width: 10, height: 10 });
+    const ellipse = new engine.Ellipse({ diameter: 10 });
+    const polygon = new engine.Polygon({ radius: 10, sides: 5 });
+    const box = new engine.Box({ width: 10, height: 10, depth: 10 });
     scene.root.add(ball);
+    for (const node of [rect, rounded, ellipse, polygon, box]) scene.root.add(node);
     let version = scene.changeVersion;
     const changed = (name: string, change: () => void) => {
       change();
@@ -387,6 +394,41 @@ describe('Scene.changeVersion', () => {
     });
     changed('параметр', () => {
       ball.diameter = 20;
+    });
+    // Геометрия фигур с путём: она не входит в appearanceVersion, но кадр меняет.
+    changed('путь', () => {
+      path.path = [
+        { type: 'move', point: { x: 0 } },
+        { type: 'line', point: { x: 5 } },
+      ];
+    });
+    changed('замкнутость', () => {
+      path.closed = !path.closed;
+    });
+    changed('ширина прямоугольника', () => {
+      rect.width = 20;
+    });
+    changed('скругление', () => {
+      rounded.cornerRadius = 3;
+    });
+    changed('диаметр эллипса', () => {
+      ellipse.diameter = 20;
+    });
+    changed('четверти эллипса', () => {
+      ellipse.quarters = 2;
+    });
+    changed('стороны многоугольника', () => {
+      polygon.sides = 7;
+    });
+    changed('лицевая сторона', () => {
+      rect.front.x = 1;
+    });
+    changed('цвет обратной стороны', () => {
+      rect.style.backfaceColor = '#ff0000';
+    });
+    changed('грань коробки', () => box.setFace('top', { visible: false }));
+    changed('опорная точка', () => {
+      ball.pivot.x = 2;
     });
     changed('режим сортировки', () => {
       path.sortMode = 'layer';
