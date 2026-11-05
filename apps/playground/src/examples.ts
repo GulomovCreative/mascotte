@@ -106,42 +106,63 @@ interface HitSource {
   camera: Camera;
 }
 
+/** Подпись под холстом с узлом под указателем. */
+interface HitLabel {
+  /** Пересчитать попадание: вызывается после каждого кадра, ведь фигуры двигаются. */
+  update(): void;
+  dispose(): void;
+}
+
 /**
  * Подпись под холстом с узлом под указателем: проверка попадания по текущему кадру.
- * Возвращает функцию отписки.
+ * Указатель запоминается при движении, а попадание пересчитывается и после каждого
+ * кадра — иначе фигура, уехавшая из-под неподвижного указателя, числилась бы под ним.
  */
 function showHits(
   container: HTMLElement,
   canvas: HTMLCanvasElement,
   size: { width: number; height: number },
   pick: HitSource,
-): () => void {
+): HitLabel {
   const label = document.createElement('p');
   label.className = 'hit';
-  label.textContent = 'Наведите указатель на фигуру.';
+  const idle = 'Наведите указатель на фигуру.';
+  label.textContent = idle;
   container.append(label);
   const tester = new HitTester();
-  const move = (event: PointerEvent) => {
-    // Холст может быть ужат по ширине: переводим в пиксели кадра.
-    const scale = size.width / canvas.clientWidth;
-    const hit = tester.hitTest(
-      pick.scene,
-      pick.camera,
-      size,
-      event.offsetX * scale,
-      event.offsetY * scale,
-    );
+  // Указатель в пикселях кадра или null, если он вне холста.
+  let pointer: { x: number; y: number } | null = null;
+  const update = () => {
+    if (!pointer) return;
+    const hit = tester.hitTest(pick.scene, pick.camera, size, pointer.x, pointer.y);
     canvas.style.cursor = hit ? 'pointer' : '';
-    label.textContent = hit
+    const text = hit
       ? hit.node === hit.drawable
         ? `Под указателем: ${describe(hit.node)}`
         : `Под указателем: ${describe(hit.node)}, часть ${describe(hit.drawable)}`
       : 'Под указателем ничего нет.';
+    if (label.textContent !== text) label.textContent = text;
+  };
+  const move = (event: PointerEvent) => {
+    // Холст может быть ужат по ширине: переводим в пиксели кадра.
+    const scale = size.width / canvas.clientWidth;
+    pointer = { x: event.offsetX * scale, y: event.offsetY * scale };
+    update();
+  };
+  const leave = () => {
+    pointer = null;
+    canvas.style.cursor = '';
+    label.textContent = idle;
   };
   canvas.addEventListener('pointermove', move);
-  return () => {
-    canvas.removeEventListener('pointermove', move);
-    label.remove();
+  canvas.addEventListener('pointerleave', leave);
+  return {
+    update,
+    dispose() {
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerleave', leave);
+      label.remove();
+    },
   };
 }
 
@@ -172,7 +193,7 @@ function mountGL(
   resize();
   const unwatch = watchPixelRatio(resize);
   container.append(canvas);
-  const unpick = pick ? showHits(container, canvas, scene, pick) : () => {};
+  const hits = pick ? showHits(container, canvas, scene, pick) : null;
   let time = 0;
   let last = performance.now();
   let raf = 0;
@@ -181,6 +202,7 @@ function mountGL(
       if (controls.animate) time += (now - last) / 1000;
       last = now;
       draw(renderer, pixelRatio, time);
+      hits?.update();
       controls.frame();
     } catch (error) {
       controls.error(error);
@@ -192,7 +214,7 @@ function mountGL(
   return () => {
     cancelAnimationFrame(raf);
     unwatch();
-    unpick();
+    hits?.dispose();
     renderer.destroy();
     canvas.remove();
   };
