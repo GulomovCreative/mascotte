@@ -12,8 +12,8 @@ import { euler, quat } from '@mascotte/math';
 /*
  * The example mascot of stage 2: it waves (a clip), breathes and sways (additive behaviors),
  * blinks at random (behaviors on a layer masked to the head), now and then tilts its head,
- * and its ears swing after the head on springs. The layers depend only on time, so with springs off setting the layer
- * times gives the same frame as playing up to them.
+ * and its ears swing after the head on springs. The layers depend only on time, so with
+ * springs off, setting the layer times gives the same frame as playing up to them.
  */
 
 function rotation(x: number, y: number, z: number) {
@@ -227,7 +227,10 @@ const blink: BehaviorSet = {
   ],
 };
 
-/** Sets up the mascot's layers and springs on `animator`, whose scene holds a mascot from `build`. */
+/**
+ * Sets up the mascot's layers and springs on `animator`, whose scene holds a mascot from
+ * `build`.
+ */
 function animate(animator: Animator): void {
   animator.addLayer({ name: 'body' }).play(waveClip);
   animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
@@ -244,10 +247,10 @@ function animate(animator: Animator): void {
   }
 }
 
-/** The animated mascot: builds the scene and sets up its layers. */
+/** The animated mascot: builds the scene and sets up its layers and springs. */
 export const animatedMascot = {
   id: 'engine-animated-mascot',
-  title: 'Mascot: waves, breathes, blinks',
+  title: 'Mascot: waves, breathes, blinks, swings its ears',
   width: 240,
   height: 280,
   background: '#e8f1f2',

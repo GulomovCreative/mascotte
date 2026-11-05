@@ -322,4 +322,164 @@ describe('springs', () => {
     spring.maxAngle = 1;
     expect([spring.frequency, spring.damping, spring.maxAngle]).toEqual([4, 0.8, 1]);
   });
+
+  it('swing at the frequency they are given, also when it changes', () => {
+    const periodsOf = (frequency: number, change?: (spring: { frequency: number }) => void) => {
+      const { arm, ear, animator, spring } = setup({ frequency, damping: 0 });
+      animator.update(1 / 240);
+      turnZ(arm, 0.2);
+      change?.(spring);
+      const crossings: number[] = [];
+      let last = tipAngle(ear) - 0.2;
+      play(animator, 4, 240, (t) => {
+        const now = tipAngle(ear) - 0.2;
+        if (last < 0 && now >= 0) crossings.push(t);
+        last = now;
+      });
+      return crossings.slice(1).map((t, i) => t - (crossings[i] as number));
+    };
+    for (const period of periodsOf(1)) expect(period).toBeCloseTo(1, 1);
+    for (const period of periodsOf(4)) expect(period).toBeCloseTo(0.25, 1);
+    for (const period of periodsOf(1, (spring) => (spring.frequency = 4))) {
+      expect(period).toBeCloseTo(0.25, 1);
+    }
+  });
+
+  it('stop swinging past once damping is set to 1', () => {
+    const { arm, ear, animator, spring } = setup({ frequency: 3, damping: 0 });
+    animator.update(1 / 60);
+    spring.damping = 1;
+    turnZ(arm, 0.4);
+    let most = 0;
+    play(animator, 3, 60, () => {
+      most = Math.max(most, tipAngle(ear));
+    });
+    expect(most).toBeLessThanOrEqual(0.4 + 1e-3);
+  });
+
+  it('turn about any axis, composed after the pose, and settle back in it', () => {
+    const { arm, ear, animator, spring } = setup({ frequency: 1.5, damping: 0.4 });
+    // A rest pose about X: the turns about Z of the arm and of the spring do not commute with it.
+    const rest = quat.setAxisAngle(quat.create(), vec3.create(1, 0, 0), 0.6);
+    const fresh = new Node({ id: 'ear2', rotation: { x: 0.6, y: 0, z: 0, order: 'XYZ' } });
+    arm.add(fresh);
+    animator.removeSpring(spring);
+    const tip = { x: 0, y: 10, z: 0 };
+    animator.addSpring({ target: 'ear2', tip, frequency: 1.5, damping: 0.4 });
+    animator.update(1 / 60);
+    const before = fresh.localToWorld(vec3.create(), tip);
+    turnZ(arm, 0.7);
+    animator.update(1 / 60);
+    // The particle has hardly moved yet, so the tip points close to where it was.
+    const pivot = fresh.localToWorld(vec3.create(), fresh.pivot);
+    const toTip = vec3.normalize(
+      vec3.create(),
+      vec3.sub(vec3.create(), fresh.localToWorld(vec3.create(), tip), pivot),
+    );
+    const toOld = vec3.normalize(vec3.create(), vec3.sub(vec3.create(), before, pivot));
+    expect(vec3.length(vec3.cross(vec3.create(), toTip, toOld))).toBeLessThan(0.02);
+    play(animator, 8, 60);
+    expect(quat.angleBetween(fresh.rotation, rest)).toBeLessThan(1e-4);
+    expect(ear.rotation.w).toBe(1);
+  });
+
+  it('turn by exactly maxAngle when the particle is further away, and freely below it', () => {
+    const { arm, ear, animator } = setup({ maxAngle: 0.2, frequency: 1, damping: 1 });
+    animator.update(1 / 60);
+    turnZ(arm, 1);
+    let most = 0;
+    play(animator, 0.3, 60, () => {
+      most = Math.max(most, Math.abs(earAngle(ear)));
+    });
+    expect(most).toBeCloseTo(0.2, 6);
+    const free = setup({ maxAngle: 0.2, frequency: 1, damping: 1 });
+    free.animator.update(1 / 60);
+    turnZ(free.arm, 0.1);
+    free.animator.update(1 / 60);
+    const unlimited = setup({ frequency: 1, damping: 1 });
+    unlimited.animator.update(1 / 60);
+    turnZ(unlimited.arm, 0.1);
+    unlimited.animator.update(1 / 60);
+    expect(earAngle(free.ear)).toBeCloseTo(earAngle(unlimited.ear), 12);
+  });
+
+  it('leave the pose under a parent scaled to 0', () => {
+    const { arm, ear, animator } = setup();
+    animator.update(1 / 60);
+    turnZ(arm, 0.5);
+    arm.scale.x = 0;
+    play(animator, 0.2, 60);
+    expect(ear.rotation.w).toBe(1);
+    expect(Number.isNaN(ear.rotation.z)).toBe(false);
+  });
+
+  it('move to a node that replaced a destroyed one under the same id', () => {
+    const { arm, ear, animator, spring } = setup({ frequency: 2, damping: 0.3 });
+    animator.update(1 / 60);
+    turnZ(arm, 0.5);
+    play(animator, 0.1, 60);
+    ear.destroy();
+    animator.update(1 / 60);
+    expect(spring.node).toBe(ear);
+    const replacement = new Node({ id: 'ear' });
+    arm.add(replacement);
+    animator.update(1 / 60);
+    expect(spring.node).toBe(replacement);
+    // It starts at rest on the new node, then swings after the arm.
+    expect(replacement.rotation.w).toBe(1);
+    turnZ(arm, 0);
+    animator.update(1 / 60);
+    expect(earAngle(replacement)).toBeGreaterThan(0.3);
+  });
+
+  it('follow the hierarchy when nodes are reparented after the springs are added', () => {
+    const root = new Node({ id: 'root' });
+    const x = new Node({ id: 'x' });
+    const y = new Node({ id: 'y', position: { x: 0, y: 10, z: 0 } });
+    root.add(x);
+    root.add(y);
+    const animator = new Animator(new Scene(root));
+    const tip = { x: 0, y: 10, z: 0 };
+    const sy = animator.addSpring({ target: 'y', tip });
+    const sx = animator.addSpring({ target: 'x', tip });
+    expect(animator.springs).toEqual([sy, sx]);
+    x.add(y);
+    animator.update(1 / 60);
+    expect(animator.springs).toEqual([sx, sy]);
+  });
+
+  it('give the node back to the pose when removed', () => {
+    const { arm, ear, animator, spring } = setup();
+    animator.update(1 / 60);
+    turnZ(arm, 0.5);
+    play(animator, 0.1, 60);
+    expect(Math.abs(earAngle(ear))).toBeGreaterThan(0.1);
+    animator.removeSpring(spring);
+    animator.update(1 / 60);
+    expect(earAngle(ear)).toBe(0);
+    expect(animator.springs).toEqual([]);
+  });
+
+  it('allow one spring per node', () => {
+    const { animator } = setup();
+    expect(() => animator.addSpring({ target: 'ear', tip: { x: 1, y: 0, z: 0 } })).toThrow(
+      /Spring ear: the node already has a spring/,
+    );
+  });
+
+  it('do not fall a step behind on frames of a whole number of steps', () => {
+    const run = (dt: number, frames: number) => {
+      const { arm, ear, animator } = setup({ damping: 0.2 });
+      animator.update(dt);
+      for (let i = 1; i <= frames; i++) {
+        turnZ(arm, Math.min(1, (i * dt) / 0.5) * 0.5);
+        animator.update(dt);
+      }
+      return tipAngle(ear);
+    };
+    // 1/30 rounded to 15 digits is a hair under 4 steps: without care a frame would fall a
+    // step behind and catch up on the next one.
+    expect(0.0333333333333333 / SPRING_STEP).toBeLessThan(4);
+    expect(run(0.0333333333333333, 40)).toBeCloseTo(run(SPRING_STEP * 4, 40), 9);
+  });
 });

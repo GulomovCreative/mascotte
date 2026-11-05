@@ -294,6 +294,17 @@ describe('quat: rotationTo', () => {
     }
   });
 
+  it('turns nearly opposite directions accurately', () => {
+    for (const y of [1e-7, 1e-13]) {
+      const to = vec3.create(-1, y, 0);
+      const q = quat.rotationTo(quat.create(), X, to);
+      expect(quat.length(q)).toBeCloseTo(1, 12);
+      expectClose(vec3.normalize(vec3.create(), rotate(q, X)), vec3.normalize(vec3.create(), to));
+    }
+    const q = quat.rotationTo(quat.create(), X, vec3.create(-1, 1e-7, 0));
+    expect(quat.angleBetween(q, quat.create())).toBeCloseTo(Math.PI - 1e-7, 9);
+  });
+
   it('returns out', () => {
     const out = quat.create();
     expect(quat.rotationTo(out, X, Y)).toBe(out);

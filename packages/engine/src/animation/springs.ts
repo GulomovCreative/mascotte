@@ -5,18 +5,20 @@ import type { Node } from '../scene/node.ts';
  * Springs: secondary motion for ears, tails and antennae. A spring hangs on a node and
  * follows a point of it, the `tip`, with inertia: a particle in world space is pulled to
  * where the animated pose puts the tip, and the node is turned about its pivot so that the
- * tip points at the particle. When the node or one of its ancestors moves, the tip lags
- * behind and swings past the pose when the motion stops.
+ * tip points at the particle. When the node's pose or one of its ancestors moves, the tip
+ * lags behind and swings past the pose when the motion stops. Only the direction from the
+ * pivot to the particle counts: the node does not stretch and does not twist about that line.
  *
  * The particle is a damped spring (`frequency` in oscillations per second, `damping` as a
  * ratio: 0 swings forever, 1 settles without swinging past) simulated at a fixed step of
- * `SPRING_STEP` seconds, so the motion does not depend on the frame rate. Within a frame the
+ * `SPRING_STEP` seconds, so the motion hardly depends on the frame rate. Within a frame the
  * pulling point moves linearly from the previous frame's tip to the current one, and the
  * particle is shown moved on by its velocity for the time not simulated yet (less than a
  * step).
  *
  * Springs keep state, so unlike clips they depend on the frames played before, not only on
- * the time: playing the same frames again gives the same motion, and seeking does not.
+ * the time: from rest, playing the same `dt` steps over the same poses gives the same motion,
+ * but setting layer times does not reproduce it.
  */
 
 /** Simulation step of springs in seconds. */
@@ -25,7 +27,10 @@ export const SPRING_STEP = 1 / 120;
 /** A frame longer than this (a hitch or a jump) settles springs instead of simulating it. */
 export const SPRING_MAX_DT = 0.25;
 
-/** The highest spring frequency: above it a step of `SPRING_STEP` is not stable. */
+/**
+ * The highest spring frequency, about half of what a step of `SPRING_STEP` simulates stably
+ * (about 38 per second without damping).
+ */
 export const SPRING_MAX_FREQUENCY = 20;
 
 export interface SpringOptions {
@@ -33,11 +38,17 @@ export interface SpringOptions {
   readonly target: string;
   /** The point of the node, in its own coordinates, that lags behind; not the pivot. */
   readonly tip: Readonly<Vec3>;
-  /** Oscillations per second, from 0 to `SPRING_MAX_FREQUENCY`. Default 2. */
+  /**
+   * Undamped oscillations per second, above 0 and at most `SPRING_MAX_FREQUENCY`; damping
+   * slows the swing down by √(1 − damping²). Default 2.
+   */
   readonly frequency?: number;
-  /** Damping ratio: 0 swings forever, 1 settles without overshoot. Default 0.3. */
+  /**
+   * Damping ratio: 0 swings forever, 1 settles without overshoot, above 1 settles more slowly,
+   * still without overshoot. Default 0.3.
+   */
   readonly damping?: number;
-  /** The largest turn from the pose in radians, from 0 to π. Default π (no limit). */
+  /** The largest turn from the pose in radians, above 0 and at most π. Default π (no limit). */
   readonly maxAngle?: number;
 }
 
@@ -78,12 +89,15 @@ const IDENTITY: Readonly<Quat> = quat.create();
 let springInternals!: {
   step(spring: Spring, dt: number): void;
   apply(spring: Spring): void;
+  bind(spring: Spring, node: Node): void;
 };
 
 /** A spring on a node. Created by `Animator.addSpring`. */
 export class Spring {
-  readonly node: Node;
+  /** Id of the node the spring turns. */
+  readonly target: string;
   readonly tip: Readonly<Vec3>;
+  #node: Node;
   #frequency: number;
   #damping: number;
   #maxAngle: number;
@@ -105,32 +119,41 @@ export class Spring {
     if (tip.x === node.pivot.x && tip.y === node.pivot.y && tip.z === node.pivot.z) {
       fail(target, 'tip must differ from the pivot.');
     }
-    this.node = node;
+    this.target = target;
+    this.#node = node;
     this.tip = vec3.clone(tip);
     this.#frequency = checkFrequency(target, options.frequency ?? 2);
     this.#damping = checkDamping(target, options.damping ?? 0.3);
     this.#maxAngle = checkMaxAngle(target, options.maxAngle ?? Math.PI);
   }
 
+  /**
+   * The node the spring turns: the node with id `target` when the spring was added, or the
+   * one that replaced it after it was destroyed.
+   */
+  get node(): Node {
+    return this.#node;
+  }
+
   get frequency(): number {
     return this.#frequency;
   }
   set frequency(value: number) {
-    this.#frequency = checkFrequency(this.node.id, value);
+    this.#frequency = checkFrequency(this.target, value);
   }
 
   get damping(): number {
     return this.#damping;
   }
   set damping(value: number) {
-    this.#damping = checkDamping(this.node.id, value);
+    this.#damping = checkDamping(this.target, value);
   }
 
   get maxAngle(): number {
     return this.#maxAngle;
   }
   set maxAngle(value: number) {
-    this.#maxAngle = checkMaxAngle(this.node.id, value);
+    this.#maxAngle = checkMaxAngle(this.target, value);
   }
 
   /** Puts the spring at rest: on the next frame the tip is where the pose puts it. */
@@ -214,6 +237,10 @@ export class Spring {
     springInternals = {
       step: (spring, dt) => spring.#step(dt),
       apply: (spring) => spring.#apply(),
+      bind: (spring, node) => {
+        spring.#node = node;
+        spring.#settled = false;
+      },
     };
   }
 }
@@ -226,4 +253,9 @@ export function stepSpring(spring: Spring, dt: number): void {
 /** Turns the node of `spring` by its current state (see `Animator.evaluate`). */
 export function applySpring(spring: Spring): void {
   springInternals.apply(spring);
+}
+
+/** Moves `spring` to `node`, which replaced its destroyed one, at rest. */
+export function bindSpring(spring: Spring, node: Node): void {
+  springInternals.bind(spring, node);
 }

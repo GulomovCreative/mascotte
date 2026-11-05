@@ -11,15 +11,16 @@ import {
 } from './channels.ts';
 import { type Clip, clipTime, compileClip } from './clip.ts';
 import { findProperty } from './properties.ts';
-import { applySpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
+import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
 
 /*
  * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
  * procedural behaviors (see behaviors.ts); in this file, "clip" stands for either. Every
- * property animated by a clip played on the animator becomes a channel; its value when such a
- * clip is first played is its rest pose, and it is not updated later (a behavior's `from` is
- * not the rest pose: an override layer below full weight blends it with rest). Each frame starts from the rest pose, and every layer blends
- * its clips into it in order:
+ * property animated by a clip played on the animator, or turned by a spring, becomes a
+ * channel; its value when it first becomes one is its rest pose, and it is not updated later
+ * (a behavior's `from` is not the rest pose: an override layer below full weight blends it
+ * with rest). Each frame starts from the rest pose, and every layer blends its clips into it
+ * in order:
  * - an override layer moves the pose towards its clips by its weight;
  * - an additive layer adds how far its clips are from their value at time 0, scaled by its
  *   weight (rotations compose). Booleans, enums and `null` colors are not additive.
@@ -33,8 +34,10 @@ import { applySpring, Spring, type SpringOptions, stepSpring } from './springs.t
  * edited one must be a new object; it is recompiled when one of its nodes was destroyed.
  *
  * Springs (see springs.ts) run after the layers: each frame they turn their nodes from the
- * blended pose, parents before children. The animator owns the rotation of a spring's node
- * like an animated property, so the spring's turn does not build up from frame to frame.
+ * blended pose, parents before children (ordered by the current hierarchy every frame). The
+ * animator owns the rotation of a spring's node like an animated property, so the spring's
+ * turn does not build up from frame to frame. A spring whose node was destroyed moves to the
+ * node that replaced it under the same id, if any, and starts there at rest.
  */
 
 /** All layer blend modes. */
@@ -422,36 +425,76 @@ export class Animator {
     return this.#layers.find((layer) => layer.name === name) ?? null;
   }
 
-  /** Springs in the order they run: parents before children. */
+  /** Springs in the order they ran in the last frame: parents before children. */
   get springs(): readonly Spring[] {
     return this.#springs;
   }
 
   /**
-   * Adds a spring on the node with id `options.target`. Throws for an unknown id and for
-   * invalid parameters (RangeError). The node's current rotation becomes its rest pose if no
-   * clip animated it yet.
+   * Adds a spring on the node with id `options.target`. Throws for an unknown id, for a node
+   * that already has a spring and for invalid parameters (RangeError). From now on the
+   * animator writes the node's rotation every frame, so other code should not set it: the
+   * spring turns the node from its blended pose, which is the rotation the node had when the
+   * spring was added unless a clip animates it.
    */
   addSpring(options: SpringOptions): Spring {
     const node = this.scene.getById(options.target);
     if (!node) throw new Error(`Spring: no node with id "${options.target}" in the scene.`);
+    if (this.#springs.some((spring) => spring.node === node)) {
+      throw new Error(`Spring ${options.target}: the node already has a spring.`);
+    }
     const spring = new Spring(node, options);
-    const rotation = findProperty(node, 'rotation');
-    if (!rotation) throw new Error(`Spring ${options.target}: the node has no rotation.`);
-    const before = this.#channels.channels.length;
-    this.#channels.channel(node, rotation);
-    this.#grow(before);
-    const depth = depthOf(node);
-    let at = this.#springs.length;
-    while (at > 0 && depthOf((this.#springs[at - 1] as Spring).node) > depth) at--;
-    this.#springs.splice(at, 0, spring);
+    this.#own(node);
+    this.#springs.push(spring);
+    this.#sortSprings();
     return spring;
   }
 
-  /** Removes `spring`; its node returns to the pose. */
+  /**
+   * Removes `spring` (nothing happens for a spring not on this animator). From the next frame
+   * its node shows the plain pose; the animator still owns the node's rotation.
+   */
   removeSpring(spring: Spring): void {
     const index = this.#springs.indexOf(spring);
     if (index >= 0) this.#springs.splice(index, 1);
+  }
+
+  /** Makes the rotation of `node` a channel, reading its rest value. */
+  #own(node: Node): void {
+    const rotation = findProperty(node, 'rotation');
+    if (!rotation) throw new Error(`Spring ${node.id}: the node has no rotation.`);
+    const before = this.#channels.channels.length;
+    this.#channels.channel(node, rotation);
+    this.#grow(before);
+  }
+
+  /** Moves springs off destroyed nodes and puts parents before children. */
+  #prepareSprings(): void {
+    const springs = this.#springs;
+    for (let i = 0; i < springs.length; i++) {
+      const spring = springs[i] as Spring;
+      if (!spring.node.destroyed) continue;
+      const node = this.scene.getById(spring.target);
+      if (!node || springs.some((other) => other.node === node)) continue;
+      this.#own(node);
+      bindSpring(spring, node);
+    }
+    this.#sortSprings();
+  }
+
+  /** Stable insertion sort by depth: the hierarchy may have changed since the last frame. */
+  #sortSprings(): void {
+    const springs = this.#springs;
+    for (let i = 1; i < springs.length; i++) {
+      const spring = springs[i] as Spring;
+      const depth = depthOf(spring.node);
+      let j = i;
+      while (j > 0 && depthOf((springs[j - 1] as Spring).node) > depth) {
+        springs[j] = springs[j - 1] as Spring;
+        j--;
+      }
+      springs[j] = spring;
+    }
   }
 
   /**
@@ -467,8 +510,10 @@ export class Animator {
   }
 
   /**
-   * Puts every spring at rest. To see springs at a seeked time, reset them with the layer
-   * times and play up to it with `update`: the same frames give the same motion.
+   * Puts every spring at rest: on the next frame each tip is where the pose puts it. To see
+   * springs at a sought time, set the layer times to where playback started, reset the
+   * springs and replay the same `update(dt)` steps (each at most `SPRING_MAX_DT`): from rest,
+   * the same steps over the same poses give the same motion.
    */
   resetSprings(): void {
     for (const spring of this.#springs) spring.reset();
@@ -481,6 +526,7 @@ export class Animator {
   update(dt: number): void {
     checkTime(dt, 'Animator dt');
     for (const layer of this.#layers) layerInternals.advance(layer, dt);
+    if (this.#springsEnabled) this.#prepareSprings();
     this.#writePose();
     if (!this.#springsEnabled) return;
     for (const spring of this.#springs) {
@@ -491,11 +537,12 @@ export class Animator {
 
   /**
    * Writes the blended pose for the layers' current times without advancing them, with the
-   * springs in their current state. Outside fades and with springs off (or at rest), setting
-   * layer times and evaluating gives the same frame as playing up to them; fade progress and
-   * spring motion are not seekable.
+   * springs in their current state (after `resetSprings`, the plain pose). Outside fades and
+   * with springs off, setting layer times and evaluating gives the same frame as playing up
+   * to them; fade progress and spring motion are not seekable.
    */
   evaluate(): void {
+    if (this.#springsEnabled) this.#prepareSprings();
     this.#writePose();
     if (!this.#springsEnabled) return;
     for (const spring of this.#springs) applySpring(spring);
