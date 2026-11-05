@@ -1,6 +1,6 @@
 import type { Quat, Vec3 } from '@mascotte/math';
-import { Camera } from '../scene/camera.ts';
-import { Node } from '../scene/node.ts';
+import { Camera, PROJECTIONS } from '../scene/camera.ts';
+import { Node, SORT_MODES } from '../scene/node.ts';
 import type { ParamSchema, StyleParamSpec } from '../shapes/params.ts';
 import { Shape } from '../shapes/shape.ts';
 import { Cylinder } from '../shapes/solids.ts';
@@ -9,8 +9,8 @@ import { Styled } from '../shapes/styled.ts';
 
 /*
  * Property registry: every node type publishes its properties with a type, a default value
- * and a range. Animation reads and writes nodes through it, and the editor builds its
- * inspector from it, so neither needs to know concrete node classes.
+ * and a range. Animation clips and the editor inspector read and write nodes through it, so
+ * neither needs to know concrete node classes.
  *
  * Values are read and written without allocations: vectors and quaternions are read into
  * an `out` object and copied on write. Writes go through the node's own setters, so they
@@ -25,8 +25,9 @@ interface BaseProperty {
   readonly name: string;
   readonly type: PropertyType;
   /**
-   * Whether animation may change it every frame. Structural settings (sort mode and
-   * layer) are only edited in the inspector: changing them rebuilds the sort structure.
+   * Whether animation may change it every frame. Structural settings (`sortMode`, `layer`,
+   * camera `projection`) are edited only in the inspector, because changing them is
+   * expensive: a sort rebuild or a projection switch.
    */
   readonly animatable: boolean;
 }
@@ -34,7 +35,7 @@ interface BaseProperty {
 export interface NumberProperty<N extends Node = Node> extends BaseProperty {
   readonly type: 'number';
   readonly default: number;
-  /** Smallest allowed value; absent means unbounded. */
+  /** Smallest allowed value, inclusive unless `exclusiveMin`; absent means unbounded. */
   readonly min?: number;
   /** Whether `min` itself is excluded (the value must be strictly greater). */
   readonly exclusiveMin?: boolean;
@@ -124,7 +125,7 @@ export function registerProperties<N extends Node>(
 
 /**
  * All properties of a node or node class: inherited ones first, in registration order.
- * The list is cached per class and must not be modified.
+ * The list is cached per class and frozen; its entries are shared and must not be modified.
  */
 export function propertiesOf(target: Node | NodeClass): readonly Property[] {
   const type = (target instanceof Node ? target.constructor : target) as NodeClass;
@@ -150,18 +151,21 @@ function collect(type: NodeClass): readonly Property[] {
     if (c === Node) break;
   }
   const result: Property[] = [];
-  const seen = new Set<string>();
+  const index = new Map<string, number>();
+  // A subclass that registers a name again replaces the inherited entry in place.
   const add = (property: Property) => {
-    if (seen.has(property.name)) return;
-    seen.add(property.name);
-    result.push(property);
+    const at = index.get(property.name);
+    if (at === undefined) {
+      index.set(property.name, result.length);
+      result.push(property);
+    } else result[at] = property;
   };
-  for (const c of chain) {
-    for (const property of own.get(c) ?? []) add(property);
-    if (Object.hasOwn(c, 'params')) {
-      const schema = (c as unknown as { params: ParamSchema }).params;
-      for (const [name, spec] of Object.entries(schema)) add(paramProperty(name, spec));
-    }
+  for (const c of chain) for (const property of own.get(c) ?? []) add(property);
+  // Numeric parameters come from the schema the node actually uses, the class's own
+  // `params` (static, so inherited unless the class declares its own).
+  if (type.prototype instanceof Styled) {
+    const schema = (type as unknown as typeof Styled).params;
+    for (const [name, spec] of Object.entries(schema)) add(paramProperty(name, spec));
   }
   // Style defaults depend on the class too: solids and surfaces are filled.
   if (type.prototype instanceof Styled) {
@@ -330,7 +334,7 @@ registerProperties(Node, [
     type: 'enum',
     animatable: false,
     default: 'auto',
-    values: ['auto', 'group', 'attached', 'layer'],
+    values: SORT_MODES,
     get: (node) => node.sortMode,
     set: (node, value) => {
       node.sortMode = value as Node['sortMode'];
@@ -405,7 +409,7 @@ registerProperties(Camera, [
     type: 'enum',
     animatable: false,
     default: 'orthographic',
-    values: ['orthographic', 'perspective'],
+    values: PROJECTIONS,
     get: (node) => node.projection,
     set: (node, value) => {
       node.projection = value as Camera['projection'];

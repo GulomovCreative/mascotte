@@ -54,7 +54,17 @@ export interface NodeOptions {
  *
  * A non-drawing node in `attached` or `layer` mode is sorted as a group.
  */
-export type SortMode = 'auto' | 'group' | 'attached' | 'layer';
+/** All sort modes, in the order the inspector lists them. */
+export const SORT_MODES = ['auto', 'group', 'attached', 'layer'] as const;
+
+export type SortMode = (typeof SORT_MODES)[number];
+
+function checkSortMode(value: string): SortMode {
+  if (!(SORT_MODES as readonly string[]).includes(value)) {
+    throw new RangeError(`Unknown sort mode "${value}".`);
+  }
+  return value as SortMode;
+}
 
 let sortSettingsVersion = 0;
 
@@ -181,7 +191,9 @@ export class Node {
     this.pivot = new ObservedVec3(invalidate, pivot?.x, pivot?.y, pivot?.z);
     this.#visible = options.visible ?? true;
     this.#opacity = checkOpacity(options.opacity ?? 1);
-    this.#sortMode = options.sortMode ?? (this.constructor as typeof Node).defaultSortMode;
+    this.#sortMode = checkSortMode(
+      options.sortMode ?? (this.constructor as typeof Node).defaultSortMode,
+    );
     this.#zBias = checkBias(options.zBias ?? 0);
     this.#layer = checkLayer(options.layer ?? 0);
   }
@@ -211,7 +223,7 @@ export class Node {
     return this.#sortMode;
   }
   set sortMode(value: SortMode) {
-    if (value !== this.#sortMode) {
+    if (checkSortMode(value) !== this.#sortMode) {
       this.#sortMode = value;
       sortSettingsVersion++;
       this.#changed();

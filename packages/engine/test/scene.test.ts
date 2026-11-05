@@ -60,6 +60,8 @@ describe('internal access is closed', () => {
         'GLCollector',
         'HitTester',
         'Ticker',
+        'SORT_MODES',
+        'PROJECTIONS',
         'findProperty',
         'propertiesOf',
         'registerProperties',

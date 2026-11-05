@@ -50,6 +50,7 @@ export {
   Camera,
   type CameraOptions,
   createProjectedPoint,
+  PROJECTIONS,
   type ProjectedPoint,
   type Projection,
 } from './scene/camera.ts';
@@ -59,6 +60,7 @@ export {
   Node,
   type NodeOptions,
   OWNER_SEPARATOR,
+  SORT_MODES,
   type SortMode,
 } from './scene/node.ts';
 export { ObservedQuat, ObservedVec3 } from './scene/observed.ts';
