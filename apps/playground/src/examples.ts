@@ -96,8 +96,8 @@ function mountCanvas(
 type DrawGL = (renderer: WebGLRenderer, pixelRatio: number, time: number) => void;
 
 /** Тип узла и его id, если id задан, а не создан автоматически. */
-function describe(node: { id: string; constructor: { name: string } }): string {
-  return node.id.startsWith('~') ? node.constructor.name : `${node.constructor.name} «${node.id}»`;
+function nodeLabel(node: { id: string; typeName: string }): string {
+  return node.id.startsWith('~') ? node.typeName : `${node.typeName} «${node.id}»`;
 }
 
 /** Что показывать под холстом при наведении: сцена и камера примера. */
@@ -110,13 +110,15 @@ interface HitSource {
 interface HitLabel {
   /** Пересчитать попадание: вызывается после каждого кадра, ведь фигуры двигаются. */
   update(): void;
+  /** Убрать подпись и обработчики. */
   dispose(): void;
 }
 
 /**
  * Подпись под холстом с узлом под указателем: проверка попадания по текущему кадру.
- * Указатель запоминается при движении, а попадание пересчитывается и после каждого
- * кадра — иначе фигура, уехавшая из-под неподвижного указателя, числилась бы под ним.
+ * Движение указателя только запоминает точку, а попадание считается один раз после
+ * каждого кадра — так фигура, уехавшая из-под неподвижного указателя, не числится под
+ * ним, и сцена не обходится дважды за кадр.
  */
 function showHits(
   container: HTMLElement,
@@ -138,8 +140,8 @@ function showHits(
     canvas.style.cursor = hit ? 'pointer' : '';
     const text = hit
       ? hit.node === hit.drawable
-        ? `Под указателем: ${describe(hit.node)}`
-        : `Под указателем: ${describe(hit.node)}, часть ${describe(hit.drawable)}`
+        ? `Под указателем: ${nodeLabel(hit.node)}`
+        : `Под указателем: ${nodeLabel(hit.node)}, часть ${nodeLabel(hit.drawable)}`
       : 'Под указателем ничего нет.';
     if (label.textContent !== text) label.textContent = text;
   };
@@ -147,7 +149,6 @@ function showHits(
     // Холст может быть ужат по ширине: переводим в пиксели кадра.
     const scale = size.width / canvas.clientWidth;
     pointer = { x: event.offsetX * scale, y: event.offsetY * scale };
-    update();
   };
   const leave = () => {
     pointer = null;

@@ -2,11 +2,15 @@ import { euler } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
 import {
   Camera,
+  Capsule,
   Cone,
+  ConeSurface,
   Cylinder,
   Ellipse,
   Hemisphere,
+  HemisphereDome,
   HitTester,
+  MAX_ANCHORS,
   type Node,
   PathShape,
   Rect,
@@ -188,5 +192,83 @@ describe('HitTester', () => {
     // На глубине 50 при расстоянии 100 масштаб 2: центр шара на экране в x = 40.
     expect(hit(sceneWith(sphere), 40, 0, perspective)?.drawable).toBe(sphere);
     expect(hit(sceneWith(sphere), 20, 0, perspective)).toBeNull();
+  });
+
+  it('декаль на составной фигуре видна на любой её части', () => {
+    const cylinder = new Cylinder({ diameter: 20, length: 20 });
+    const label = new PathShape({
+      sortMode: 'attached',
+      position: { x: 0, y: 0, z: 9 },
+      style: { stroke: 6 },
+    });
+    cylinder.add(label);
+    const scene = sceneWith(cylinder);
+    // Передняя крышка на z = 10 ближе декали, но декаль на опоре всё равно видна.
+    expect(hit(scene, 0, 0)?.drawable).toBe(label);
+    expect(hit(scene, 0, 0)?.node).toBe(label);
+    expect(hit(scene, 8, 0)?.node).toBe(cylinder);
+    expect(hit(scene, 20, 0)).toBeNull();
+  });
+
+  it(`сверх ${MAX_ANCHORS} опор в слое декали — обычные фигуры, как в кадре`, () => {
+    const heads: Node[] = [];
+    const decals: Node[] = [];
+    for (let i = 0; i <= MAX_ANCHORS; i++) {
+      const head = new Sphere({
+        diameter: 4,
+        position: { x: i * 10, y: 0, z: 0 },
+        style: { stroke: 0 },
+      });
+      // Декаль внутри головы: видна, только пока она декаль.
+      const decal = new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: -1 } });
+      head.add(decal);
+      heads.push(head);
+      decals.push(decal);
+    }
+    const scene = sceneWith(...heads);
+    const tester = new HitTester();
+    const at = (i: number) => tester.hitTest(scene, camera, viewport, 50 + i * 10, 50)?.drawable;
+    expect(at(0)).toBe(decals[0]);
+    expect(at(MAX_ANCHORS - 1)).toBe(decals[MAX_ANCHORS - 1]);
+    expect(at(MAX_ANCHORS)).toBe(heads[MAX_ANCHORS]);
+  });
+
+  it('купол, обращённый от зрителя, виден изнутри — дальней стороной', () => {
+    const dome = new HemisphereDome({ style: { stroke: 0 } });
+    dome.diameter = 20;
+    dome.setRotationFromEuler(euler.create(0, Math.PI, 0));
+    expect(hit(sceneWith(dome), 0, 0)?.depth).toBeCloseTo(-10, 6);
+    expect(hit(sceneWith(dome), 6, 0)?.depth).toBeCloseTo(-8, 6);
+  });
+
+  it('конус основанием к зрителю виден изнутри', () => {
+    const cone = new ConeSurface({ style: { stroke: 0 } });
+    cone.diameter = 20;
+    cone.length = 20;
+    cone.setRotationFromEuler(euler.create(0, Math.PI, 0));
+    // Вершина на z = −20, радиус 10 на основании: на расстоянии 1 от оси стенка на z = −18.
+    expect(hit(sceneWith(cone), 1, 0)?.depth).toBeCloseTo(-18, 6);
+    expect(hit(sceneWith(cone), 11, 0)).toBeNull();
+  });
+
+  it('глубина заливки интерполируется по наклонной плоскости', () => {
+    const rect = new Rect({ width: 20, height: 20, style: { fill: true, stroke: 0 } });
+    rect.setRotationFromEuler(euler.create(0, 0.5, 0));
+    const scene = sceneWith(rect);
+    const depth = (x: number) => hit(scene, x, 0)?.depth ?? Number.NaN;
+    // Плоскость через центр: глубина пропорциональна x с наклоном tg 0,5.
+    expect(Math.abs(depth(4))).toBeCloseTo(4 * Math.tan(0.5), 6);
+    expect(depth(-4)).toBeCloseTo(-depth(4), 6);
+    expect(depth(2) * 2).toBeCloseTo(depth(4), 6);
+  });
+
+  it('торец капсулы — полусфера на конце оси', () => {
+    const capsule = new Capsule({ length: 20, diameter: 6, style: { stroke: 0 } });
+    capsule.setRotationFromEuler(euler.create(0, Math.PI / 2, 0));
+    const scene = sceneWith(capsule);
+    // Концы на x = ±10, радиус 3: за концом на 1 глубина √(9 − 1).
+    expect(hit(scene, 11, 0)?.depth).toBeCloseTo(Math.sqrt(8), 6);
+    expect(hit(scene, 0, 0)?.depth).toBeCloseTo(3, 6);
+    expect(hit(scene, 13.5, 0)).toBeNull();
   });
 });

@@ -332,3 +332,24 @@ describe('сцена: структура и индекс', () => {
     expect(a.scene).toBeNull();
   });
 });
+
+describe('typeName', () => {
+  it('у каждого конкретного класса узла имя типа совпадает с именем класса', async () => {
+    const engine: Record<string, unknown> = await import('../src/index.ts');
+    const abstract = new Set(['Shape', 'Styled', 'Surface', 'Solid']);
+    const checked: string[] = [];
+    for (const [name, value] of Object.entries(engine)) {
+      if (typeof value !== 'function') continue;
+      if (value !== Node && !(value.prototype instanceof Node)) continue;
+      if (abstract.has(name)) {
+        expect(Object.hasOwn(value, 'typeName'), name).toBe(false);
+        continue;
+      }
+      expect(Object.hasOwn(value, 'typeName'), name).toBe(true);
+      expect((value as typeof Node).typeName, name).toBe(name);
+      checked.push(name);
+    }
+    expect(checked.length).toBeGreaterThan(15);
+    expect(new Node().typeName).toBe('Node');
+  });
+});

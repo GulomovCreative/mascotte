@@ -4,6 +4,7 @@ import {
   type Drawable,
   HitTester,
   type Node,
+  Rect,
   Scene,
   WebGLRenderer,
 } from '@mascotte/engine';
@@ -117,9 +118,79 @@ describe('проверка попадания совпадает с кадром
         }
       }
       expect(checked).toBeGreaterThan(1000);
-      // Совпасть должны все проверенные пиксели: на SwiftShader расхождений нет, а неверное
-      // правило декалей даёт их всего несколько, поэтому допуск — два пикселя на стыках.
-      expect(mismatches.length, mismatches.slice(0, 5).join('\n')).toBeLessThanOrEqual(2);
+      // На SwiftShader расхождений нет, а неверное правило декалей даёт их всего несколько,
+      // поэтому допуска нет. Полупрозрачные сцены здесь не проверяются: их правила
+      // проверены тестами в Node.
+      expect(mismatches, mismatches.slice(0, 5).join('\n')).toHaveLength(0);
     });
   }
+});
+
+/** Кадр WebGL сцены 100×100 на чёрном фоне как 2D-холст. */
+function frame(scene: Scene): CanvasRenderingContext2D {
+  const canvas = document.createElement('canvas');
+  canvas.width = 100;
+  canvas.height = 100;
+  const renderer = new WebGLRenderer(canvas);
+  renderer.render(scene, new Camera(), { width: 100, height: 100, background: '#000' });
+  const copy = document.createElement('canvas');
+  copy.width = 100;
+  copy.height = 100;
+  const ctx = copy.getContext('2d');
+  if (!ctx) throw new Error('Нет 2D-контекста.');
+  ctx.drawImage(canvas, 0, 0);
+  renderer.destroy();
+  return ctx;
+}
+
+describe('проверка попадания у краёв и при равной глубине', () => {
+  it('центр пикселя: край прямоугольника совпадает с краем в кадре', () => {
+    // Края на целых пикселях 40 и 60: пиксель 40 внутри, 39 снаружи.
+    const scene = new Scene();
+    scene.root.add(
+      new Rect({ width: 20, height: 20, style: { fill: true, stroke: 0, color: '#fff' } }),
+    );
+    const ctx = frame(scene);
+    const tester = new HitTester();
+    const camera = new Camera();
+    const viewport = { width: 100, height: 100 };
+    for (const [x, y] of [
+      [39, 50],
+      [40, 50],
+      [59, 50],
+      [60, 50],
+      [50, 39],
+      [50, 40],
+      [50, 59],
+      [50, 60],
+    ] as const) {
+      const lit = (ctx.getImageData(x, y, 1, 1).data[0] ?? 0) > 127;
+      const hit = tester.hitTest(scene, camera, viewport, x + 0.5, y + 0.5) !== null;
+      expect(hit, `пиксель (${x}, ${y})`).toBe(lit);
+    }
+  });
+
+  it('при равной глубине видна та же фигура, что в кадре', () => {
+    const scene = new Scene();
+    const first = new Rect({
+      width: 30,
+      height: 30,
+      style: { fill: true, stroke: 0, color: '#f00' },
+    });
+    const second = new Rect({
+      width: 30,
+      height: 30,
+      position: { x: 10, y: 0, z: 0 },
+      style: { fill: true, stroke: 0, color: '#00f' },
+    });
+    scene.root.add(first);
+    scene.root.add(second);
+    const ctx = frame(scene);
+    const [r = 0, , b = 0] = ctx.getImageData(55, 50, 1, 1).data;
+    const visible = r > b ? first : second;
+    expect(
+      new HitTester().hitTest(scene, new Camera(), { width: 100, height: 100 }, 55.5, 50.5)
+        ?.drawable,
+    ).toBe(visible);
+  });
 });

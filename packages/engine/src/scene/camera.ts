@@ -64,6 +64,7 @@ function checkPositive(name: string, value: number): number {
  * Камера входит в `Scene.nodes` как обычный узел; отрисовка её пропускает.
  */
 export class Camera extends Node {
+  static override readonly typeName: string = 'Camera';
   #projection: Projection;
   #zoom: number;
   #distance: number;
