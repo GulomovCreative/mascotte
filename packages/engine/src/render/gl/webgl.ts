@@ -114,8 +114,29 @@ export class WebGLRenderer {
   readonly #collector = new GLCollector();
   readonly #maxSupersample: number;
   #res: Resources | null = null;
+  // Что нарисовано в последнем кадре: если ничего из этого не изменилось, кадр тот же.
+  readonly #last = {
+    scene: null as Scene | null,
+    change: -1,
+    camera: null as Camera | null,
+    cameraWorld: -1,
+    cameraProjection: -1,
+    width: 0,
+    height: 0,
+    ratio: 0,
+    background: undefined as string | undefined,
+    bufferWidth: 0,
+    bufferHeight: 0,
+  };
   #lost = false;
   #destroyed = false;
+  #halfX = 0;
+  #halfY = 0;
+  #px = 1;
+  // Разобранный цвет фона: разбирается заново только при смене строки.
+  #backgroundCss: string | undefined = undefined;
+  #backgroundParsed = false;
+  readonly #backgroundRgba = new Float64Array(4);
   #supersample = 1;
 
   readonly #onLost = (event: Event) => {
@@ -123,10 +144,12 @@ export class WebGLRenderer {
     event.preventDefault();
     this.#lost = true;
     this.#res = null;
+    this.invalidate();
   };
 
   readonly #onRestored = () => {
     this.#lost = false;
+    this.invalidate();
     try {
       this.#res = this.#createResources();
     } catch (error) {
@@ -171,6 +194,11 @@ export class WebGLRenderer {
     return this.#lost || this.gl.isContextLost();
   }
 
+  /** Забыть последний кадр: следующий `render` нарисует его заново, даже если ничего не изменилось. */
+  invalidate(): void {
+    this.#last.scene = null;
+  }
+
   /** Освобождает объекты WebGL и сам контекст. После вызова рендерер не используется. */
   destroy(): void {
     if (this.#destroyed) return;
@@ -185,17 +213,22 @@ export class WebGLRenderer {
 
   /**
    * Рисует кадр. Без фона кадр прозрачный: альфа точно отражает покрытие фигурами.
-   * Пока контекст потерян, ничего не делает.
+   *
+   * Если со времени прошлого кадра не изменились ни сцена (`Scene.changeVersion`), ни
+   * камера, ни размеры кадра и холста, ничего не делает: на холсте остаётся прошлый
+   * кадр. Так в покое нет ни работы, ни выделений памяти. Пока контекст потерян, тоже
+   * ничего не делает. Возвращает `true`, если кадр нарисован.
    */
-  render(scene: Scene, camera: Camera, viewport: Viewport): void {
+  render(scene: Scene, camera: Camera, viewport: Viewport): boolean {
     if (this.#destroyed) throw new Error('Рендерер уничтожен.');
     const ratio = viewport.pixelRatio ?? 1;
     if (!(viewport.width > 0 && viewport.height > 0 && ratio > 0 && Number.isFinite(ratio))) {
       throw new RangeError('Размеры кадра и pixelRatio должны быть положительными.');
     }
     const res = this.#res;
-    if (!res || this.contextLost) return;
+    if (!res || this.contextLost) return false;
     const gl = this.gl;
+    if (this.#sameAsLast(scene, camera, viewport, ratio)) return false;
     const frame = this.#collector.collect(scene, camera);
     const targets = this.#ensureTargets(res, gl.drawingBufferWidth, gl.drawingBufferHeight);
     const factor = targets.factor;
@@ -203,7 +236,11 @@ export class WebGLRenderer {
     const px = ratio * factor;
     gl.bindFramebuffer(gl.FRAMEBUFFER, targets.msaa);
     gl.viewport(0, 0, targets.width, targets.height);
-    const [r, g, b, a] = background(viewport.background);
+    const bg = this.#background(viewport.background);
+    const r = bg[0] as number;
+    const g = bg[1] as number;
+    const b = bg[2] as number;
+    const a = bg[3] as number;
     gl.colorMask(true, true, true, true);
     gl.depthMask(true);
     gl.stencilMask(0xff);
@@ -215,7 +252,10 @@ export class WebGLRenderer {
     gl.depthFunc(gl.LESS);
     // Полупрозрачное смешивается с уже премультиплицированным кадром.
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    const half = [viewport.width / 2, viewport.height / 2] as const;
+    // Половина кадра и плотность пикселей — в полях, чтобы не создавать массив на кадр.
+    this.#halfX = viewport.width / 2;
+    this.#halfY = viewport.height / 2;
+    this.#px = px;
 
     let first = true;
     for (const layer of frame.layers) {
@@ -238,7 +278,7 @@ export class WebGLRenderer {
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
       for (const bucket of layer.opaque) {
         gl.stencilFunc(gl.ALWAYS, bucket.stencil | COVERED, 0xff);
-        this.#draw(res, bucket, frame, half, px, false);
+        this.#draw(res, bucket, frame, false);
       }
 
       // Декали: только на видимых пикселях своей опоры, по порядку сортировки и без
@@ -256,7 +296,7 @@ export class WebGLRenderer {
           gl.disable(gl.BLEND);
           gl.colorMask(true, true, true, false);
         }
-        this.#draw(res, bucket, frame, half, px, false);
+        this.#draw(res, bucket, frame, false);
       }
 
       // Полупрозрачное: по порядку, с наложением, без записи глубины. Каждая фигура
@@ -278,8 +318,8 @@ export class WebGLRenderer {
           }
           id++;
           gl.stencilFunc(gl.NOTEQUAL, id, ID_BITS);
-          this.#draw(res, bucket, frame, half, px, true);
-          this.#draw(res, bucket, frame, half, px, false);
+          this.#draw(res, bucket, frame, true);
+          this.#draw(res, bucket, frame, false);
         }
       }
     }
@@ -324,6 +364,60 @@ export class WebGLRenderer {
     gl.bindVertexArray(res.emptyVao);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
+    // Запоминается только нарисованный кадр: после ошибки следующий вызов рисует снова.
+    this.#remember(scene, camera, viewport, ratio);
+    return true;
+  }
+
+  /** Цвет фона как RGBA 0–1; без фона или с неразборчивым цветом — прозрачный. */
+  #background(css: string | undefined): Float64Array {
+    const out = this.#backgroundRgba;
+    if (!this.#backgroundParsed || css !== this.#backgroundCss) {
+      this.#backgroundParsed = true;
+      this.#backgroundCss = css;
+      const c = css ? colorMath.parse(css) : null;
+      out[0] = c ? c.r : 0;
+      out[1] = c ? c.g : 0;
+      out[2] = c ? c.b : 0;
+      out[3] = c ? c.a : 0;
+    }
+    return out;
+  }
+
+  /** Тот же ли кадр, что нарисован в прошлый раз. */
+  #sameAsLast(scene: Scene, camera: Camera, viewport: Viewport, ratio: number): boolean {
+    const last = this.#last;
+    const gl = this.gl;
+    return (
+      last.scene === scene &&
+      last.change === scene.changeVersion &&
+      last.camera === camera &&
+      last.cameraWorld === camera.worldVersion &&
+      last.cameraProjection === camera.projectionVersion &&
+      last.width === viewport.width &&
+      last.height === viewport.height &&
+      last.ratio === ratio &&
+      last.background === viewport.background &&
+      last.bufferWidth === gl.drawingBufferWidth &&
+      last.bufferHeight === gl.drawingBufferHeight
+    );
+  }
+
+  #remember(scene: Scene, camera: Camera, viewport: Viewport, ratio: number): void {
+    const last = this.#last;
+    const gl = this.gl;
+    const cameraWorld = camera.worldVersion;
+    last.scene = scene;
+    last.change = scene.changeVersion;
+    last.camera = camera;
+    last.cameraWorld = cameraWorld;
+    last.cameraProjection = camera.projectionVersion;
+    last.width = viewport.width;
+    last.height = viewport.height;
+    last.ratio = ratio;
+    last.background = viewport.background;
+    last.bufferWidth = gl.drawingBufferWidth;
+    last.bufferHeight = gl.drawingBufferHeight;
   }
 
   #createResources(): Resources {
@@ -455,30 +549,25 @@ export class WebGLRenderer {
   }
 
   /** `solid` — первый проход полупрозрачной фигуры: только полностью покрытые пиксели. */
-  #draw(
-    res: Resources,
-    bucket: Bucket,
-    frame: GLFrame,
-    half: readonly [number, number],
-    px: number,
-    solid: boolean,
-  ): void {
+  #draw(res: Resources, bucket: Bucket, frame: GLFrame, solid: boolean): void {
     const gl = this.gl;
-    for (const kind of ORDER) {
+    for (let k = 0; k < ORDER.length; k++) {
+      const kind = ORDER[k] as PrimitiveKind;
       const count = bucket.count(kind);
       if (count === 0) continue;
       const program = res.programs[kind];
       gl.useProgram(program.program);
       const u = program.uniforms;
-      gl.uniform2f(u.uHalf ?? null, half[0], half[1]);
+      gl.uniform2f(u.uHalf ?? null, this.#halfX, this.#halfY);
       gl.uniform2f(u.uDepth ?? null, frame.zMin, frame.zMax);
-      gl.uniform1f(u.uPx ?? null, px);
+      gl.uniform1f(u.uPx ?? null, this.#px);
       gl.uniform1f(u.uRayZ ?? null, frame.zMax + 10);
       gl.uniform1f(u.uSolid ?? null, solid ? 1 : 0);
       gl.bindVertexArray(program.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
       const data = bucket.data[kind];
-      gl.bufferData(gl.ARRAY_BUFFER, data.data.subarray(0, data.length), gl.DYNAMIC_DRAW);
+      // Вариант WebGL2 со смещением и длиной: без подмассива на каждый вызов.
+      gl.bufferData(gl.ARRAY_BUFFER, data.data, gl.DYNAMIC_DRAW, 0, data.length);
       if (program.instanced) gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
       else gl.drawArrays(gl.TRIANGLES, 0, count);
     }
@@ -627,10 +716,4 @@ function compile(
     throw new Error(`Шейдер ${kind} не скомпилировался: ${log}`);
   }
   return shader;
-}
-
-/** Цвет фона как RGBA 0–1; без фона или с неразборчивым цветом — прозрачный. */
-function background(css: string | undefined): [number, number, number, number] {
-  const c = css ? colorMath.parse(css) : null;
-  return c ? [c.r, c.g, c.b, c.a] : [0, 0, 0, 0];
 }

@@ -3,6 +3,7 @@
 export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
 export { DisplayItem, DisplayList, type DisplayListOptions } from './render/display-list.ts';
+export { IndexBuffer } from './render/gl/buffer.ts';
 export {
   Bucket,
   decalAnchor,

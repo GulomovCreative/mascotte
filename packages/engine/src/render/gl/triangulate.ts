@@ -1,16 +1,19 @@
+import type { IndexBuffer } from './buffer.ts';
+
 /**
  * Разбивает простой многоугольник на треугольники методом отрезания ушей.
  * `xs`, `ys` — вершины по порядку (без повтора первой). Пишет тройки индексов в `out`
  * и возвращает число треугольников. Для самопересекающегося многоугольника, где уши
- * кончились раньше, остаток разбивается веером.
+ * кончились раньше, остаток разбивается веером. Память не выделяет, пока хватает
+ * буферов.
  */
 export function triangulate(
   xs: ArrayLike<number>,
   ys: ArrayLike<number>,
   n: number,
-  out: number[],
+  out: IndexBuffer,
 ): number {
-  out.length = 0;
+  out.reset();
   if (n < 3) return 0;
   // Ориентация по знаку площади: уши ищутся для обхода против часовой.
   let area = 0;
@@ -19,31 +22,39 @@ export function triangulate(
     area += (xs[i] as number) * (ys[j] as number) - (xs[j] as number) * (ys[i] as number);
   }
   const sign = area >= 0 ? 1 : -1;
-  const ring = indices;
-  ring.length = 0;
-  for (let i = 0; i < n; i++) ring.push(i);
+  if (ring.length < n) ring = new Int32Array(Math.max(n, ring.length * 2));
+  for (let i = 0; i < n; i++) ring[i] = i;
+  let size = n;
   let guard = 0;
-  while (ring.length > 3 && guard++ < n * n) {
+  while (size > 3 && guard++ < n * n) {
     let clipped = false;
-    for (let i = 0; i < ring.length; i++) {
-      const a = ring[(i + ring.length - 1) % ring.length] as number;
+    for (let i = 0; i < size; i++) {
+      const a = ring[(i + size - 1) % size] as number;
       const b = ring[i] as number;
-      const c = ring[(i + 1) % ring.length] as number;
-      if (!isEar(xs, ys, a, b, c, sign, ring)) continue;
-      out.push(a, b, c);
-      ring.splice(i, 1);
+      const c = ring[(i + 1) % size] as number;
+      if (!isEar(xs, ys, a, b, c, sign, ring, size)) continue;
+      out.push(a);
+      out.push(b);
+      out.push(c);
+      // Убрать вершину i из кольца.
+      ring.copyWithin(i, i + 1, size);
+      size--;
       clipped = true;
       break;
     }
     if (!clipped) break;
   }
   // Остаток (обычно ровно один треугольник) — веером.
-  for (let i = 1; i + 1 < ring.length; i++)
-    out.push(ring[0] as number, ring[i] as number, ring[i + 1] as number);
+  for (let i = 1; i + 1 < size; i++) {
+    out.push(ring[0] as number);
+    out.push(ring[i] as number);
+    out.push(ring[i + 1] as number);
+  }
   return out.length / 3;
 }
 
-const indices: number[] = [];
+// Кольцо оставшихся вершин, общее для всех вызовов.
+let ring = new Int32Array(64);
 
 function cross(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {
   return (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
@@ -56,7 +67,8 @@ function isEar(
   b: number,
   c: number,
   sign: number,
-  ring: number[],
+  ring: Int32Array,
+  size: number,
 ): boolean {
   const ax = xs[a] as number;
   const ay = ys[a] as number;
@@ -65,7 +77,8 @@ function isEar(
   const cx = xs[c] as number;
   const cy = ys[c] as number;
   if (cross(ax, ay, bx, by, cx, cy) * sign <= 0) return false;
-  for (const p of ring) {
+  for (let i = 0; i < size; i++) {
+    const p = ring[i] as number;
     if (p === a || p === b || p === c) continue;
     const px = xs[p] as number;
     const py = ys[p] as number;
