@@ -1,5 +1,10 @@
-import { describe, expect, it } from 'vitest';
-import { type FrameScheduler, Ticker, type TickSubscription } from '../src/index.ts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import {
+  defaultScheduler,
+  type FrameScheduler,
+  Ticker,
+  type TickSubscription,
+} from '../src/index.ts';
 
 /** Планировщик, который отдаёт кадры по команде `frame(now)`. */
 function manualScheduler() {
@@ -168,5 +173,111 @@ describe('Ticker', () => {
 
   it('общий тикер один на страницу', () => {
     expect(Ticker.shared).toBe(Ticker.shared);
+  });
+
+  it('ошибка одного обработчика не мешает остальным получить кадр', () => {
+    const clock = manualScheduler();
+    const ticker = new Ticker({ scheduler: clock.scheduler });
+    const seen: string[] = [];
+    ticker.add(() => {
+      seen.push('a');
+      throw new Error('первая');
+    });
+    ticker.add(() => {
+      seen.push('b');
+      throw new Error('вторая');
+    });
+    ticker.add(() => seen.push('c'));
+    expect(() => clock.frame(0)).toThrow('первая');
+    expect(seen).toEqual(['a', 'b', 'c']);
+    // Отсчёт не сброшен: следующий кадр получает обычный dt.
+    const dts: number[] = [];
+    ticker.add((dt) => dts.push(dt));
+    expect(() => clock.frame(16)).toThrow('первая');
+    expect(dts.map((dt) => Math.round(dt * 1000))).toEqual([16]);
+  });
+
+  it('кадр из обработчика ничего не делает', () => {
+    const clock = manualScheduler();
+    const ticker = new Ticker({ scheduler: clock.scheduler });
+    const seen: string[] = [];
+    ticker.add(() => {
+      seen.push('a');
+      ticker.tick(100);
+    });
+    const b = ticker.add(() => {
+      seen.push('b');
+      b.remove();
+    });
+    ticker.add(() => seen.push('c'));
+    clock.frame(0);
+    expect(seen).toEqual(['a', 'b', 'c']);
+    clock.frame(16);
+    expect(seen).toEqual(['a', 'b', 'c', 'a', 'c']);
+  });
+
+  it('пауза из обработчика останавливает запросы кадров, снятие — возобновляет', () => {
+    const clock = manualScheduler();
+    const ticker = new Ticker({ scheduler: clock.scheduler });
+    let calls = 0;
+    ticker.add(() => {
+      calls++;
+      ticker.pause('user');
+    });
+    clock.frame(0);
+    expect([calls, ticker.running, clock.pending]).toEqual([1, false, 0]);
+    ticker.resume('user');
+    expect(clock.pending).toBe(1);
+  });
+
+  it('dt общий для тикера: новая и вернувшаяся с паузы подписки получают dt кадра', () => {
+    const clock = manualScheduler();
+    const ticker = new Ticker({ scheduler: clock.scheduler, maxDelta: 10 });
+    ticker.add(() => {});
+    const paused = ticker.add(() => {});
+    clock.frame(0);
+    clock.frame(16);
+    paused.pause('offscreen');
+    clock.frame(1000);
+    paused.resume('offscreen');
+    const late: number[] = [];
+    ticker.add((dt) => late.push(dt));
+    clock.frame(1016);
+    // Время паузы подписке не досталось, новая подписка получила обычный dt кадра.
+    expect(Math.round(paused.time * 1000)).toBe(32);
+    expect(late.map((dt) => Math.round(dt * 1000))).toEqual([16]);
+  });
+});
+
+describe('defaultScheduler', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.useRealTimers();
+  });
+
+  it('берёт requestAnimationFrame, если он есть', () => {
+    const request = vi.fn(() => 7);
+    const cancel = vi.fn();
+    vi.stubGlobal('requestAnimationFrame', request);
+    vi.stubGlobal('cancelAnimationFrame', cancel);
+    const scheduler = defaultScheduler();
+    const callback = () => {};
+    expect(scheduler.request(callback)).toBe(7);
+    expect(request).toHaveBeenCalledWith(callback);
+    scheduler.cancel(7);
+    expect(cancel).toHaveBeenCalledWith(7);
+  });
+
+  it('без requestAnimationFrame — таймер на 60 Гц со временем в миллисекундах', () => {
+    vi.stubGlobal('requestAnimationFrame', undefined);
+    vi.useFakeTimers();
+    const scheduler = defaultScheduler();
+    const times: number[] = [];
+    scheduler.request((now) => times.push(now));
+    const cancelled = scheduler.request((now) => times.push(-now));
+    scheduler.cancel(cancelled);
+    vi.advanceTimersByTime(20);
+    expect(times).toHaveLength(1);
+    expect(times[0]).toBeGreaterThanOrEqual(0);
   });
 });

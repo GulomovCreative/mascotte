@@ -4,7 +4,10 @@
  * сообщает внешний код (в браузере — `@mascotte/player`) через паузы с причинами.
  */
 
-/** Обработчик кадра: `dt` — секунды с прошлого кадра этой подписки, `time` — её время. */
+/**
+ * Обработчик кадра: `dt` — секунды с прошлого кадра тикера (не больше `maxDelta`),
+ * `time` — время подписки: сумма полученных ею `dt`.
+ */
 export type TickCallback = (dt: number, time: number) => void;
 
 /** Кто просит следующий кадр. В браузере — `requestAnimationFrame`. */
@@ -157,9 +160,15 @@ export class Ticker {
   /**
    * Кадр в момент `now` (миллисекунды). Обычно его вызывает планировщик, но можно
    * и вручную — в тестах или со своим циклом. Первый кадр после запуска или паузы
-   * задаёт отсчёт и даёт `dt = 0`.
+   * задаёт отсчёт и даёт `dt = 0`. Пауза одной подписки, пока другие идут, отсчёт не
+   * сбрасывает: её первый кадр после паузы и первый кадр новой подписки получают
+   * обычный `dt` кадра, а время паузы в него не попадает. Вызов из обработчика кадра
+   * ничего не делает. Если обработчики бросили ошибки, остальные всё равно получают
+   * кадр, а первая ошибка выбрасывается после него.
    */
   tick(now: number): void {
+    // Кадр из обработчика кадра ничего не делает: иначе внешний кадр шёл бы без защиты.
+    if (this.#ticking) return;
     // Вызов вручную при ждущем запросе: иначе запросов стало бы два.
     if (this.#handle !== null) this.#scheduler.cancel(this.#handle);
     this.#handle = null;
@@ -174,19 +183,27 @@ export class Ticker {
     // во время кадра уже не получат. Список не копируется: удалённые вычищаются после.
     const list = this.#subscriptions;
     const count = list.length;
+    // Ошибка одного обработчика не мешает остальным: первая выбрасывается после кадра.
+    let failed = false;
+    let error: unknown;
     this.#ticking = true;
-    try {
-      for (let i = 0; i < count; i++) {
-        const subscription = list[i] as Subscription;
-        if (subscription.removed || subscription.paused) continue;
-        subscription.time += dt;
+    for (let i = 0; i < count; i++) {
+      const subscription = list[i] as Subscription;
+      if (subscription.removed || subscription.paused) continue;
+      subscription.time += dt;
+      try {
         subscription.callback(dt, subscription.time);
+      } catch (caught) {
+        if (!failed) {
+          failed = true;
+          error = caught;
+        }
       }
-    } finally {
-      this.#ticking = false;
-      if (this.#hasRemoved) this.#compact();
-      this.#update();
     }
+    this.#ticking = false;
+    if (this.#hasRemoved) this.#compact();
+    this.#update();
+    if (failed) throw error;
   }
 
   #compact(): void {
