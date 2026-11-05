@@ -1,4 +1,5 @@
-import { Camera, CanvasRenderer, HitTester, Scene, WebGLRenderer } from '@mascotte/engine';
+import { Camera, CanvasRenderer, HitTester, Scene, Ticker, WebGLRenderer } from '@mascotte/engine';
+import { pauseWhenOffscreen } from '@mascotte/player';
 import {
   buildBenchmark,
   type EngineScene,
@@ -45,6 +46,33 @@ function watchPixelRatio(callback: () => void): () => void {
   return () => query?.removeEventListener('change', onChange);
 }
 
+/**
+ * Цикл кадров примера на общем тикере страницы: время идёт, пока включена анимация,
+ * холст вне экрана не получает кадров. После ошибки пример останавливается.
+ */
+function runLoop(
+  canvas: HTMLCanvasElement,
+  controls: ExampleControls,
+  frame: (time: number) => void,
+): () => void {
+  let time = 0;
+  const subscription = Ticker.shared.add((dt) => {
+    try {
+      if (controls.animate) time += dt;
+      frame(time);
+      controls.frame();
+    } catch (error) {
+      controls.error(error);
+      subscription.remove();
+    }
+  });
+  const unobserve = pauseWhenOffscreen(subscription, canvas);
+  return () => {
+    unobserve();
+    subscription.remove();
+  };
+}
+
 type Draw = (ctx: CanvasRenderingContext2D, pixelRatio: number, time: number) => void;
 
 /** Холст с циклом кадров и учётом devicePixelRatio. */
@@ -71,24 +99,9 @@ function mountCanvas(
   const unwatch = watchPixelRatio(resize);
   container.append(canvas);
 
-  let time = 0;
-  let last = performance.now();
-  let raf = 0;
-  const tick = (now: number) => {
-    try {
-      if (controls.animate) time += (now - last) / 1000;
-      last = now;
-      draw(ctx, pixelRatio, time);
-      controls.frame();
-    } catch (error) {
-      controls.error(error);
-      return;
-    }
-    raf = requestAnimationFrame(tick);
-  };
-  raf = requestAnimationFrame(tick);
+  const stop = runLoop(canvas, controls, (time) => draw(ctx, pixelRatio, time));
   return () => {
-    cancelAnimationFrame(raf);
+    stop();
     unwatch();
     canvas.remove();
   };
@@ -197,25 +210,12 @@ function mountGL(
   const unwatch = watchPixelRatio(resize);
   container.append(canvas);
   const hits = pick ? showHits(container, canvas, scene, pick) : null;
-  let time = 0;
-  let last = performance.now();
-  let raf = 0;
-  const tick = (now: number) => {
-    try {
-      if (controls.animate) time += (now - last) / 1000;
-      last = now;
-      draw(renderer, pixelRatio, time);
-      hits?.update();
-      controls.frame();
-    } catch (error) {
-      controls.error(error);
-      return;
-    }
-    raf = requestAnimationFrame(tick);
-  };
-  raf = requestAnimationFrame(tick);
+  const stop = runLoop(canvas, controls, (time) => {
+    draw(renderer, pixelRatio, time);
+    hits?.update();
+  });
   return () => {
-    cancelAnimationFrame(raf);
+    stop();
     unwatch();
     hits?.dispose();
     renderer.destroy();

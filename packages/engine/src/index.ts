@@ -1,5 +1,13 @@
 // Сцена, примитивы, сортировка, рендер, анимация и риг. См. docs/PLAN.md, разделы 5.4–5.12.
 
+export {
+  defaultScheduler,
+  type FrameScheduler,
+  type TickCallback,
+  Ticker,
+  type TickerOptions,
+  type TickSubscription,
+} from './animation/ticker.ts';
 export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
 export { DisplayItem, DisplayList, type DisplayListOptions } from './render/display-list.ts';

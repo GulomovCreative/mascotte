@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@mascotte/engine": "workspace:*",
+    "@mascotte/player": "workspace:*",
     "@mascotte/reference": "workspace:*"
   },
   "devDependencies": {

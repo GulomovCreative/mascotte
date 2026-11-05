@@ -59,6 +59,8 @@ describe('служебный доступ закрыт', () => {
         'decalAnchor',
         'GLCollector',
         'HitTester',
+        'Ticker',
+        'defaultScheduler',
         'IndexBuffer',
         'MAX_ANCHORS',
         'PIXEL_BUDGET',

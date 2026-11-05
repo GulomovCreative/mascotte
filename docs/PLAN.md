@@ -193,7 +193,7 @@ docs/
 
 **Вторичное движение.** Пружины на узлах дают покачивание ушей, хвоста и антенн, а также overshoot при остановке. Пружины хранят состояние, поэтому вычисляются на фиксированном шаге после клипов. Для перемотки в редакторе их можно отключить или прогнать заново от начала.
 
-**Ticker.** Один общий цикл на страницу: `dt`, ограничение больших скачков, пауза при скрытой вкладке и вне области видимости (`IntersectionObserver`), уважение `prefers-reduced-motion`.
+**Ticker.** Один общий цикл на страницу (`Ticker.shared`): подписки получают `dt` в секундах и своё время, большие скачки ограничены (`maxDelta`, по умолчанию 0,1 с), после паузы время паузы в `dt` не попадает. Паузы задаются причинами, чтобы источники не мешали друг другу: у тикера — `'hidden'` (вкладка скрыта) и `'reduced-motion'` (`prefers-reduced-motion`), у подписки — `'offscreen'` (её холст вне области видимости, `IntersectionObserver`). Пока нет активных подписок или тикер на паузе, кадры не просятся. Ядро не знает про DOM: кадры просит подставляемый планировщик (по умолчанию `requestAnimationFrame`), а связь со страницей даёт `@mascotte/player` (`bindTickerToPage`, `pauseWhenOffscreen`).
 
 ### 5.10. Риг
 
@@ -296,7 +296,7 @@ docs/
 
 Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
 
-- [ ] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
+- [x] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
 - [ ] Реестр анимируемых свойств ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
 - [ ] Клипы, дорожки и ключи ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
 - [ ] Слои, маски, веса и переходы ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
