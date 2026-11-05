@@ -8,7 +8,17 @@ import { Node, type NodeOptions } from './node.ts';
  *   depends on the depth of a reference point, so a shape can be scaled as a whole
  *   by the depth of its center, and circles stay circles.
  */
-export type Projection = 'orthographic' | 'perspective';
+/** All camera projections. */
+export const PROJECTIONS = ['orthographic', 'perspective'] as const;
+
+export type Projection = (typeof PROJECTIONS)[number];
+
+function checkProjection(value: string): Projection {
+  if (!(PROJECTIONS as readonly string[]).includes(value)) {
+    throw new RangeError(`Unknown projection "${value}".`);
+  }
+  return value as Projection;
+}
 
 export interface CameraOptions extends NodeOptions {
   projection?: Projection;
@@ -75,7 +85,7 @@ export class Camera extends Node {
 
   constructor(options: CameraOptions = {}) {
     super(options);
-    this.#projection = options.projection ?? 'orthographic';
+    this.#projection = checkProjection(options.projection ?? 'orthographic');
     this.#zoom = checkPositive('zoom', options.zoom ?? 1);
     this.#distance = checkPositive('distance', options.distance ?? 1000);
   }
@@ -84,7 +94,7 @@ export class Camera extends Node {
     return this.#projection;
   }
   set projection(value: Projection) {
-    if (value !== this.#projection) {
+    if (checkProjection(value) !== this.#projection) {
       this.#projection = value;
       this.#projectionVersion++;
       this.markChanged();
