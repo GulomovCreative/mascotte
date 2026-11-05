@@ -4,17 +4,21 @@ import { addChannel, type Channel, ChannelSet, mixChannel, sampleTracks } from '
 import { type Clip, type CompiledClip, clipTime, compileClip } from './clip.ts';
 
 /*
- * Animator: animation layers over one scene. Each frame starts from the rest pose (the
- * values the animated properties had when the animator first saw them), and every layer
- * blends its clip into it in order:
- * - an override layer moves the pose towards its clip by its weight;
- * - an additive layer adds how far its clip is from the clip's first frame, scaled by its
- *   weight (rotations compose).
- * A mask limits a layer to a node and its descendants. Playing a new clip on a layer with
- * a fade crossfades from the previous clip. The result is written to the nodes once.
+ * Animator: animation layers over one scene. Every property animated by a clip played on the
+ * animator becomes a channel; its value when such a clip is first played is its rest pose,
+ * and it is not updated later. Each frame starts from the rest pose, and every layer blends
+ * its clips into it in order:
+ * - an override layer moves the pose towards its clips by its weight;
+ * - an additive layer adds how far its clips are from their first frame, scaled by its weight
+ *   (rotations compose). Booleans, enums and `null` colors are not additive.
+ * A mask limits a layer to a node and its descendants. Playing a clip with a fade fades it in
+ * over what the layer showed before, even in the middle of another fade. The result is
+ * written to the nodes once per frame.
  *
- * The animator owns every property its clips animate: it writes them every frame, so other
- * code should not set them directly. Properties that no layer touches return to rest.
+ * The animator owns every property any of its clips has animated, for its whole lifetime: it
+ * writes them every frame, so other code should not set them directly, and properties that no
+ * layer animates at the moment return to rest. A clip is compiled once per object, so an
+ * edited clip must be a new object; it is recompiled when one of its nodes was destroyed.
  */
 
 /** All layer blend modes. */
@@ -29,12 +33,16 @@ export interface LayerOptions {
   readonly mode?: BlendMode;
   /** From 0 to 1, default 1. */
   readonly weight?: number;
-  /** Id of the node whose subtree the layer affects; the whole scene by default. */
+  /**
+   * Id of the node whose subtree the layer affects; the whole scene by default. Membership is
+   * taken from the hierarchy when the mask is set and when clips add channels; after
+   * reparenting nodes, assign `layer.mask` again to refresh it.
+   */
   readonly mask?: string | null;
 }
 
 export interface PlayOptions {
-  /** Crossfade time from the current clip in seconds; 0 switches at once. */
+  /** Fade-in time in seconds over what the layer showed before; 0 switches at once. */
   readonly fade?: number;
   /** Starting time of the new clip in seconds. Default 0. */
   readonly time?: number;
@@ -47,14 +55,43 @@ function checkWeight(value: number): number {
   return value;
 }
 
-/** A clip playing on a layer: its compiled tracks, own time and a sample buffer. */
+function checkFade(value: number): number {
+  if (!(value >= 0 && Number.isFinite(value))) {
+    throw new RangeError(`Fade must be a finite non-negative number, got ${value}.`);
+  }
+  return value;
+}
+
+function checkTime(value: number, what: string): number {
+  if (!Number.isFinite(value)) throw new RangeError(`${what} must be finite, got ${value}.`);
+  return value;
+}
+
+/** A clip playing on a layer: its compiled tracks, own time, buffers and touched channels. */
 interface Playing {
   compiled: CompiledClip;
   time: number;
   sample: Float64Array;
   /** The clip's first frame, the reference of additive layers. */
   reference: Float64Array;
+  /** 1 for the channels the clip animates. */
   touched: Uint8Array;
+}
+
+/**
+ * One step of a layer's history: a clip (or `null` after `stop`) fading in over the entries
+ * before it. Once an entry has fully faded in, the entries before it are dropped.
+ */
+interface Entry {
+  readonly playing: Playing | null;
+  readonly fade: number;
+  elapsed: number;
+  /** Share of the entry in the layer output, for additive layers; set every frame. */
+  share: number;
+}
+
+function progress(entry: Entry): number {
+  return entry.fade > 0 ? Math.min(1, entry.elapsed / entry.fade) : 1;
 }
 
 /** `buffer` grown to `length` values, keeping its contents. */
@@ -80,6 +117,22 @@ function samplePlaying(playing: Playing, size: number, count: number): void {
   );
 }
 
+function copyChannel(channel: Channel, out: Float64Array, from: Float64Array): void {
+  for (let k = 0; k < channel.size; k++) {
+    out[channel.offset + k] = from[channel.offset + k] as number;
+  }
+}
+
+let layerInternals!: {
+  advance(layer: AnimationLayer, dt: number): void;
+  blend(
+    layer: AnimationLayer,
+    pose: Float64Array,
+    channels: readonly Channel[],
+    target: Float64Array,
+  ): void;
+};
+
 /** One animation layer. Created by `Animator.addLayer`. */
 export class AnimationLayer {
   readonly name: string;
@@ -88,10 +141,7 @@ export class AnimationLayer {
   #weight: number;
   #mask: string | null;
   #maskFlags: Uint8Array | null = null;
-  #current: Playing | null = null;
-  #previous: Playing | null = null;
-  #fade = 0;
-  #fadeElapsed = 0;
+  readonly #entries: Entry[] = [];
 
   constructor(animator: Animator, options: LayerOptions) {
     this.#animator = animator;
@@ -102,8 +152,9 @@ export class AnimationLayer {
     }
     this.mode = mode;
     this.#weight = checkWeight(options.weight ?? 1);
-    this.#mask = options.mask ?? null;
-    if (this.#mask !== null) this.#maskNode();
+    const mask = options.mask ?? null;
+    if (mask !== null) this.#maskNode(mask);
+    this.#mask = mask;
   }
 
   get weight(): number {
@@ -113,14 +164,19 @@ export class AnimationLayer {
     this.#weight = checkWeight(value);
   }
 
-  /** Id of the masked subtree root, or `null` for the whole scene. */
+  /** Id of the masked subtree root, or `null` for the whole scene. Throws for an unknown id. */
   get mask(): string | null {
     return this.#mask;
   }
   set mask(id: string | null) {
+    if (id !== null) this.#maskNode(id);
     this.#mask = id;
     this.#maskFlags = null;
-    if (id !== null) this.#maskNode();
+  }
+
+  /** The newest playing state, or `null` after `stop` or before any `play`. */
+  get #current(): Playing | null {
+    return this.#entries[this.#entries.length - 1]?.playing ?? null;
   }
 
   /** The clip playing now, or `null`. */
@@ -128,67 +184,77 @@ export class AnimationLayer {
     return this.#current?.compiled.clip ?? null;
   }
 
-  /** Time of the current clip in seconds (before its loop mode). Setting it seeks. */
+  /**
+   * Time of the current clip in seconds (before its loop mode); 0 without one. Setting it
+   * seeks the current clip only: clips fading out and fade progress are unchanged.
+   */
   get time(): number {
     return this.#current?.time ?? 0;
   }
   set time(value: number) {
-    if (this.#current) this.#current.time = value;
+    checkTime(value, 'Layer time');
+    const current = this.#current;
+    if (current) current.time = value;
   }
 
-  /** Whether a crossfade is in progress. */
+  /** Whether a fade (a crossfade, a fade-in or a fading `stop`) is in progress. */
   get fading(): boolean {
-    return this.#previous !== null;
+    const entries = this.#entries;
+    return entries.length > 1 || (entries.length === 1 && progress(entries[0] as Entry) < 1);
   }
 
   /**
-   * Plays `clip` on this layer. With a `fade`, the previous clip keeps playing and fades
-   * out while the new one fades in.
+   * Plays `clip` on this layer from `time`. With a `fade`, it fades in over what the layer
+   * showed before (the previous clips keep playing until it has fully faded in); without
+   * one, it replaces them at once.
    */
   play(clip: Clip, options: PlayOptions = {}): void {
-    const fade = options.fade ?? 0;
-    if (!(fade >= 0 && Number.isFinite(fade))) {
-      throw new RangeError(`Fade must be a finite non-negative number, got ${fade}.`);
-    }
+    const fade = checkFade(options.fade ?? 0);
+    const time = checkTime(options.time ?? 0, 'Start time');
     const playing = animatorInternals.playing(this.#animator, clip);
-    playing.time = options.time ?? 0;
-    if (fade > 0 && this.#current) {
-      this.#previous = this.#current;
-      this.#fade = fade;
-      this.#fadeElapsed = 0;
-    } else {
-      this.#previous = null;
-    }
-    this.#current = playing;
+    playing.time = time;
+    this.#push({ playing, fade, elapsed: 0, share: 0 });
   }
 
-  /** Stops the layer; with a `fade`, its clip fades out first. */
+  /** Stops the layer; with a `fade`, its clips fade out first. */
   stop(options: { readonly fade?: number } = {}): void {
-    const fade = options.fade ?? 0;
-    if (fade > 0 && this.#current) {
-      this.#previous = this.#current;
-      this.#fade = fade;
-      this.#fadeElapsed = 0;
-    } else {
-      this.#previous = null;
-    }
-    this.#current = null;
+    const fade = checkFade(options.fade ?? 0);
+    this.#push({ playing: null, fade, elapsed: 0, share: 0 });
   }
 
-  /** Advances the layer's clips and its crossfade by `dt` seconds. */
-  advance(dt: number): void {
-    if (this.#current) this.#current.time += dt;
-    if (this.#previous) {
-      this.#previous.time += dt;
-      this.#fadeElapsed += dt;
-      if (this.#fadeElapsed >= this.#fade) this.#previous = null;
+  #push(entry: Entry): void {
+    this.#entries.push(entry);
+    this.#prune();
+  }
+
+  /** Drops the entries hidden by a fully faded-in one, and a finished `stop`. */
+  #prune(): void {
+    const entries = this.#entries;
+    for (let i = entries.length - 1; i > 0; i--) {
+      if (progress(entries[i] as Entry) >= 1) {
+        entries.splice(0, i);
+        break;
+      }
+    }
+    const first = entries[0];
+    if (entries.length === 1 && first && first.playing === null && progress(first) >= 1) {
+      entries.pop();
     }
   }
 
-  #maskNode(): Node {
-    const scene = animatorInternals.scene(this.#animator);
-    const node = this.#mask === null ? null : scene.getById(this.#mask);
-    if (!node) throw new Error(`Layer mask: no node with id "${this.#mask}" in the scene.`);
+  #advance(dt: number): void {
+    const entries = this.#entries;
+    for (let i = 0; i < entries.length; i++) {
+      const entry = entries[i] as Entry;
+      if (entry.playing) entry.playing.time += dt;
+      entry.elapsed += dt;
+    }
+    this.#prune();
+  }
+
+  #maskNode(id: string): Node {
+    const node = animatorInternals.scene(this.#animator).getById(id);
+    if (!node) throw new Error(`Layer mask: no node with id "${id}" in the scene.`);
     return node;
   }
 
@@ -197,7 +263,7 @@ export class AnimationLayer {
     if (this.#mask === null) return null;
     let flags = this.#maskFlags;
     if (!flags || flags.length !== channels.length) {
-      const root = this.#maskNode();
+      const root = this.#maskNode(this.#mask);
       flags = new Uint8Array(channels.length);
       for (let i = 0; i < channels.length; i++) {
         for (let n: Node | null = (channels[i] as Channel).node; n; n = n.parent) {
@@ -212,49 +278,62 @@ export class AnimationLayer {
     return flags;
   }
 
-  /** Blends this layer into `pose`. */
-  blend(pose: Float64Array, channels: readonly Channel[], scratch: Float64Array): void {
-    const current = this.#current;
-    const previous = this.#previous;
-    if ((!current && !previous) || this.#weight === 0) return;
-    const mask = this.#flags(channels);
-    const f = previous ? Math.min(1, this.#fadeElapsed / this.#fade) : 1;
-    if (current) samplePlaying(current, pose.length, channels.length);
-    if (previous) samplePlaying(previous, pose.length, channels.length);
+  /**
+   * Blends this layer into `pose`. Entries are combined oldest first: each one moves the layer
+   * output towards its clip by its fade progress where the clip animates a channel, and
+   * towards the pose below where it does not. Override layers keep the output as a target
+   * per channel and how much of the layer weight it covers; additive layers add each clip by
+   * its share.
+   */
+  #blend(pose: Float64Array, channels: readonly Channel[], target: Float64Array): void {
+    const entries = this.#entries;
     const weight = this.#weight;
+    if (entries.length === 0 || weight === 0) return;
+    const mask = this.#flags(channels);
+    let rest = 1;
+    for (let e = entries.length - 1; e >= 0; e--) {
+      const entry = entries[e] as Entry;
+      const g = progress(entry);
+      entry.share = g * rest;
+      rest *= 1 - g;
+      if (entry.playing) samplePlaying(entry.playing, pose.length, channels.length);
+    }
     for (let i = 0; i < channels.length; i++) {
       if (mask && mask[i] === 0) continue;
       const channel = channels[i] as Channel;
-      const inCurrent = current !== null && current.touched[i] === 1;
-      const inPrevious = previous !== null && previous.touched[i] === 1;
-      if (!inCurrent && !inPrevious) continue;
-      if (this.mode === 'override') {
-        if (inCurrent && inPrevious) {
-          // Crossfade target first, then towards it by the layer weight.
-          mixChannel(
-            channel,
-            scratch,
-            (previous as Playing).sample,
-            (current as Playing).sample,
-            f,
-          );
-          mixChannel(channel, pose, pose, scratch, weight);
-        } else if (inCurrent) {
-          mixChannel(channel, pose, pose, (current as Playing).sample, weight * f);
+      if (this.mode === 'additive') {
+        for (let e = 0; e < entries.length; e++) {
+          const entry = entries[e] as Entry;
+          const playing = entry.playing;
+          if (!playing) continue;
+          if (playing.touched[i] !== 1 || entry.share === 0) continue;
+          addChannel(channel, pose, playing.sample, playing.reference, weight * entry.share);
+        }
+        continue;
+      }
+      let a = 0;
+      for (let e = 0; e < entries.length; e++) {
+        const entry = entries[e] as Entry;
+        const g = progress(entry);
+        const playing = entry.playing;
+        if (playing && playing.touched[i] === 1) {
+          const next = a + (1 - a) * g;
+          if (a === 0) copyChannel(channel, target, playing.sample);
+          else mixChannel(channel, target, target, playing.sample, g / next);
+          a = next;
         } else {
-          mixChannel(channel, pose, pose, (previous as Playing).sample, weight * (1 - f));
-        }
-      } else {
-        if (inPrevious) {
-          const p = previous as Playing;
-          addChannel(channel, pose, p.sample, p.reference, weight * (1 - f));
-        }
-        if (inCurrent) {
-          const c = current as Playing;
-          addChannel(channel, pose, c.sample, c.reference, weight * f);
+          a *= 1 - g;
         }
       }
+      if (a > 0) mixChannel(channel, pose, pose, target, weight * a);
     }
+  }
+
+  static {
+    layerInternals = {
+      advance: (layer, dt) => layer.#advance(dt),
+      blend: (layer, pose, channels, target) => layer.#blend(pose, channels, target),
+    };
   }
 }
 
@@ -271,7 +350,8 @@ export class Animator {
   readonly #compiled = new Map<Clip, CompiledClip>();
   #rest = new Float64Array(0);
   #pose = new Float64Array(0);
-  #scratch = new Float64Array(0);
+  /** The layer target while a layer blends. */
+  #target = new Float64Array(0);
 
   constructor(scene: Scene) {
     this.scene = scene;
@@ -289,37 +369,44 @@ export class Animator {
     return layer;
   }
 
-  /** The layer named `name`, or `null`. */
+  /** The first layer named `name`, or `null`. */
   layer(name: string): AnimationLayer | null {
     return this.#layers.find((layer) => layer.name === name) ?? null;
   }
 
   /** Advances every layer by `dt` seconds and writes the blended pose to the nodes. */
   update(dt: number): void {
-    for (const layer of this.#layers) layer.advance(dt);
+    checkTime(dt, 'Animator dt');
+    for (const layer of this.#layers) layerInternals.advance(layer, dt);
     this.evaluate();
   }
 
   /**
-   * Writes the blended pose for the layers' current times without advancing them: after
-   * setting layer times, this gives the same frame as playing up to them.
+   * Writes the blended pose for the layers' current times without advancing them. Outside
+   * fades, setting layer times and evaluating gives the same frame as playing up to them;
+   * fade progress is not seekable.
    */
   evaluate(): void {
     const channels = this.#channels.channels;
     const pose = this.#pose;
     pose.set(this.#rest);
-    for (const layer of this.#layers) layer.blend(pose, channels, this.#scratch);
+    for (const layer of this.#layers) layerInternals.blend(layer, pose, channels, this.#target);
     for (let i = 0; i < channels.length; i++) this.#channels.write(channels[i] as Channel, pose);
   }
 
-  /** Compiles `clip` once and gives a fresh playing state for it. */
+  /** Compiles `clip` once (again if a node of it was destroyed) and gives a new playing state. */
   #playingOf(clip: Clip): Playing {
     let compiled = this.#compiled.get(clip);
-    if (!compiled) {
+    if (!compiled || compiled.tracks.some((track) => track.channel.node.destroyed)) {
       const before = this.#channels.channels.length;
-      compiled = compileClip(clip, this.scene, this.#channels);
+      try {
+        compiled = compileClip(clip, this.scene, this.#channels);
+      } finally {
+        // Channels of the tracks compiled before a failing one stay in the set: they need
+        // rest values too.
+        this.#grow(before);
+      }
       this.#compiled.set(clip, compiled);
-      this.#grow(before);
     }
     const size = this.#channels.size;
     const playing: Playing = {
@@ -343,7 +430,7 @@ export class Animator {
     for (let i = from; i < set.channels.length; i++) set.read(set.channels[i] as Channel, rest);
     this.#rest = rest;
     this.#pose = new Float64Array(size);
-    this.#scratch = new Float64Array(size);
+    this.#target = new Float64Array(size);
   }
 
   static {

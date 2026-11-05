@@ -81,6 +81,7 @@ export interface CompiledClip {
 /**
  * Compiles a clip against `scene` with channels from `channels`: validates it and its
  * tracks (see `bindClip`) and encodes the keys. Used by `bindClip` and by animation layers.
+ * Adds the tracks' channels to `channels`, also those compiled before a track that fails.
  */
 export function compileClip(clip: Clip, scene: Scene, channels: ChannelSet): CompiledClip {
   if (!(clip.duration >= 0 && Number.isFinite(clip.duration))) {

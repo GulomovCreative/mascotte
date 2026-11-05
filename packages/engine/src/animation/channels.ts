@@ -18,7 +18,8 @@ import { findProperty, type Property } from './properties.ts';
  * Encoding per property type:
  * - number: 1 value; vec3: x y z; quat: x y z w (unit);
  * - color: OKLab l a b and alpha; a `null` color (the fallback of a nullable color) is l = NaN;
- * - bool: 0 or 1; enum: the index of the value in `property.values`.
+ * - bool: 0 or 1; enum: the index of the value in `property.values` (a current value not in
+ *   the list reads as 0).
  */
 
 /** One animated node property and where its value lives in a buffer. */
@@ -27,7 +28,9 @@ export interface Channel {
   readonly index: number;
   readonly node: Node;
   readonly property: Property;
+  /** First value of the channel in a buffer. */
   readonly offset: number;
+  /** Number of values, see the encoding above. */
   readonly size: number;
   /** Range of a number property: written values are clamped into it. */
   readonly lo: number;
@@ -182,7 +185,10 @@ export class ChannelSet {
     return this.#size;
   }
 
-  /** The channel of `property` on `node`, added if it is new. */
+  /**
+   * The channel of `property` on `node`, added if it is new. A node that replaced an earlier
+   * one with the same id gets a new channel; the old one stays in the set.
+   */
   channel(node: Node, property: Property): Channel {
     const key = `${node.id}\u0000${property.name}`;
     let channel = this.#byKey.get(key);
@@ -407,7 +413,8 @@ export interface TrackSource {
 
 /**
  * Compiles a track for sampling: finds its node and property, validates the keys against
- * the clip duration and the property, and encodes the values. Errors name the track.
+ * the clip duration and the property, and encodes the values. Errors name the track. Adds
+ * the track's channel to `set`.
  */
 export function compileTrack(
   track: TrackSource,
