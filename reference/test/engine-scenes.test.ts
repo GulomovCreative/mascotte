@@ -44,7 +44,7 @@ describe('demo clips', () => {
     expect(head?.position.y).toBeCloseTo(0, 9);
   });
 
-  it('the animated mascot waves, breathes and blinks, and seeking matches playback', async () => {
+  it('the animated mascot waves, breathes, blinks and swings its ears, and seeking matches playback', async () => {
     const { Animator, Scene } = await import('@mascotte/engine');
     const { animatedMascot } = await import('../src/index.ts');
     const make = () => {
@@ -58,18 +58,23 @@ describe('demo clips', () => {
     const body = played.world.getById('body');
     const eyes = played.world.getById('eyes');
     const lids = played.world.getById('lids');
+    const ear = played.world.getById('ear-left');
     const angles = new Set<number>();
     const scales = new Set<number>();
+    const ears: number[] = [];
     let blinks = 0;
     for (let frame = 0; frame < 60 * 10; frame++) {
       played.animator.update(1 / 60);
       angles.add(Number(shoulder?.rotation.z.toFixed(3)));
       scales.add(Number(body?.scale.x.toFixed(3)));
+      ears.push(ear?.rotation.z ?? 0);
       if (lids?.visible && !eyes?.visible) blinks++;
     }
     expect(angles.size).toBeGreaterThan(10);
     expect(scales.size).toBeGreaterThan(10);
     expect(blinks).toBeGreaterThan(0);
+    // The ears have no clip: only their springs turn them, after the head sways and bobs.
+    expect(Math.max(...ears.map(Math.abs))).toBeGreaterThan(0.05);
     const sought = make();
     const state = ({ world }: { world: InstanceType<typeof Scene> }) =>
       ['shoulder', 'body', 'head', 'eyes'].map((id) => {
@@ -81,5 +86,17 @@ describe('demo clips', () => {
     for (const layer of sought.animator.layers) layer.time = at;
     sought.animator.evaluate();
     expect(state(sought)).toEqual(state(played));
+    // Springs are not seekable: with them off the ears show the pose, and playing the same
+    // frames again gives the same swing.
+    sought.animator.springsEnabled = false;
+    sought.animator.evaluate();
+    expect(sought.world.getById('ear-left')?.rotation.z).toBe(0);
+    const replayed = make();
+    const again: number[] = [];
+    for (let frame = 0; frame < 60 * 10; frame++) {
+      replayed.animator.update(1 / 60);
+      again.push(replayed.world.getById('ear-left')?.rotation.z ?? 0);
+    }
+    expect(again).toEqual(ears);
   });
 });

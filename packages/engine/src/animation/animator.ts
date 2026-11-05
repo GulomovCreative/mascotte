@@ -10,6 +10,8 @@ import {
   sampleTracks,
 } from './channels.ts';
 import { type Clip, clipTime, compileClip } from './clip.ts';
+import { findProperty } from './properties.ts';
+import { applySpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
 
 /*
  * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
@@ -29,6 +31,10 @@ import { type Clip, clipTime, compileClip } from './clip.ts';
  * writes them every frame, so other code should not set them directly, and properties that no
  * layer animates at the moment return to rest. A motion is compiled once per object, so an
  * edited one must be a new object; it is recompiled when one of its nodes was destroyed.
+ *
+ * Springs (see springs.ts) run after the layers: each frame they turn their nodes from the
+ * blended pose, parents before children. The animator owns the rotation of a spring's node
+ * like an animated property, so the spring's turn does not build up from frame to frame.
  */
 
 /** All layer blend modes. */
@@ -371,6 +377,12 @@ export class AnimationLayer {
   }
 }
 
+function depthOf(node: Node): number {
+  let depth = 0;
+  for (let n = node.parent; n; n = n.parent) depth++;
+  return depth;
+}
+
 let animatorInternals!: {
   playing(animator: Animator, motion: Motion): Playing;
   scene(animator: Animator): Scene;
@@ -382,6 +394,8 @@ export class Animator {
   readonly #channels = new ChannelSet();
   readonly #layers: AnimationLayer[] = [];
   readonly #compiled = new Map<Motion, CompiledMotion>();
+  readonly #springs: Spring[] = [];
+  #springsEnabled = true;
   #rest = new Float64Array(0);
   #pose = new Float64Array(0);
   /** The layer target while a layer blends. */
@@ -408,19 +422,86 @@ export class Animator {
     return this.#layers.find((layer) => layer.name === name) ?? null;
   }
 
-  /** Advances every layer by `dt` seconds and writes the blended pose to the nodes. */
-  update(dt: number): void {
-    checkTime(dt, 'Animator dt');
-    for (const layer of this.#layers) layerInternals.advance(layer, dt);
-    this.evaluate();
+  /** Springs in the order they run: parents before children. */
+  get springs(): readonly Spring[] {
+    return this.#springs;
   }
 
   /**
-   * Writes the blended pose for the layers' current times without advancing them. Outside
-   * fades, setting layer times and evaluating gives the same frame as playing up to them;
-   * fade progress is not seekable.
+   * Adds a spring on the node with id `options.target`. Throws for an unknown id and for
+   * invalid parameters (RangeError). The node's current rotation becomes its rest pose if no
+   * clip animated it yet.
+   */
+  addSpring(options: SpringOptions): Spring {
+    const node = this.scene.getById(options.target);
+    if (!node) throw new Error(`Spring: no node with id "${options.target}" in the scene.`);
+    const spring = new Spring(node, options);
+    const rotation = findProperty(node, 'rotation');
+    if (!rotation) throw new Error(`Spring ${options.target}: the node has no rotation.`);
+    const before = this.#channels.channels.length;
+    this.#channels.channel(node, rotation);
+    this.#grow(before);
+    const depth = depthOf(node);
+    let at = this.#springs.length;
+    while (at > 0 && depthOf((this.#springs[at - 1] as Spring).node) > depth) at--;
+    this.#springs.splice(at, 0, spring);
+    return spring;
+  }
+
+  /** Removes `spring`; its node returns to the pose. */
+  removeSpring(spring: Spring): void {
+    const index = this.#springs.indexOf(spring);
+    if (index >= 0) this.#springs.splice(index, 1);
+  }
+
+  /**
+   * Whether springs run. While they are off the nodes show the plain pose, so seeking is
+   * exact; turning them on again starts them at rest.
+   */
+  get springsEnabled(): boolean {
+    return this.#springsEnabled;
+  }
+  set springsEnabled(value: boolean) {
+    if (value && !this.#springsEnabled) this.resetSprings();
+    this.#springsEnabled = value;
+  }
+
+  /**
+   * Puts every spring at rest. To see springs at a seeked time, reset them with the layer
+   * times and play up to it with `update`: the same frames give the same motion.
+   */
+  resetSprings(): void {
+    for (const spring of this.#springs) spring.reset();
+  }
+
+  /**
+   * Advances every layer by `dt` seconds, writes the blended pose to the nodes and simulates
+   * the springs for `dt` from it.
+   */
+  update(dt: number): void {
+    checkTime(dt, 'Animator dt');
+    for (const layer of this.#layers) layerInternals.advance(layer, dt);
+    this.#writePose();
+    if (!this.#springsEnabled) return;
+    for (const spring of this.#springs) {
+      stepSpring(spring, dt);
+      applySpring(spring);
+    }
+  }
+
+  /**
+   * Writes the blended pose for the layers' current times without advancing them, with the
+   * springs in their current state. Outside fades and with springs off (or at rest), setting
+   * layer times and evaluating gives the same frame as playing up to them; fade progress and
+   * spring motion are not seekable.
    */
   evaluate(): void {
+    this.#writePose();
+    if (!this.#springsEnabled) return;
+    for (const spring of this.#springs) applySpring(spring);
+  }
+
+  #writePose(): void {
     const channels = this.#channels.channels;
     const pose = this.#pose;
     pose.set(this.#rest);

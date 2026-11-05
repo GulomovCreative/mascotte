@@ -43,6 +43,13 @@ export {
   type Vec3Property,
 } from './animation/properties.ts';
 export {
+  SPRING_MAX_DT,
+  SPRING_MAX_FREQUENCY,
+  SPRING_STEP,
+  type Spring,
+  type SpringOptions,
+} from './animation/springs.ts';
+export {
   defaultScheduler,
   type FrameScheduler,
   type TickCallback,

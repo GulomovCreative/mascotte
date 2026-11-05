@@ -116,6 +116,41 @@ export function slerp(out: Quat, a: Readonly<Quat>, b: Readonly<Quat>, t: number
   return normalize(out, out);
 }
 
+/**
+ * The shortest rotation that turns the direction of `from` into the direction of `to` (the
+ * vectors need not be unit). Opposite directions turn by π about an axis perpendicular to
+ * `from`; a zero vector gives the identity.
+ */
+export function rotationTo(out: Quat, from: Readonly<Vec3>, to: Readonly<Vec3>): Quat {
+  const lengths = Math.sqrt(
+    (from.x * from.x + from.y * from.y + from.z * from.z) *
+      (to.x * to.x + to.y * to.y + to.z * to.z),
+  );
+  if (!(lengths > 0)) return identity(out);
+  const w = lengths + from.x * to.x + from.y * to.y + from.z * to.z;
+  if (w <= lengths * 1e-12) {
+    // Opposite: any axis perpendicular to `from`, here from crossing it with the axis it is
+    // least aligned with.
+    const ax = Math.abs(from.x);
+    const ay = Math.abs(from.y);
+    const az = Math.abs(from.z);
+    if (ax <= ay && ax <= az) set(out, 0, -from.z, from.y, 0);
+    else if (ay <= az) set(out, from.z, 0, -from.x, 0);
+    else set(out, -from.y, from.x, 0, 0);
+    return normalize(out, out);
+  }
+  // With θ the angle between them, (from × to, |from||to| + from · to) is |from||to| times
+  // (sin θ · axis, 1 + cos θ), which normalizes to (sin(θ/2) · axis, cos(θ/2)).
+  set(
+    out,
+    from.y * to.z - from.z * to.y,
+    from.z * to.x - from.x * to.z,
+    from.x * to.y - from.y * to.x,
+    w,
+  );
+  return normalize(out, out);
+}
+
 /** Rotates vector `v` by unit quaternion `q`. */
 export function transformVec3(out: Vec3, q: Readonly<Quat>, v: Readonly<Vec3>): Vec3 {
   const { x: qx, y: qy, z: qz, w: qw } = q;

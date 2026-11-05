@@ -473,8 +473,8 @@ function clipExampleGL(): Example {
 }
 
 /**
- * The animated mascot on animation layers. Every frame sets the layer times to the example's
- * time and evaluates, which gives the same frame as playing (seeking is exact).
+ * The animated mascot on animation layers. Every frame plays the layers and springs up to the
+ * example's time; a jump back or a long pause seeks instead, with the springs started at rest.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
@@ -487,8 +487,16 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const world = new Scene(root);
       const animator = new Animator(world);
       scene.animate(animator);
+      let last = Number.NaN;
       const pose = (time: number) => {
+        const dt = time - last;
+        last = time;
+        if (dt >= 0 && dt <= 0.25) {
+          animator.update(dt);
+          return;
+        }
         for (const layer of animator.layers) layer.time = time;
+        animator.resetSprings();
         animator.evaluate();
       };
       const options = (pixelRatio: number) => ({
