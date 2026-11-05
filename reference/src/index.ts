@@ -9,8 +9,7 @@ export {
   buildBenchmark,
 } from './engine-only/benchmark.ts';
 export { type EngineScene, engineScenes } from './engine-only/scenes.ts';
-export type { Context2D, EngineVersion, ReferenceScene, RenderOptions } from './scene.ts';
-export { renderScene } from './scene.ts';
+export type { EngineVersion, ReferenceScene, RenderOptions } from './scene.ts';
 
-/** Все эталонные сцены. Для каждой хранится снимок кадра в `reference/snapshots/`. */
+/** Все эталонные сцены. Для каждой хранятся снимки кадров Zdog в `reference/snapshots/zdog/`. */
 export const referenceScenes = [flatPrimitives, solidPrimitives, mascot, backfaceGroups];

@@ -1,5 +1,8 @@
 import { euler, TAU, vec3 } from '@mascotte/math';
-import Zdog from '@mascotte/zdog-reference';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('solids');
+
 import { describe, expect, it } from 'vitest';
 import {
   BOX_FACES,
@@ -44,46 +47,6 @@ function fromOutline(out: SurfaceOutline): Recorded {
   };
 }
 
-/** Контекст и рендерер Zdog, которые записывают, что рисуется. */
-function recorder() {
-  const recorded: Recorded = { ops: [], values: [], lineWidth: null, lineCap: 'round' };
-  const ctx = {
-    beginPath() {},
-    arc(x: number, y: number, r: number, start: number, end: number) {
-      recorded.ops.push(ScreenOp.arc);
-      recorded.values.push(x, y, r, start, end, 0);
-    },
-    set lineCap(value: string) {
-      if (value === 'butt') recorded.lineCap = value;
-    },
-  };
-  const point = (p: { x: number; y: number }) => recorded.values.push(p.x, p.y);
-  const renderer = {
-    isCanvas: true,
-    move: (_c: unknown, _e: unknown, p: { x: number; y: number }) => {
-      recorded.ops.push(ScreenOp.move);
-      point(p);
-    },
-    line: (_c: unknown, _e: unknown, p: { x: number; y: number }) => {
-      recorded.ops.push(ScreenOp.line);
-      point(p);
-    },
-    renderPath(
-      c: unknown,
-      e: unknown,
-      commands: { render(c: unknown, e: unknown, r: unknown): void }[],
-    ) {
-      for (const command of commands) command.render(c, e, renderer);
-    },
-    stroke(_c: unknown, _e: unknown, isStroke: unknown, _color: string, width: number) {
-      recorded.lineWidth = isStroke ? width : null;
-    },
-    fill() {},
-    end() {},
-  };
-  return { recorded, ctx, renderer };
-}
-
 function expectSame(actual: Recorded, expected: Recorded, label: string): void {
   expect(actual.ops, label).toEqual(expected.ops);
   expect(actual.lineCap, label).toBe(expected.lineCap);
@@ -123,24 +86,13 @@ function scaled(recorded: Recorded, factor: number): Recorded {
   };
 }
 
-/** Zdog-сцена и наша сцена с одинаковыми корнем, сдвигом и масштабом. */
+/** Наша сцена с тем же корнем, сдвигом и масштабом, что у сцены Zdog в фикстуре. */
 interface Setup {
   rotate: { x: number; y: number; z: number };
   scale?: number;
   translate?: { x: number; y: number; z: number };
   zoom?: number;
   nested?: boolean;
-}
-
-function zdogParent(setup: Setup) {
-  const root = new Zdog.Anchor({ rotate: setup.rotate });
-  const holder = new Zdog.Anchor({
-    addTo: root,
-    scale: setup.scale ?? 1,
-    translate: setup.translate ?? { x: 0, y: 0, z: 0 },
-  });
-  const inner = setup.nested ? new Zdog.Anchor({ addTo: holder, rotate: { z: 0.4 } }) : holder;
-  return { root, parent: inner };
 }
 
 function ourParent(setup: Setup): Node {
@@ -175,16 +127,7 @@ describe('экранные части совпадают с Zdog', () => {
   it('купол полусферы', () => {
     for (const setup of SETUPS) {
       const stroke = strokeFor(setup, 3);
-      const { root, parent } = zdogParent(setup);
-      const zdog = new Zdog.Hemisphere({
-        addTo: parent,
-        diameter: 40,
-        stroke,
-        translate: { x: 5, y: -2 },
-      });
-      root.updateGraph();
-      const { recorded, ctx, renderer } = recorder();
-      (zdog as unknown as { renderDome(c: unknown, r: unknown): void }).renderDome(ctx, renderer);
+      const recorded = zdog.next<Recorded>('купол');
 
       const ours = new Hemisphere({
         diameter: 40,
@@ -201,14 +144,7 @@ describe('экранные части совпадают с Zdog', () => {
   it('боковая поверхность цилиндра', () => {
     for (const setup of SETUPS) {
       const stroke = strokeFor(setup, 2);
-      const { root, parent } = zdogParent(setup);
-      const zdog = new Zdog.Cylinder({ addTo: parent, diameter: 30, length: 50, stroke });
-      root.updateGraph();
-      const { recorded, ctx, renderer } = recorder();
-      const group = (
-        zdog as unknown as { group: { renderCylinderSurface(c: unknown, r: unknown): void } }
-      ).group;
-      group.renderCylinderSurface(ctx, renderer);
+      const recorded = zdog.next<Recorded>('цилиндр');
 
       const ours = new Cylinder({ diameter: 30, length: 50, style: { stroke } });
       ourParent(setup).add(ours);
@@ -227,14 +163,7 @@ describe('экранные части совпадают с Zdog', () => {
     ];
     for (const setup of setups) {
       const stroke = strokeFor(setup, 2);
-      const { root, parent } = zdogParent(setup);
-      const zdog = new Zdog.Cone({ addTo: parent, diameter: 30, length: 40, stroke });
-      root.updateGraph();
-      const { recorded, ctx, renderer } = recorder();
-      (zdog as unknown as { renderConeSurface(c: unknown, r: unknown): void }).renderConeSurface(
-        ctx,
-        renderer,
-      );
+      const recorded = zdog.next<Recorded>('конус');
 
       const ours = new Cone({ diameter: 30, length: 40, style: { stroke } });
       ourParent(setup).add(ours);
@@ -253,35 +182,30 @@ describe('экранные части совпадают с Zdog', () => {
 
   it('основания и грани — обычные фигуры в тех же мировых точках, что у Zdog', () => {
     for (const setup of SETUPS) {
-      const { root, parent } = zdogParent(setup);
-      const zdogBox = new Zdog.Box({ addTo: parent, width: 20, height: 30, depth: 40 });
-      const zdogCylinder = new Zdog.Cylinder({ addTo: parent, diameter: 16, length: 24 });
-      root.updateGraph();
+      const expected = zdog.next<{ faces: WorldPath[]; bases: WorldPath[] }>('грани');
 
       const box = new Box({ width: 20, height: 30, depth: 40 });
       const cylinder = new Cylinder({ diameter: 16, length: 24 });
       ourParent(setup).add(box).add(cylinder);
 
-      const zdogFaces = (zdogBox.children as unknown as ZdogShape[]).filter((c) => c.pathCommands);
-      expect(zdogFaces).toHaveLength(6);
+      expect(expected.faces).toHaveLength(6);
       BOX_FACES.forEach((face, i) => {
-        expectWorldPath(box.faces[face], zdogFaces[i] as ZdogShape);
+        expectWorldPath(box.faces[face], expected.faces[i] as WorldPath);
       });
-
-      const zdogBases = zdogCylinder as unknown as { frontBase: ZdogShape; rearBase: ZdogShape };
-      expectWorldPath(cylinder.frontBase, zdogBases.frontBase);
-      expectWorldPath(cylinder.rearBase, zdogBases.rearBase);
+      expectWorldPath(cylinder.frontBase, expected.bases[0] as WorldPath);
+      expectWorldPath(cylinder.rearBase, expected.bases[1] as WorldPath);
     }
   });
 });
 
-interface ZdogShape {
-  pathCommands: { renderPoints: { x: number; y: number; z: number }[] }[];
-  renderNormal: { x: number; y: number; z: number };
+/** Мировые концы команд пути и мировая нормаль фигуры Zdog. */
+interface WorldPath {
+  ends: { x: number; y: number; z: number }[];
+  normal: { x: number; y: number; z: number };
 }
 
-/** Мировые концы команд пути нашей фигуры против точек Zdog после updateGraph. */
-function expectWorldPath(shape: Shape, zdog: ZdogShape): void {
+/** Мировые концы команд пути нашей фигуры против точек Zdog из фикстуры. */
+function expectWorldPath(shape: Shape, zdog: WorldPath): void {
   const geometry = shape.geometry;
   const point = vec3.create();
   const ourEnds: number[] = [];
@@ -297,7 +221,7 @@ function expectWorldPath(shape: Shape, zdog: ZdogShape): void {
     });
     ourEnds.push(point.x, point.y, point.z);
   }
-  const zdogEnds = zdog.pathCommands.map((c) => c.renderPoints[c.renderPoints.length - 1]);
+  const zdogEnds = zdog.ends;
   expect(ourEnds.length).toBe(zdogEnds.length * 3);
   zdogEnds.forEach((end, i) => {
     expect(ourEnds[i * 3]).toBeCloseTo(end?.x ?? Number.NaN, 9);
@@ -307,9 +231,9 @@ function expectWorldPath(shape: Shape, zdog: ZdogShape): void {
   // Лицевая сторона смотрит туда же: мировая нормаль как у Zdog.
   const origin = shape.localToWorld(vec3.create(), { x: 0, y: 0, z: 0 });
   const front = shape.localToWorld(vec3.create(), { x: 0, y: 0, z: 1 });
-  expect(origin.x - front.x).toBeCloseTo(zdog.renderNormal.x, 9);
-  expect(origin.y - front.y).toBeCloseTo(zdog.renderNormal.y, 9);
-  expect(origin.z - front.z).toBeCloseTo(zdog.renderNormal.z, 9);
+  expect(origin.x - front.x).toBeCloseTo(zdog.normal.x, 9);
+  expect(origin.y - front.y).toBeCloseTo(zdog.normal.y, 9);
+  expect(origin.z - front.z).toBeCloseTo(zdog.normal.z, 9);
 }
 
 describe('перспектива составных фигур', () => {

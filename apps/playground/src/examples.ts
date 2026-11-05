@@ -5,7 +5,6 @@ import {
   engineScenes,
   type ReferenceScene,
   referenceScenes,
-  renderScene,
 } from '@mascotte/reference';
 
 /** Пример в playground: монтируется в контейнер и возвращает функцию очистки. */
@@ -279,20 +278,6 @@ function fromEngineOnlySceneGL(scene: EngineScene): Example {
   };
 }
 
-function fromReferenceScene(scene: ReferenceScene): Example {
-  return {
-    id: `reference/${scene.id}`,
-    title: scene.title,
-    group: 'Эталон Zdog',
-    mount(container, controls) {
-      const root = scene.build();
-      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
-        renderScene(scene, root, ctx, { pixelRatio, time });
-      });
-    },
-  };
-}
-
 function fromEngineScene(scene: ReferenceScene): Example {
   return {
     id: `engine/${scene.id}`,
@@ -454,5 +439,4 @@ export const examples: Example[] = [
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
   benchmarkCanvas(),
-  ...referenceScenes.map(fromReferenceScene),
 ];

@@ -1,0 +1,9 @@
+{
+  "плоские фигуры": [[1, 0, 4, 3, 2]],
+  "ракурсы": [[1, 0, 3, 2], [2, 3, 1, 0], [2, 1, 0, 3]],
+  "коробка": [
+    ["rear", "bottom", "left", "right", "top", "front"],
+    ["top", "front", "right", "left", "rear", "bottom"],
+    ["top", "rear", "right", "left", "front", "bottom"]
+  ]
+}

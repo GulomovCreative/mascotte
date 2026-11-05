@@ -1,5 +1,8 @@
 import { euler, quat, vec3 } from '@mascotte/math';
-import Zdog from '@mascotte/zdog-reference';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('camera');
+
 import { describe, expect, it } from 'vitest';
 import { Camera, createProjectedPoint, Node, Scene } from '../src/index.ts';
 
@@ -157,9 +160,7 @@ describe('совместимость с Zdog', () => {
       { x: -7, y: 2, z: -12 },
       { x: 0, y: 20, z: 6 },
     ];
-    const zdogRoot = new Zdog.Anchor({ rotate });
-    const anchors = points.map((translate) => new Zdog.Anchor({ addTo: zdogRoot, translate }));
-    zdogRoot.updateGraph();
+    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins');
 
     const sceneRotation = quat.fromEuler(
       quat.create(),
@@ -169,12 +170,12 @@ describe('совместимость с Zdog', () => {
     camera.rotation.copy(quat.conjugate(quat.create(), sceneRotation));
 
     points.forEach((point, i) => {
-      const anchor = anchors[i];
-      if (!anchor) throw new Error('нет узла Zdog');
+      const origin = origins[i];
+      if (!origin) throw new Error('нет точки Zdog');
       const out = projected(camera, point);
-      expect(out.x).toBeCloseTo(anchor.renderOrigin.x * zoom, 9);
-      expect(out.y).toBeCloseTo(anchor.renderOrigin.y * zoom, 9);
-      expect(out.depth).toBeCloseTo(anchor.renderOrigin.z, 9);
+      expect(out.x).toBeCloseTo(origin.x * zoom, 9);
+      expect(out.y).toBeCloseTo(origin.y * zoom, 9);
+      expect(out.depth).toBeCloseTo(origin.z, 9);
     });
   });
 });

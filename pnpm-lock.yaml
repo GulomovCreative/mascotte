@@ -193,9 +193,6 @@ importers:
       '@mascotte/reference':
         specifier: workspace:*
         version: link:../../reference
-      '@mascotte/zdog-reference':
-        specifier: workspace:*
-        version: link:../../src/core
     devDependencies:
       vite:
         specifier: 8.3.5
@@ -206,17 +203,10 @@ importers:
       '@mascotte/math':
         specifier: workspace:*
         version: link:../math
-      '@mascotte/zdog-reference':
-        specifier: workspace:*
-        version: link:../../src/core
 
   packages/format: {}
 
-  packages/math:
-    devDependencies:
-      '@mascotte/zdog-reference':
-        specifier: workspace:*
-        version: link:../../src/core
+  packages/math: {}
 
   packages/player: {}
 
@@ -228,9 +218,6 @@ importers:
       '@mascotte/math':
         specifier: workspace:*
         version: link:../packages/math
-      '@mascotte/zdog-reference':
-        specifier: workspace:*
-        version: link:../src/core
     devDependencies:
       '@napi-rs/canvas':
         specifier: 1.1.0
@@ -244,8 +231,6 @@ importers:
       pngjs:
         specifier: 7.0.0
         version: 7.0.0
-
-  src/core: {}
 
 packages:
 
