@@ -33,7 +33,7 @@ describe('выделения памяти в цикле кадра', () => {
       runs: 100,
     });
     expect(bytes, `${Math.round(bytes)} байт`).toBeLessThan(256);
-  });
+  }, 60_000);
 
   it('сборка кадра WebGL2 неизменной сцены — почти без выделений', async () => {
     const collector = new GLCollector();

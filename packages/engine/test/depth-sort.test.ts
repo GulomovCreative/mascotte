@@ -1,8 +1,4 @@
 import { euler } from '@mascotte/math';
-import { zdogFixture } from './zdog-fixture.ts';
-
-const zdog = zdogFixture('depth-sort');
-
 import { describe, expect, it } from 'vitest';
 import {
   Box,
@@ -22,6 +18,9 @@ import {
   Scene,
   Sphere,
 } from '../src/index.ts';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('depth-sort');
 
 const camera = new Camera();
 
@@ -260,7 +259,7 @@ describe('совместимость с Zdog в режиме auto', () => {
       { translate: { x: 5, y: 25, z: 40 } },
       { translate: { x: -15, y: -25, z: -12 } },
     ];
-    const zdogOrder = zdog.next<number[]>('плоские фигуры');
+    const zdogOrder = zdog.next<number[]>('плоские фигуры', { rotate, specs });
 
     const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
     const at = (i: number) => {
@@ -526,7 +525,7 @@ describe('совместимость с Zdog: несколько поворот�
         { x: 5, y: 25, z: 40 },
       ];
       const at = (i: number) => translates[i] ?? { x: 0, y: 0, z: 0 };
-      const zdogOrder = zdog.next<number[]>('ракурсы');
+      const zdogOrder = zdog.next<number[]>('ракурсы', { rotate, translates });
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       const p = (i: number) => ({ id: `s${i}`, position: at(i) });
@@ -544,7 +543,7 @@ describe('совместимость с Zdog: несколько поворот�
 
   it('грани отдельной коробки — в том же порядке, что у Zdog', () => {
     for (const rotate of rotations) {
-      const zdogOrder = zdog.next<string[]>('коробка');
+      const zdogOrder = zdog.next<string[]>('коробка', { rotate });
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       root.add(new Box({ id: 'box', width: 20, height: 30, depth: 40 }));

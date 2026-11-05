@@ -6,10 +6,35 @@ Mascotte is based on ideas and geometry from Zdog, a pseudo-3D engine.
 
 Taken from Zdog: the drawing style (round strokes, a dot as a sphere, fill with
 stroke), path commands and the 9/16 arc approximation, and the geometry of the
-composite primitives (hemisphere, cylinder, cone, box). The engine code itself is
-written from scratch.
+composite primitives (hemisphere, cylinder, cone, box). The engine code is written
+from scratch; some formulas (surface outlines, sort points, the arc approximation)
+follow Zdog's.
 
 An unmodified copy of the Zdog core (js/ directory, upstream commit dde8684) was
 kept in src/core/ as a visual reference until the new engine reached parity. It has
 been removed. Frames and numbers it produced are kept as frozen test references in
 reference/snapshots/zdog/ and packages/*/test/fixtures/zdog/.
+
+Zdog is distributed under the following license:
+
+MIT License
+
+Copyright (c) 2020 Metafizzy
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.

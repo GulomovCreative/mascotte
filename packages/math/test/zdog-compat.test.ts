@@ -21,7 +21,10 @@ describe('совместимость поворотов с Zdog', () => {
       };
       const point = { x: range(next, -20, 20), y: range(next, -20, 20), z: range(next, -20, 20) };
 
-      const expected = zdog.next<{ x: number; y: number; z: number }>('rotate');
+      const expected = zdog.next<{ x: number; y: number; z: number }>('rotate', {
+        point,
+        rotation,
+      });
 
       const q = quat.fromEuler(quat.create(), euler.create(rotation.x, -rotation.y, rotation.z));
       const ours = quat.transformVec3(vec3.create(), q, point);
