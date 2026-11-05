@@ -1,10 +1,20 @@
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
-import { addChannel, type Channel, ChannelSet, mixChannel, sampleTracks } from './channels.ts';
-import { type Clip, type CompiledClip, clipTime, compileClip } from './clip.ts';
+import { type BehaviorSet, compileBehaviors, sampleBehaviors } from './behaviors.ts';
+import {
+  addChannel,
+  type Channel,
+  ChannelSet,
+  mixChannel,
+  type SampledTrack,
+  sampleTracks,
+} from './channels.ts';
+import { type Clip, clipTime, compileClip } from './clip.ts';
 
 /*
- * Animator: animation layers over one scene. Every property animated by a clip played on the
+ * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
+ * procedural behaviors (see behaviors.ts); below, "clip" stands for either. Every property
+ * animated by a clip played on the
  * animator becomes a channel; its value when such a clip is first played is its rest pose,
  * and it is not updated later. Each frame starts from the rest pose, and every layer blends
  * its clips into it in order:
@@ -17,8 +27,8 @@ import { type Clip, type CompiledClip, clipTime, compileClip } from './clip.ts';
  *
  * The animator owns every property any of its clips has animated, for its whole lifetime: it
  * writes them every frame, so other code should not set them directly, and properties that no
- * layer animates at the moment return to rest. A clip is compiled once per object, so an
- * edited clip must be a new object; it is recompiled when one of its nodes was destroyed.
+ * layer animates at the moment return to rest. A motion is compiled once per object, so an
+ * edited one must be a new object; it is recompiled when one of its nodes was destroyed.
  */
 
 /** All layer blend modes. */
@@ -67,9 +77,39 @@ function checkTime(value: number, what: string): number {
   return value;
 }
 
+/** What a layer plays: a keyed clip or a set of procedural behaviors. */
+export type Motion = Clip | BehaviorSet;
+
+/** A motion compiled against the animator's scene and channels. */
+interface CompiledMotion {
+  readonly motion: Motion;
+  readonly tracks: readonly SampledTrack[];
+  /** Samples the motion at `time` (seconds, before a clip's loop mode). */
+  sample(time: number, out: Float64Array, touched?: Uint8Array): void;
+}
+
+function compileMotion(motion: Motion, scene: Scene, channels: ChannelSet): CompiledMotion {
+  if ('behaviors' in motion) {
+    const compiled = compileBehaviors(motion, scene, channels);
+    return {
+      motion,
+      tracks: compiled.tracks,
+      sample: (time, out, touched) => sampleBehaviors(compiled, time, out, touched),
+    };
+  }
+  const { tracks } = compileClip(motion, scene, channels);
+  const { duration, loop } = motion;
+  return {
+    motion,
+    tracks,
+    sample: (time, out, touched) =>
+      sampleTracks(tracks, clipTime(duration, loop, time), out, touched),
+  };
+}
+
 /** A clip playing on a layer: its compiled tracks, own time, buffers and touched channels. */
 interface Playing {
-  compiled: CompiledClip;
+  compiled: CompiledMotion;
   time: number;
   sample: Float64Array;
   /** The clip's first frame, the reference of additive layers. */
@@ -108,13 +148,7 @@ function samplePlaying(playing: Playing, size: number, count: number): void {
   playing.reference = grownFloats(playing.reference, size);
   if (playing.touched.length < count) playing.touched = new Uint8Array(count);
   playing.touched.fill(0);
-  const { clip, tracks } = playing.compiled;
-  sampleTracks(
-    tracks,
-    clipTime(clip.duration, clip.loop, playing.time),
-    playing.sample,
-    playing.touched,
-  );
+  playing.compiled.sample(playing.time, playing.sample, playing.touched);
 }
 
 function copyChannel(channel: Channel, out: Float64Array, from: Float64Array): void {
@@ -179,9 +213,9 @@ export class AnimationLayer {
     return this.#entries[this.#entries.length - 1]?.playing ?? null;
   }
 
-  /** The clip playing now, or `null`. */
-  get clip(): Clip | null {
-    return this.#current?.compiled.clip ?? null;
+  /** The motion playing now, or `null`. */
+  get motion(): Motion | null {
+    return this.#current?.compiled.motion ?? null;
   }
 
   /**
@@ -204,14 +238,14 @@ export class AnimationLayer {
   }
 
   /**
-   * Plays `clip` on this layer from `time`. With a `fade`, it fades in over what the layer
+   * Plays `motion` on this layer from `time`. With a `fade`, it fades in over what the layer
    * showed before (the previous clips keep playing until it has fully faded in); without
    * one, it replaces them at once.
    */
-  play(clip: Clip, options: PlayOptions = {}): void {
+  play(motion: Motion, options: PlayOptions = {}): void {
     const fade = checkFade(options.fade ?? 0);
     const time = checkTime(options.time ?? 0, 'Start time');
-    const playing = animatorInternals.playing(this.#animator, clip);
+    const playing = animatorInternals.playing(this.#animator, motion);
     playing.time = time;
     this.#push({ playing, fade, elapsed: 0, share: 0 });
   }
@@ -338,7 +372,7 @@ export class AnimationLayer {
 }
 
 let animatorInternals!: {
-  playing(animator: Animator, clip: Clip): Playing;
+  playing(animator: Animator, motion: Motion): Playing;
   scene(animator: Animator): Scene;
 };
 
@@ -347,7 +381,7 @@ export class Animator {
   readonly scene: Scene;
   readonly #channels = new ChannelSet();
   readonly #layers: AnimationLayer[] = [];
-  readonly #compiled = new Map<Clip, CompiledClip>();
+  readonly #compiled = new Map<Motion, CompiledMotion>();
   #rest = new Float64Array(0);
   #pose = new Float64Array(0);
   /** The layer target while a layer blends. */
@@ -394,19 +428,19 @@ export class Animator {
     for (let i = 0; i < channels.length; i++) this.#channels.write(channels[i] as Channel, pose);
   }
 
-  /** Compiles `clip` once (again if a node of it was destroyed) and gives a new playing state. */
-  #playingOf(clip: Clip): Playing {
-    let compiled = this.#compiled.get(clip);
+  /** Compiles `motion` once (again if a node of it was destroyed) and gives a new playing state. */
+  #playingOf(motion: Motion): Playing {
+    let compiled = this.#compiled.get(motion);
     if (!compiled || compiled.tracks.some((track) => track.channel.node.destroyed)) {
       const before = this.#channels.channels.length;
       try {
-        compiled = compileClip(clip, this.scene, this.#channels);
+        compiled = compileMotion(motion, this.scene, this.#channels);
       } finally {
         // Channels of the tracks compiled before a failing one stay in the set: they need
         // rest values too.
         this.#grow(before);
       }
-      this.#compiled.set(clip, compiled);
+      this.#compiled.set(motion, compiled);
     }
     const size = this.#channels.size;
     const playing: Playing = {
@@ -416,7 +450,7 @@ export class Animator {
       reference: new Float64Array(size),
       touched: new Uint8Array(this.#channels.channels.length),
     };
-    sampleTracks(compiled.tracks, 0, playing.reference);
+    compiled.sample(0, playing.reference);
     return playing;
   }
 
@@ -435,7 +469,7 @@ export class Animator {
 
   static {
     animatorInternals = {
-      playing: (animator, clip) => animator.#playingOf(clip),
+      playing: (animator, motion) => animator.#playingOf(motion),
       scene: (animator) => animator.scene,
     };
   }

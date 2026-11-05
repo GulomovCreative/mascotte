@@ -6,8 +6,18 @@ export {
   BLEND_MODES,
   type BlendMode,
   type LayerOptions,
+  type Motion,
   type PlayOptions,
 } from './animation/animator.ts';
+export {
+  BEHAVIOR_KINDS,
+  type Behavior,
+  type BehaviorKind,
+  type BehaviorSet,
+  type Blink,
+  type Noise,
+  type Oscillate,
+} from './animation/behaviors.ts';
 export {
   bindClip,
   type Clip,

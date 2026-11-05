@@ -161,7 +161,7 @@ describe('Animator', () => {
     expect(arm.opacity).toBeCloseTo(0.4);
     animator.update(0.25);
     expect(arm.opacity).toBeCloseTo(0.8);
-    expect(layer.clip).toBeNull();
+    expect(layer.motion).toBeNull();
   });
 
   it('seeking gives the same frame as playing up to the time', () => {

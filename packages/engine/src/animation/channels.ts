@@ -374,6 +374,28 @@ function sampleTrack(track: SampledTrack, out: Float64Array, touched?: Uint8Arra
   for (let k = 0; k < size; k++) out[o + k] = keyA[k] as number;
 }
 
+/**
+ * Samples a track of two keys at fraction `w` between them, through the channel rules (stepped
+ * values and `null` colors switch at `w >= 0.5`), into `out`, and marks its channel in
+ * `touched`.
+ */
+export function sampleBetween(
+  track: SampledTrack,
+  w: number,
+  out: Float64Array,
+  touched?: Uint8Array,
+): void {
+  const { channel, values } = track;
+  const size = channel.size;
+  if (touched) touched[channel.index] = 1;
+  for (let k = 0; k < size; k++) {
+    keyA[k] = values[k] as number;
+    keyB[k] = values[size + k] as number;
+  }
+  mixChannel(localChannel(channel), keyA, keyA, keyB, w);
+  for (let k = 0; k < size; k++) out[channel.offset + k] = keyA[k] as number;
+}
+
 // The same channel at offset 0, for mixing keys in the scratch buffers.
 const local = new WeakMap<Channel, Channel>();
 function localChannel(channel: Channel): Channel {
@@ -385,8 +407,8 @@ function localChannel(channel: Channel): Channel {
   return found;
 }
 
-function fail(track: { target: string; property: string }, message: string): never {
-  throw new Error(`Track ${track.target}.${track.property}: ${message}`);
+function fail(what: string, track: { target: string; property: string }, message: string): never {
+  throw new Error(`${what} ${track.target}.${track.property}: ${message}`);
 }
 
 function isVec3(value: unknown): value is Vec3 {
@@ -411,6 +433,16 @@ export interface TrackSource {
   }[];
 }
 
+/** How `compileTrack` errors name the source and its keys. */
+export interface Naming {
+  /** `Track`: errors start with `Track head.rotation:`. */
+  readonly what: string;
+  /** `key 2`. */
+  key(index: number): string;
+}
+
+const TRACK_NAMING: Naming = { what: 'Track', key: (k) => `key ${k}` };
+
 /**
  * Compiles a track for sampling: finds its node and property, validates the keys against
  * the clip duration and the property, and encodes the values. Errors name the track. Adds
@@ -421,14 +453,16 @@ export function compileTrack(
   duration: number,
   scene: Scene,
   set: ChannelSet,
+  naming: Naming = TRACK_NAMING,
 ): SampledTrack {
+  const what = naming.what;
   const node = scene.getById(track.target);
-  if (!node) fail(track, `no node with id "${track.target}" in the scene.`);
+  if (!node) fail(what, track, `no node with id "${track.target}" in the scene.`);
   const property = findProperty(node, track.property);
-  if (!property) fail(track, `${node.typeName} has no property "${track.property}".`);
-  if (!property.animatable) fail(track, 'the property is not animatable.');
+  if (!property) fail(what, track, `${node.typeName} has no property "${track.property}".`);
+  if (!property.animatable) fail(what, track, 'the property is not animatable.');
   const keys = track.keys;
-  if (keys.length === 0) fail(track, 'a track needs at least one key.');
+  if (keys.length === 0) fail(what, track, 'a track needs at least one key.');
   const channel = set.channel(node, property);
   const size = channel.size;
   const times = new Float64Array(keys.length);
@@ -437,37 +471,37 @@ export function compileTrack(
   keys.forEach((key, k) => {
     const time = key.time;
     if (!(time >= 0 && time <= duration)) {
-      fail(track, `key ${k} time ${time} is outside the clip [0, ${duration}].`);
+      fail(what, track, `${naming.key(k)} time ${time} is outside the clip [0, ${duration}].`);
     }
     if (k > 0 && time < (times[k - 1] as number)) {
-      fail(track, `key ${k} is earlier than key ${k - 1}.`);
+      fail(what, track, `${naming.key(k)} is earlier than key ${k - 1}.`);
     }
     times[k] = time;
     try {
       easings.push(easing.resolve((key.easing ?? 'linear') as never));
     } catch (error) {
-      fail(track, `key ${k}: ${(error as Error).message}`);
+      fail(what, track, `${naming.key(k)}: ${(error as Error).message}`);
     }
     const value = key.value;
     const o = k * size;
     switch (property.type) {
       case 'number': {
         if (typeof value !== 'number' || !Number.isFinite(value)) {
-          fail(track, `key ${k} must be a finite number.`);
+          fail(what, track, `${naming.key(k)} must be a finite number.`);
         }
         const { min, max } = property;
         const below = min !== undefined && (property.exclusiveMin ? value <= min : value < min);
         if (below || (max !== undefined && value > max)) {
-          fail(track, `key ${k} value ${value} is outside the property range.`);
+          fail(what, track, `${naming.key(k)} value ${value} is outside the property range.`);
         }
         if (property.integer && !Number.isInteger(value)) {
-          fail(track, `key ${k} must be an integer.`);
+          fail(what, track, `${naming.key(k)} must be an integer.`);
         }
         values[o] = value;
         break;
       }
       case 'vec3':
-        if (!isVec3(value)) fail(track, `key ${k} must be a vector {x, y, z}.`);
+        if (!isVec3(value)) fail(what, track, `${naming.key(k)} must be a vector {x, y, z}.`);
         values[o] = value.x;
         values[o + 1] = value.y;
         values[o + 2] = value.z;
@@ -475,7 +509,7 @@ export function compileTrack(
       case 'quat': {
         const q = value as typeof qa;
         if (!isVec3(q) || !Number.isFinite(q.w) || quat.length(q) === 0) {
-          fail(track, `key ${k} must be a non-zero quaternion {x, y, z, w}.`);
+          fail(what, track, `${naming.key(k)} must be a non-zero quaternion {x, y, z, w}.`);
         }
         writeQuat(values, o, quat.normalize(quat.create(), q));
         break;
@@ -487,18 +521,23 @@ export function compileTrack(
         }
         const parsed = typeof value === 'string' ? colorMath.parse(value) : null;
         if (!parsed) {
-          fail(track, `key ${k} must be a CSS color${property.nullable ? ' or null' : ''}.`);
+          fail(
+            what,
+            track,
+            `${naming.key(k)} must be a CSS color${property.nullable ? ' or null' : ''}.`,
+          );
         }
         writeLab(values, o, colorMath.toOklab(colorMath.createOklab(), parsed));
         break;
       }
       case 'bool':
-        if (typeof value !== 'boolean') fail(track, `key ${k} must be a boolean.`);
+        if (typeof value !== 'boolean') fail(what, track, `${naming.key(k)} must be a boolean.`);
         values[o] = value ? 1 : 0;
         break;
       case 'enum': {
         const index = typeof value === 'string' ? property.values.indexOf(value) : -1;
-        if (index < 0) fail(track, `key ${k} must be one of ${property.values.join(', ')}.`);
+        if (index < 0)
+          fail(what, track, `${naming.key(k)} must be one of ${property.values.join(', ')}.`);
         values[o] = index;
         break;
       }
