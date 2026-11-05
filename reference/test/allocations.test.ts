@@ -1,4 +1,5 @@
 import {
+  Animator,
   bindClip,
   Camera,
   type Clip,
@@ -28,6 +29,41 @@ import { buildBenchmark, engineScenes, referenceScenes } from '../src/index.ts';
 
 const bench = buildBenchmark();
 const scene = new Scene(bench.root);
+
+function clipWorld() {
+  const world = new Scene();
+  const tracks: Clip['tracks'][number][] = [];
+  for (let i = 0; i < 20; i++) {
+    world.root.add(new Node({ id: `n${i}` }));
+    tracks.push(
+      {
+        target: `n${i}`,
+        property: 'rotation',
+        keys: [
+          { time: 0, value: { x: 0, y: 0, z: 0, w: 1 }, easing: 'sineInOut' },
+          { time: 1, value: { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 } },
+        ],
+      },
+      {
+        target: `n${i}`,
+        property: 'position',
+        keys: [
+          { time: 0, value: { x: 0, y: 0, z: 0 } },
+          { time: 1, value: { x: i, y: 1, z: 2 } },
+        ],
+      },
+      {
+        target: `n${i}`,
+        property: 'opacity',
+        keys: [
+          { time: 0, value: 1 },
+          { time: 1, value: 0.2 },
+        ],
+      },
+    );
+  }
+  return { world, tracks };
+}
 
 describe('benchmark', () => {
   it('20 mascots with 300 drawable nodes each', () => {
@@ -103,37 +139,7 @@ describe('allocations in the frame loop', () => {
   }, 60_000);
 
   it('applying a clip with number, vector and quaternion tracks', async () => {
-    const world = new Scene();
-    const tracks: Clip['tracks'][number][] = [];
-    for (let i = 0; i < 20; i++) {
-      world.root.add(new Node({ id: `n${i}` }));
-      tracks.push(
-        {
-          target: `n${i}`,
-          property: 'rotation',
-          keys: [
-            { time: 0, value: { x: 0, y: 0, z: 0, w: 1 }, easing: 'sineInOut' },
-            { time: 1, value: { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 } },
-          ],
-        },
-        {
-          target: `n${i}`,
-          property: 'position',
-          keys: [
-            { time: 0, value: { x: 0, y: 0, z: 0 } },
-            { time: 1, value: { x: i, y: 1, z: 2 } },
-          ],
-        },
-        {
-          target: `n${i}`,
-          property: 'opacity',
-          keys: [
-            { time: 0, value: 1 },
-            { time: 1, value: 0.2 },
-          ],
-        },
-      );
-    }
+    const { world, tracks } = clipWorld();
     const binding = bindClip({ duration: 1, loop: 'pingpong', tracks }, world);
     let time = 0;
     const bytes = await allocatedBytesPerCall(
@@ -148,6 +154,31 @@ describe('allocations in the frame loop', () => {
     // allocating. The threshold of 100 bytes per track catches real per-frame allocations.
     expect(bytes, `${Math.round(bytes)} bytes for ${tracks.length} tracks`).toBeLessThan(
       tracks.length * 100,
+    );
+  }, 60_000);
+
+  it('animation layers: override with a crossfade and an additive layer', async () => {
+    const { world, tracks } = clipWorld();
+    const animator = new Animator(world);
+    const base = animator.addLayer();
+    const walk: Clip = { duration: 1, loop: 'loop', tracks };
+    const run: Clip = { duration: 1, loop: 'pingpong', tracks };
+    base.play(walk);
+    const breathe = animator.addLayer({ mode: 'additive', weight: 0.5 });
+    breathe.play({ duration: 1.5, loop: 'loop', tracks });
+    let frame = 0;
+    const bytes = await allocatedBytesPerCall(
+      () => {
+        // A crossfade between the two clips every second.
+        if (++frame % 60 === 0) base.play(frame % 120 === 0 ? walk : run, { fade: 0.5 });
+        animator.update(1 / 60);
+      },
+      { warmup: 3000, runs: 300 },
+    );
+    // Three layers' worth of tracks (two while not fading) with the same boxed numbers as
+    // `apply`, and the playing state allocated by `play` once a second.
+    expect(bytes, `${Math.round(bytes)} bytes for ${tracks.length} tracks`).toBeLessThan(
+      tracks.length * 200,
     );
   }, 60_000);
 });
