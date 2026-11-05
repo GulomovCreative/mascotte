@@ -19,8 +19,10 @@ import { findProperty, type Property } from './properties.ts';
  * `t` depends only on `t`, so seeking gives exactly the frame playback would show.
  *
  * `bindClip` resolves nodes and properties once, validates the keys and converts their
- * values into flat arrays; `ClipBinding.apply(t)` then writes the values without
- * allocations, except for color strings. Rig slots as targets come with the rig (#22).
+ * values into flat arrays; `ClipBinding.apply(t)` then writes the values. Vectors and
+ * quaternions need no allocation; the only per-frame allocations are numbers boxed at
+ * polymorphic calls (the easing result and number setters) and color strings. Rig slots as
+ * targets come with the rig (#22).
  */
 
 /** All loop modes. */
@@ -107,6 +109,11 @@ interface Bound {
   colors: (Oklab | null)[];
   /** Booleans and enum values, held until the next key. */
   steps: unknown[];
+  /** Range of a number property: interpolated values are clamped into it. */
+  lo: number;
+  hi: number;
+  /** Whether a number property only takes integers: interpolated values are rounded. */
+  integer: boolean;
 }
 
 // Clip time of the current `apply`: kept in a typed array, not passed per track, so the
@@ -145,7 +152,11 @@ class Binding implements ClipBinding {
   /** Sets every track's property to its value at time `t` (seconds, before the loop mode). */
   apply(t: number): void {
     now[0] = this.localTime(t);
-    for (let i = 0; i < this.#tracks.length; i++) applyTrack(this.#tracks[i] as Bound);
+    for (let i = 0; i < this.#tracks.length; i++) {
+      const track = this.#tracks[i] as Bound;
+      // A node destroyed after binding is skipped: bind again after changing the scene.
+      if (!track.node.destroyed) applyTrack(track);
+    }
   }
 }
 
@@ -154,7 +165,7 @@ function applyTrack(track: Bound): void {
   const { property, times } = track;
   const last = times.length - 1;
   const at = segmentAt(times, t);
-  // Before the first key and from the last one the end value is held.
+  // Before the first key, and at and after the last key, the end value is held.
   const i = Math.max(at, 0);
   const between = at >= 0 && at < last;
   let u = 0;
@@ -167,7 +178,15 @@ function applyTrack(track: Bound): void {
   switch (property.type) {
     case 'number': {
       const a = n[i] as number;
-      property.set(track.node, between ? a + ((n[i + 1] as number) - a) * u : a);
+      if (!between) {
+        property.set(track.node, a);
+        return;
+      }
+      // Easings that overshoot (backOut, elastic) could leave the range between valid keys:
+      // the value is clamped, and rounded for integer properties.
+      let value = a + ((n[i + 1] as number) - a) * u;
+      if (track.integer) value = Math.round(value);
+      property.set(track.node, Math.min(Math.max(value, track.lo), track.hi));
       return;
     }
     case 'vec3': {
@@ -237,9 +256,16 @@ function isVec3(value: unknown): value is Vec3 {
 
 /**
  * Binds a clip to the nodes of `scene`: finds every track's node and property, checks the
- * keys and their values, and prepares them for `apply`. Throws with the track named if a
- * node or property is missing, the property is not animatable, keys are not sorted or lie
- * outside the clip, or a value does not fit the property type.
+ * keys and their values, and prepares them for `apply`. Throws a RangeError for an invalid
+ * duration or loop mode, and an error naming the track if a node or property is missing,
+ * the property is not animatable, the track has no keys, keys are unsorted or outside the
+ * clip, an easing is unknown, or a value does not fit the property (its type, range, or
+ * integer constraint).
+ *
+ * Interpolated numbers are clamped into the property range and rounded for integer
+ * properties, so easings that overshoot never produce invalid values. The binding keeps
+ * references to the nodes: a node destroyed later is skipped, and a changed scene needs a
+ * new binding.
  */
 export function bindClip(clip: Clip, scene: Scene): ClipBinding {
   if (!(clip.duration >= 0 && Number.isFinite(clip.duration))) {
@@ -273,15 +299,28 @@ export function bindClip(clip: Clip, scene: Scene): ClipBinding {
       if (k > 0 && time < (times[k - 1] as number))
         fail(track, `key ${k} is earlier than key ${k - 1}.`);
       times[k] = time;
-      easings.push(easing.resolve(key.easing ?? 'linear'));
+      try {
+        easings.push(easing.resolve(key.easing ?? 'linear'));
+      } catch (error) {
+        fail(track, `key ${k}: ${(error as Error).message}`);
+      }
       const value = key.value;
       switch (property.type) {
-        case 'number':
+        case 'number': {
           if (typeof value !== 'number' || !Number.isFinite(value)) {
             fail(track, `key ${k} must be a finite number.`);
           }
+          const { min, max } = property;
+          const below = min !== undefined && (property.exclusiveMin ? value <= min : value < min);
+          if (below || (max !== undefined && value > max)) {
+            fail(track, `key ${k} value ${value} is outside the property range.`);
+          }
+          if (property.integer && !Number.isInteger(value)) {
+            fail(track, `key ${k} must be an integer.`);
+          }
           numbers[k] = value;
           break;
+        }
         case 'vec3':
           if (!isVec3(value)) fail(track, `key ${k} must be a vector {x, y, z}.`);
           numbers.set([value.x, value.y, value.z], k * 3);
@@ -318,7 +357,20 @@ export function bindClip(clip: Clip, scene: Scene): ClipBinding {
           break;
       }
     });
-    bound.push({ node, property, times, easings, numbers, colors, steps });
+    let lo = Number.NEGATIVE_INFINITY;
+    let hi = Number.POSITIVE_INFINITY;
+    let integer = false;
+    if (property.type === 'number') {
+      integer = property.integer;
+      if (property.min !== undefined) {
+        // A strict minimum is approached but not reached.
+        lo = property.exclusiveMin
+          ? property.min + Math.max(Math.abs(property.min), 1) * Number.EPSILON
+          : property.min;
+      }
+      if (property.max !== undefined) hi = property.max;
+    }
+    bound.push({ node, property, times, easings, numbers, colors, steps, lo, hi, integer });
   }
   return new Binding(clip, bound);
 }
