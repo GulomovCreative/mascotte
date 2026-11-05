@@ -10,9 +10,10 @@ import {
 import { euler, quat } from '@mascotte/math';
 
 /*
- * The example mascot of stage 2: it waves (a clip), breathes and sways (additive behaviors)
- * and blinks at random (behaviors on a layer masked to the head). Everything depends only on
- * time, so setting the layer times gives the same frame as playing up to them.
+ * The example mascot of stage 2: it waves (a clip), breathes and sways (additive behaviors),
+ * blinks at random (behaviors on a layer masked to the head), now and then tilts its head,
+ * and its ears swing after the head on springs. The layers depend only on time, so with springs off setting the layer
+ * times gives the same frame as playing up to them.
  */
 
 function rotation(x: number, y: number, z: number) {
@@ -29,7 +30,18 @@ function onSphere(x: number, y: number, radius: number, distance: number) {
 
 const radius = 40;
 
-/** Builds the mascot: `head` with `eyes` and closed `lids`, `body`, and an arm on `shoulder`. */
+/** Where an ear (side −1 left, 1 right) grows from the head, and its tip from there. */
+function earBase(side: number) {
+  return { x: side * 20, y: -20, z: 0 };
+}
+function earTip(side: number) {
+  return { x: side * 12, y: -32, z: 0 };
+}
+
+/**
+ * Builds the mascot: `head` with `eyes`, closed `lids` and ears `ear-left` and `ear-right`,
+ * `body`, and an arm on `shoulder`.
+ */
 function build(): { root: Node; camera: Camera } {
   const root = new Node({
     position: { x: 0, y: -22, z: 0 },
@@ -44,15 +56,18 @@ function build(): { root: Node; camera: Camera } {
   const eyes = new Node({ id: 'eyes' });
   const lids = new Node({ id: 'lids', visible: false });
   for (const side of [-1, 1]) {
-    head.add(
+    // An ear on its own node at its base, so a spring can swing it.
+    const ear = new Node({ id: side < 0 ? 'ear-left' : 'ear-right', position: earBase(side) });
+    ear.add(
       new PathShape({
         path: [
-          { type: 'move', point: { x: side * 20, y: -20, z: 0 } },
-          { type: 'line', point: { x: side * 32, y: -52, z: 0 } },
+          { type: 'move', point: { x: 0, y: 0, z: 0 } },
+          { type: 'line', point: earTip(side) },
         ],
         style: { stroke: 16, color: '#e0861a' },
       }),
     );
+    head.add(ear);
     eyes.add(
       new Sphere({
         diameter: 14,
@@ -167,6 +182,23 @@ const idle: BehaviorSet = {
   ],
 };
 
+/** Now and then a quick tilt of the head, which sets the ears swinging. */
+const tilt: BehaviorSet = {
+  behaviors: [
+    {
+      kind: 'blink',
+      target: 'head',
+      property: 'rotation',
+      from: rotation(0, 0, 0),
+      to: rotation(0, 0, 0.22),
+      duration: 1,
+      minInterval: 2.5,
+      maxInterval: 5,
+      seed: 11,
+    },
+  ],
+};
+
 /** Blinking: the eyes hide and the closed lids show for a moment. */
 const blink: BehaviorSet = {
   behaviors: [
@@ -195,11 +227,21 @@ const blink: BehaviorSet = {
   ],
 };
 
-/** Plays the mascot animation on `animator`, whose scene holds a mascot from `build`. */
+/** Sets up the mascot's layers and springs on `animator`, whose scene holds a mascot from `build`. */
 function animate(animator: Animator): void {
   animator.addLayer({ name: 'body' }).play(waveClip);
   animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
+  animator.addLayer({ name: 'tilt', mode: 'additive' }).play(tilt);
   animator.addLayer({ name: 'face', mask: 'head' }).play(blink);
+  for (const side of [-1, 1]) {
+    animator.addSpring({
+      target: side < 0 ? 'ear-left' : 'ear-right',
+      tip: earTip(side),
+      frequency: 1.8,
+      damping: 0.15,
+      maxAngle: 0.6,
+    });
+  }
 }
 
 /** The animated mascot: builds the scene and sets up its layers. */

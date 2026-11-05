@@ -256,3 +256,46 @@ describe('Euler angles: edge cases', () => {
     }
   });
 });
+
+describe('quat: rotationTo', () => {
+  it('turns one direction into another along the shortest arc', () => {
+    const next = random(21);
+    const point = () => vec3.create(range(next, -1, 1), range(next, -1, 1), range(next, -1, 1));
+    for (let i = 0; i < 50; i++) {
+      const from = point();
+      const to = point();
+      const q = quat.rotationTo(quat.create(), from, to);
+      expect(quat.length(q)).toBeCloseTo(1, 12);
+      const turned = vec3.normalize(vec3.create(), rotate(q, from));
+      expectClose(turned, vec3.normalize(vec3.create(), to));
+      const cos = vec3.dot(from, to) / (vec3.length(from) * vec3.length(to));
+      expect(quat.angleBetween(q, quat.create())).toBeCloseTo(Math.acos(cos), 9);
+    }
+  });
+
+  it('gives the identity for equal directions and zero vectors', () => {
+    expect(
+      quat.equalsRotation(quat.rotationTo(quat.create(), X, vec3.create(3, 0, 0)), quat.create()),
+    ).toBe(true);
+    expect(quat.rotationTo(quat.create(), vec3.create(), Y)).toEqual(quat.create());
+    expect(quat.rotationTo(quat.create(), Y, vec3.create())).toEqual(quat.create());
+  });
+
+  it('turns opposite directions by π about a perpendicular axis', () => {
+    for (const from of [X, Y, Z, vec3.create(1, 2, 3), vec3.create(-3, 0.5, 0.1)]) {
+      const to = vec3.scale(vec3.create(), from, -2);
+      const q = quat.rotationTo(quat.create(), from, to);
+      expect(q.w).toBeCloseTo(0, 12);
+      expect(quat.length(q)).toBeCloseTo(1, 12);
+      expectClose(
+        vec3.normalize(vec3.create(), rotate(q, from)),
+        vec3.normalize(vec3.create(), to),
+      );
+    }
+  });
+
+  it('returns out', () => {
+    const out = quat.create();
+    expect(quat.rotationTo(out, X, Y)).toBe(out);
+  });
+});

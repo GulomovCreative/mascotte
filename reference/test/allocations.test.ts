@@ -248,4 +248,29 @@ describe('allocations in the frame loop', () => {
       behaviors.length * 75,
     );
   }, 60_000);
+
+  it('springs on a swaying chain', async () => {
+    const world = new Scene();
+    let parent = world.root;
+    for (let i = 0; i < 20; i++) {
+      const node = new Node({ id: `s${i}`, position: { x: 0, y: 5, z: 0 } });
+      parent.add(node);
+      parent = node;
+    }
+    const animator = new Animator(world);
+    for (let i = 0; i < 20; i++) animator.addSpring({ target: `s${i}`, tip: { x: 0, y: 5, z: 0 } });
+    const top = world.getById('s0');
+    let time = 0;
+    const bytes = await allocatedBytesPerCall(
+      () => {
+        time += 1 / 60;
+        if (top) top.position.x = Math.sin(time * 3) * 10;
+        animator.update(1 / 60);
+      },
+      { warmup: 3000, runs: 300 },
+    );
+    // About as much as a steady clip track per spring: the pose and the spring both write the
+    // rotation, with boxed numbers at polymorphic calls.
+    expect(bytes, `${Math.round(bytes)} bytes for 20 springs`).toBeLessThan(20 * 75);
+  }, 60_000);
 });
