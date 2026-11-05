@@ -32,7 +32,7 @@ describe('выделения памяти в цикле кадра', () => {
       warmup: 500,
       runs: 100,
     });
-    expect(bytes).toBeLessThan(256);
+    expect(bytes, `${Math.round(bytes)} байт`).toBeLessThan(256);
   });
 
   it('сборка кадра WebGL2 неизменной сцены — почти без выделений', async () => {
@@ -41,7 +41,7 @@ describe('выделения памяти в цикле кадра', () => {
       warmup: 300,
       runs: 60,
     });
-    expect(bytes).toBeLessThan(256);
+    expect(bytes, `${Math.round(bytes)} байт`).toBeLessThan(256);
   }, 60_000);
 
   it('сборка эталонных сцен и сцен нового ядра — почти без выделений', async () => {
@@ -63,7 +63,7 @@ describe('выделения памяти в цикле кадра', () => {
         warmup: 3000,
         runs: 300,
       });
-      expect(bytes, id).toBeLessThan(256);
+      expect(bytes, `${id}: ${Math.round(bytes)} байт`).toBeLessThan(256);
     }
   }, 120_000);
 
@@ -78,7 +78,7 @@ describe('выделения памяти в цикле кадра', () => {
       },
       { warmup: 300, runs: 60 },
     );
-    expect(bytes).toBeLessThan(8192);
+    expect(bytes, `${Math.round(bytes)} байт`).toBeLessThan(8192);
   }, 60_000);
 
   it('проверка попадания по 6000 фигурам — не больше 16 КБ', async () => {
@@ -87,6 +87,6 @@ describe('выделения памяти в цикле кадра', () => {
       () => tester.hitTest(scene, bench.camera, bench, bench.width / 2, bench.height / 2),
       { warmup: 100, runs: 30 },
     );
-    expect(bytes).toBeLessThan(16384);
+    expect(bytes, `${Math.round(bytes)} байт`).toBeLessThan(16384);
   }, 60_000);
 });

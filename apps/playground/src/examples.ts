@@ -340,7 +340,8 @@ function fromEngineOnlyScene(scene: EngineScene): Example {
 
 /**
  * Строка под холстом бенчмарка: число фигур и среднее время кадра на процессоре —
- * поза, сортировка, сборка и команды отрисовки, без работы видеокарты.
+ * поза, сортировка, сборка и команды отрисовки; для WebGL2 без работы видеокарты,
+ * для Canvas 2D вместе с растеризацией.
  */
 function frameStats(container: HTMLElement, drawables: number) {
   const label = document.createElement('p');

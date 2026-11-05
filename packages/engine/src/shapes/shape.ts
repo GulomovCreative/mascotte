@@ -147,9 +147,10 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
   /** Строит путь в локальных координатах. */
   protected abstract buildPath(builder: PathBuilder): void;
 
-  /** Помечает геометрию устаревшей. */
+  /** Помечает геометрию устаревшей; кадр с этой фигурой тоже устарел. */
   protected invalidateGeometry(): void {
     this.#geometryDirty = true;
+    this.markChanged();
   }
 
   protected onParamsChanged(): void {

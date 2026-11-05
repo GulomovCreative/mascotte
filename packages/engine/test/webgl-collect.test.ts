@@ -101,6 +101,40 @@ describe('triangulate', () => {
   });
 });
 
+describe('рост рабочих буферов', () => {
+  it('многоугольник больше начального кольца разбивается без потерь', () => {
+    const n = 100;
+    const xs: number[] = [];
+    const ys: number[] = [];
+    for (let i = 0; i < n; i++) {
+      xs.push(Math.cos((i / n) * Math.PI * 2) * 50);
+      ys.push(Math.sin((i / n) * Math.PI * 2) * 50);
+    }
+    const out = new IndexBuffer();
+    expect(triangulate(xs, ys, n, out)).toBe(n - 2);
+    expect(ids(out).every((i) => i >= 0 && i < n)).toBe(true);
+    // Площадь правильного многоугольника: n · r² · sin(2π/n) / 2.
+    expect(area(xs, ys, ids(out))).toBeCloseTo((n * 2500 * Math.sin((2 * Math.PI) / n)) / 2, 6);
+  });
+
+  it('путь на 200 точек: ломаная растёт, все отрезки на месте', () => {
+    const path: { type: 'move' | 'line'; point: { x: number; y: number } }[] = [];
+    for (let i = 0; i < 200; i++) {
+      path.push({ type: i === 0 ? 'move' : 'line', point: { x: i - 100, y: (i % 2) * 3 } });
+    }
+    const frame = new GLCollector().collect(
+      sceneWith(new PathShape({ path, closed: false, style: { stroke: 2, fill: false } })),
+      camera,
+    );
+    const capsules = instances(first(frame).opaque[0], 'capsule');
+    expect(capsules).toHaveLength(199);
+    for (const [i, c] of capsules.entries()) {
+      expect(c.slice(0, 2)).toEqual([i - 100, (i % 2) * 3]);
+      expect(c.slice(3, 5)).toEqual([i + 1 - 100, ((i + 1) % 2) * 3]);
+    }
+  });
+});
+
 describe('GLCollector', () => {
   it('точка — шар, отрезок — капсула, замкнутый прямоугольник — четыре капсулы', () => {
     const frame = new GLCollector().collect(

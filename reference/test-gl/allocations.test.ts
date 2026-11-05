@@ -61,7 +61,7 @@ describe('выделения памяти WebGL2', () => {
     expect(draw()).toBe(true);
     expect(draw()).toBe(false);
     const bytes = await bytesPerCall(draw, 200, 500);
-    expect(bytes).toBeLessThan(8);
+    expect(bytes, `${bytes} байт на вызов`).toBeLessThan(8);
     // После изменения сцены кадр рисуется снова, после invalidate — тоже.
     bench.pose(1);
     expect(draw()).toBe(true);
@@ -71,7 +71,7 @@ describe('выделения памяти WebGL2', () => {
     instance.destroy();
   }, 60_000);
 
-  it('анимированный кадр бенчмарка — не больше 16 КБ', async () => {
+  it('анимированный кадр бенчмарка — не больше 8 КБ', async () => {
     const { renderer: instance, draw } = renderer();
     let time = 0;
     const frame = () => {
@@ -79,10 +79,11 @@ describe('выделения памяти WebGL2', () => {
       bench.pose(time);
       draw();
     };
-    // Сейчас 4–7 КБ на кадр из 6000 фигур: пересчёт мировых матриц и вызовы WebGL самого
-    // браузера. Порог с запасом ловит рост: до переделки одна сборка кадра давала ~50 КБ.
+    // Сейчас 3–7 КБ на кадр из 6000 фигур: пересчёт мировых матриц и вызовы WebGL самого
+    // браузера. Порог ловит рост: подмассив на каждый вызов отрисовки давал ~10 КБ, а до
+    // переделки одна сборка кадра — ~50 КБ.
     const bytes = await bytesPerCall(frame, 60, 30);
-    expect(bytes).toBeLessThan(16384);
+    expect(bytes, `${Math.round(bytes)} байт на кадр`).toBeLessThan(8192);
     instance.destroy();
   }, 120_000);
 });
