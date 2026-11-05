@@ -1,10 +1,12 @@
 import { color, euler, quat, vec3 } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
+import * as engine from '../src/index.ts';
 import {
   bindClip,
   type Clip,
   Cylinder,
   clipTime,
+  Ellipse,
   findProperty,
   Node,
   PathShape,
@@ -299,5 +301,258 @@ describe('bindClip', () => {
     expect(scene.changeVersion).toBe(version);
     binding.apply(1);
     expect(scene.changeVersion).toBeGreaterThan(version);
+  });
+
+  it('slerp keeps a constant angular speed and takes the shortest arc', () => {
+    const node = new Node({ id: 'n' });
+    const around = (angle: number) => {
+      const q = quat.fromEuler(quat.create(), euler.create(0, 0, angle));
+      return { x: q.x, y: q.y, z: q.z, w: q.w };
+    };
+    const end = around((2 * Math.PI) / 3);
+    const binding = bindClip(
+      clip([
+        {
+          target: 'n',
+          property: 'rotation',
+          keys: [
+            { time: 0, value: around(0) },
+            { time: 2, value: end },
+          ],
+        },
+      ]),
+      sceneWith(node),
+    );
+    binding.apply(1);
+    // Halfway through 120° is exactly 60°; a normalized lerp would give a different angle.
+    expect(quat.equalsRotation(node.rotation, around(Math.PI / 3), 1e-12)).toBe(true);
+    // The same end rotation written as -q: still the short way, through 60°.
+    const flipped = bindClip(
+      clip([
+        {
+          target: 'n',
+          property: 'rotation',
+          keys: [
+            { time: 0, value: around(0) },
+            { time: 2, value: { x: -end.x, y: -end.y, z: -end.z, w: -end.w } },
+          ],
+        },
+      ]),
+      sceneWith(new Node({ id: 'n' })),
+    );
+    const other = new Node({ id: 'n' });
+    bindClip(flipped.clip, sceneWith(other)).apply(1);
+    expect(quat.equalsRotation(other.rotation, around(Math.PI / 3), 1e-12)).toBe(true);
+  });
+
+  it('two keys at the same time make an instant jump', () => {
+    const node = new Node({ id: 'n' });
+    const binding = bindClip(
+      clip([
+        {
+          target: 'n',
+          property: 'zBias',
+          keys: [
+            { time: 0, value: 0 },
+            { time: 1, value: 0 },
+            { time: 1, value: 10 },
+            { time: 2, value: 10 },
+          ],
+        },
+      ]),
+      sceneWith(node),
+    );
+    binding.apply(0.999);
+    expect(node.zBias).toBe(0);
+    binding.apply(1);
+    expect(node.zBias).toBe(10);
+  });
+
+  it('integer properties are rounded and overshooting easings stay in range', () => {
+    const ellipse = new Ellipse({ id: 'e' });
+    const rect = new Rect({ id: 'r' });
+    const binding = bindClip(
+      clip([
+        {
+          target: 'e',
+          property: 'quarters',
+          keys: [
+            { time: 0, value: 1, easing: 'backOut' },
+            { time: 2, value: 4 },
+          ],
+        },
+        {
+          target: 'r',
+          property: 'width',
+          keys: [
+            // backOut overshoots past the end key, below 0 here.
+            { time: 0, value: 10, easing: 'backOut' },
+            { time: 2, value: 0 },
+          ],
+        },
+      ]),
+      sceneWith(ellipse, rect),
+    );
+    for (let t = 0; t <= 2; t += 0.05) {
+      binding.apply(t);
+      expect(Number.isInteger(ellipse.quarters), `${t}`).toBe(true);
+      expect(ellipse.quarters).toBeGreaterThanOrEqual(1);
+      expect(ellipse.quarters).toBeLessThanOrEqual(4);
+      expect(rect.width).toBeGreaterThanOrEqual(0);
+    }
+  });
+
+  it('keys outside the property range and unknown easings are rejected at bind', () => {
+    const scene = sceneWith(new Rect({ id: 'r' }), new Ellipse({ id: 'e' }));
+    const bind = (track: Track) => () => bindClip(clip([track]), scene);
+    expect(bind({ target: 'r', property: 'width', keys: [{ time: 0, value: -5 }] })).toThrow(
+      /r\.width: key 0 value -5 is outside the property range/,
+    );
+    expect(bind({ target: 'r', property: 'opacity', keys: [{ time: 0, value: 2 }] })).toThrow(
+      /outside the property range/,
+    );
+    expect(bind({ target: 'e', property: 'quarters', keys: [{ time: 0, value: 2.5 }] })).toThrow(
+      /must be an integer/,
+    );
+    expect(
+      bind({
+        target: 'r',
+        property: 'width',
+        keys: [{ time: 0, value: 1, easing: 'wobbly' as never }],
+      }),
+    ).toThrow(/r\.width: key 0: Unknown easing/);
+    expect(bind({ target: 'r', property: 'sortMode', keys: [] })).toThrow(/not animatable/);
+  });
+
+  it('enum keys must be among the property values', () => {
+    // The only animatable enum today would be a custom one; camera projection is not animatable.
+    class Mode extends Node {
+      mode = 'a';
+    }
+    const { registerProperties } = engine;
+    registerProperties(Mode, [
+      {
+        name: 'mode',
+        type: 'enum',
+        animatable: true,
+        default: 'a',
+        values: ['a', 'b'],
+        get: (node) => node.mode,
+        set: (node, value) => {
+          node.mode = value;
+        },
+      },
+    ]);
+    const node = new Mode({ id: 'm' });
+    const scene = sceneWith(node);
+    const keys = (value: string) => [{ time: 0, value }];
+    expect(() =>
+      bindClip(clip([{ target: 'm', property: 'mode', keys: keys('c') }]), scene),
+    ).toThrow(/must be one of a, b/);
+    bindClip(
+      clip([
+        {
+          target: 'm',
+          property: 'mode',
+          keys: [
+            { time: 0, value: 'a' },
+            { time: 1, value: 'b' },
+          ],
+        },
+      ]),
+      scene,
+    ).apply(1.5);
+    expect(node.mode).toBe('b');
+  });
+
+  it('negative time goes through the loop mode in apply too', () => {
+    const node = new Node({ id: 'n' });
+    const track: Track = {
+      target: 'n',
+      property: 'zBias',
+      keys: [
+        { time: 0, value: 0 },
+        { time: 2, value: 8 },
+      ],
+    };
+    const looped = bindClip(clip([track], 2, 'loop'), sceneWith(node));
+    looped.apply(-0.5);
+    expect(node.zBias).toBeCloseTo(6, 12);
+    const other = new Node({ id: 'n' });
+    bindClip(clip([track], 2, 'pingpong'), sceneWith(other)).apply(-0.5);
+    expect(other.zBias).toBeCloseTo(2, 12);
+  });
+
+  it('color alpha is interpolated and kept', () => {
+    const rect = new Rect({ id: 'r' });
+    bindClip(
+      clip([
+        {
+          target: 'r',
+          property: 'style.color',
+          keys: [
+            { time: 0, value: '#ff000000' },
+            { time: 2, value: '#ff0000ff' },
+          ],
+        },
+      ]),
+      sceneWith(rect),
+    ).apply(1);
+    const parsed = color.parseOrThrow(rect.style.color);
+    expect(parsed.a).toBeCloseTo(0.5, 2);
+    expect(rect.style.color).toMatch(/^#[0-9a-f]{8}$/);
+  });
+
+  it('a single key holds for any time, a zero-length clip applies its keys at 0', () => {
+    const node = new Node({ id: 'n' });
+    const single = bindClip(
+      clip([{ target: 'n', property: 'zBias', keys: [{ time: 1, value: 3 }] }], 2, 'loop'),
+      sceneWith(node),
+    );
+    for (const t of [-5, 0, 1, 7.3]) {
+      single.apply(t);
+      expect(node.zBias).toBe(3);
+    }
+    const flat = new Node({ id: 'n' });
+    bindClip(
+      clip([{ target: 'n', property: 'zBias', keys: [{ time: 0, value: 4 }] }], 0, 'loop'),
+      sceneWith(flat),
+    ).apply(12);
+    expect(flat.zBias).toBe(4);
+  });
+
+  it('a node destroyed after binding is skipped', () => {
+    const doomed = new Node({ id: 'a' });
+    const kept = new Node({ id: 'b' });
+    const zBias = (target: string): Track => ({
+      target,
+      property: 'zBias',
+      keys: [
+        { time: 0, value: 0 },
+        { time: 2, value: 2 },
+      ],
+    });
+    const binding = bindClip(clip([zBias('a'), zBias('b')]), sceneWith(doomed, kept));
+    doomed.destroy();
+    expect(() => binding.apply(1)).not.toThrow();
+    expect(kept.zBias).toBe(1);
+  });
+});
+
+describe('ObservedVec3 and ObservedQuat copy', () => {
+  it('copy notifies once on a change and not at all for an equal value', () => {
+    const node = new Node();
+    const scene = sceneWith(node);
+    let version = scene.changeVersion;
+    node.position.copy({ x: 1, y: 2, z: 3 });
+    expect(scene.changeVersion).toBe(version + 1);
+    version = scene.changeVersion;
+    node.position.copy({ x: 1, y: 2, z: 3 });
+    expect(scene.changeVersion).toBe(version);
+    node.rotation.copy({ x: 0, y: 1, z: 0, w: 0 });
+    expect(scene.changeVersion).toBe(version + 1);
+    version = scene.changeVersion;
+    node.rotation.copy({ x: 0, y: 1, z: 0, w: 0 });
+    expect(scene.changeVersion).toBe(version);
   });
 });
