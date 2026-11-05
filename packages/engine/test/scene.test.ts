@@ -60,6 +60,8 @@ describe('internal access is closed', () => {
         'GLCollector',
         'HitTester',
         'Ticker',
+        'Animator',
+        'BLEND_MODES',
         'bindClip',
         'clipTime',
         'segmentAt',

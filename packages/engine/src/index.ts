@@ -1,6 +1,14 @@
 // Scene, primitives, sorting, rendering, animation and rig. See docs/PLAN.md, sections 5.4–5.12.
 
 export {
+  type AnimationLayer,
+  Animator,
+  BLEND_MODES,
+  type BlendMode,
+  type LayerOptions,
+  type PlayOptions,
+} from './animation/animator.ts';
+export {
   bindClip,
   type Clip,
   type ClipBinding,
