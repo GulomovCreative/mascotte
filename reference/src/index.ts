@@ -3,6 +3,11 @@ import { flatPrimitives } from './scenes/flat-primitives.ts';
 import { mascot } from './scenes/mascot.ts';
 import { solidPrimitives } from './scenes/solid-primitives.ts';
 
+export {
+  type Benchmark,
+  type BenchmarkOptions,
+  buildBenchmark,
+} from './engine-only/benchmark.ts';
 export { type EngineScene, engineScenes } from './engine-only/scenes.ts';
 export type { Context2D, EngineVersion, ReferenceScene, RenderOptions } from './scene.ts';
 export { renderScene } from './scene.ts';

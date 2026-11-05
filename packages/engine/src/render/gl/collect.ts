@@ -18,7 +18,7 @@ import {
   Sphere,
 } from '../../shapes/solids.ts';
 import { DepthSorter, type Drawable, isDrawable } from '../depth-sort.ts';
-import { FloatBuffer } from './buffer.ts';
+import { FloatBuffer, FrameList, IndexBuffer, Polyline } from './buffer.ts';
 import { triangulate } from './triangulate.ts';
 
 /*
@@ -101,16 +101,32 @@ export interface GLFrame {
 export const MAX_ANCHORS = 127;
 
 class Layer implements GLLayer {
-  readonly opaque: Bucket[] = [];
-  readonly decals: Bucket[] = [];
-  readonly transparent: Bucket[] = [];
+  readonly opaqueList = new FrameList<Bucket>();
+  readonly decalList = new FrameList<Bucket>();
+  readonly transparentList = new FrameList<Bucket>();
   anchors = 0;
 
-  clear(): void {
-    this.opaque.length = 0;
-    this.decals.length = 0;
-    this.transparent.length = 0;
+  get opaque(): readonly Bucket[] {
+    return this.opaqueList.items;
+  }
+  get decals(): readonly Bucket[] {
+    return this.decalList.items;
+  }
+  get transparent(): readonly Bucket[] {
+    return this.transparentList.items;
+  }
+
+  begin(): void {
+    this.opaqueList.begin();
+    this.decalList.begin();
+    this.transparentList.begin();
     this.anchors = 0;
+  }
+
+  end(): void {
+    this.opaqueList.end();
+    this.decalList.end();
+    this.transparentList.end();
   }
 }
 
@@ -151,6 +167,9 @@ export function decalAnchor(node: Node): Node | null {
 }
 
 const modelView = mat3x4.create();
+// Мировая матрица текущего узла в пространстве камеры, без масштаба перспективы.
+const nodeView = mat3x4.create();
+const boxView = mat3x4.create();
 const corner: Vec3 = { x: 0, y: 0, z: 0 };
 const CORNERS: readonly (readonly [number, number])[] = [
   [-1, -1],
@@ -170,26 +189,41 @@ export class GLCollector {
   readonly #pool: Bucket[] = [];
   #used = 0;
   readonly #layerPool: Layer[] = [];
-  readonly #layers: Layer[] = [];
-  readonly #anchors = new Map<Node, number>();
+  readonly #layers = new FrameList<Layer>();
+  // Номера опор декалей. Запись действительна, только если её кадр — текущий: так
+  // таблицу не нужно очищать каждый кадр (очистка Map выделяет память). Сбрасывается
+  // при смене сцены или её структуры, чтобы не держать удалённые узлы.
+  readonly #anchors = new Map<Node, { frame: number; id: number }>();
+  #anchorFrame = 0;
+  #anchorScene: Scene | null = null;
+  #anchorStructure = -1;
   #zMin = 0;
   #zMax = 0;
   #warnedAnchors = false;
-  readonly #frame: { layers: Layer[]; zMin: number; zMax: number } = {
-    layers: this.#layers,
+  readonly #frame: { layers: readonly Layer[]; zMin: number; zMax: number } = {
+    layers: this.#layers.items,
     zMin: 0,
     zMax: 0,
   };
-  // Ломаная текущего контура в экранном 3D.
-  readonly #xs: number[] = [];
-  readonly #ys: number[] = [];
-  readonly #zs: number[] = [];
-  readonly #triangles: number[] = [];
+  // Ломаная текущего контура в экранном 3D и индексы её треугольников.
+  readonly #line = new Polyline();
+  // Текущая фигура: камера, масштаб перспективы, радиус, непрозрачность, длина оси.
+  #camera: Camera | null = null;
+  #s = 1;
+  #radius = 0;
+  #opacity = 1;
+  #axis = 1;
+  readonly #triangles = new IndexBuffer();
 
   collect(scene: Scene, camera: Camera): GLFrame {
     this.#used = 0;
-    this.#layers.length = 0;
-    this.#anchors.clear();
+    this.#layers.begin();
+    this.#anchorFrame++;
+    if (scene !== this.#anchorScene || scene.structureVersion !== this.#anchorStructure) {
+      this.#anchors.clear();
+      this.#anchorScene = scene;
+      this.#anchorStructure = scene.structureVersion;
+    }
     this.#zMin = Number.POSITIVE_INFINITY;
     this.#zMax = Number.NEGATIVE_INFINITY;
 
@@ -200,9 +234,9 @@ export class GLCollector {
     // наследуется) и рисуются как обычные полупрозрачные фигуры.
     for (let i = 0; i < drawables.length; i++) {
       const anchor = decalAnchor(drawables[i] as Drawable);
-      if (!anchor || this.#anchors.has(anchor) || anchor.worldOpacity < 1) continue;
+      if (!anchor || this.#anchorId(anchor) !== 0 || anchor.worldOpacity < 1) continue;
       const layer = this.#layer(runs[i] ?? 0);
-      if (layer.anchors < MAX_ANCHORS) this.#anchors.set(anchor, ++layer.anchors);
+      if (layer.anchors < MAX_ANCHORS) this.#setAnchor(anchor, ++layer.anchors);
       else if (!this.#warnedAnchors) {
         this.#warnedAnchors = true;
         console.warn(
@@ -216,19 +250,18 @@ export class GLCollector {
       if (opacity <= 0) continue;
       const layer = this.#layer(runs[i] ?? 0);
       const anchor = decalAnchor(drawable);
-      const anchorId = anchor ? this.#anchors.get(anchor) : undefined;
+      const anchorId = anchor ? this.#anchorId(anchor) : 0;
       let bucket: Bucket;
-      if (anchorId !== undefined) {
+      if (anchorId !== 0) {
         // Декали рисуются без проверки глубины, строго по порядку сортировки, поэтому у
         // каждой своя корзина: внутри корзины примитивы идут по видам, а не по порядку.
-        bucket = this.#bucket(layer.decals, anchorId, true, opacity < 1);
+        bucket = this.#bucket(layer.decalList, anchorId, true, opacity < 1);
       } else if (opacity < 1) {
-        bucket = this.#bucket(layer.transparent, 0, false, true);
+        bucket = this.#bucket(layer.transparentList, 0, false, true);
       } else {
         const own =
-          this.#anchors.get(drawable) ??
-          (drawable.owner ? this.#anchors.get(drawable.owner) : undefined);
-        bucket = this.#opaque(layer, own ?? 0);
+          this.#anchorId(drawable) || (drawable.owner ? this.#anchorId(drawable.owner) : 0);
+        bucket = this.#opaque(layer, own);
       }
       this.#emit(drawable, camera, bucket, opacity);
     }
@@ -236,29 +269,47 @@ export class GLCollector {
       this.#zMin = -1;
       this.#zMax = 1;
     }
+    const layers = this.#layers;
+    for (let i = 0; i < layers.count; i++) (layers.items[i] as Layer).end();
+    layers.end();
     const frame = this.#frame;
     frame.zMin = this.#zMin;
     frame.zMax = this.#zMax;
     return frame;
   }
 
+  /** Номер опоры в текущем кадре или 0. */
+  #anchorId(node: Node): number {
+    const entry = this.#anchors.get(node);
+    return entry && entry.frame === this.#anchorFrame ? entry.id : 0;
+  }
+
+  #setAnchor(node: Node, id: number): void {
+    const entry = this.#anchors.get(node);
+    if (entry) {
+      entry.frame = this.#anchorFrame;
+      entry.id = id;
+    } else this.#anchors.set(node, { frame: this.#anchorFrame, id });
+  }
+
   /** Слой с номером прогона `run`; слои создаются по порядку, пропусков нет. */
   #layer(run: number): Layer {
-    while (this.#layers.length <= run) {
-      let layer = this.#layerPool[this.#layers.length];
+    const layers = this.#layers;
+    while (layers.count <= run) {
+      let layer = this.#layerPool[layers.count];
       if (!layer) {
         layer = new Layer();
         this.#layerPool.push(layer);
       }
-      layer.clear();
-      this.#layers.push(layer);
+      layer.begin();
+      layers.push(layer);
       // Обычная корзина слоя идёт первой.
-      this.#bucket(layer.opaque, 0, false, false);
+      this.#bucket(layer.opaqueList, 0, false, false);
     }
-    return this.#layers[run] as Layer;
+    return layers.items[run] as Layer;
   }
 
-  #bucket(list: Bucket[], stencil: number, decal: boolean, blend: boolean): Bucket {
+  #bucket(list: FrameList<Bucket>, stencil: number, decal: boolean, blend: boolean): Bucket {
     let bucket = this.#pool[this.#used];
     if (!bucket) {
       bucket = new Bucket();
@@ -274,8 +325,12 @@ export class GLCollector {
   }
 
   #opaque(layer: Layer, stencil: number): Bucket {
-    for (const bucket of layer.opaque) if (bucket.stencil === stencil) return bucket;
-    return this.#bucket(layer.opaque, stencil, false, false);
+    const list = layer.opaqueList;
+    for (let i = 0; i < list.count; i++) {
+      const bucket = list.items[i] as Bucket;
+      if (bucket.stencil === stencil) return bucket;
+    }
+    return this.#bucket(list, stencil, false, false);
   }
 
   #extent(z: number, r: number): void {
@@ -283,33 +338,19 @@ export class GLCollector {
     if (z + r > this.#zMax) this.#zMax = z + r;
   }
 
-  /** Переводит локальную точку узла в экранное 3D (`scratch`). */
-  #screen(node: Node, camera: Camera, s: number, x: number, y: number, z: number): Vec3 {
-    local.x = x;
-    local.y = y;
-    local.z = z;
-    node.localToWorld(scratch, local);
-    camera.toView(scratch, scratch);
-    scratch.x *= s;
-    scratch.y *= s;
-    scratch.z *= s;
-    return scratch;
-  }
+  /*
+   * Дальше дробные числа не передаются в вызовы и не возвращаются из них: если V8 не
+   * встроит вызов, каждое такое число упаковывается в объект, а вызовов — тысячи на кадр.
+   * Масштаб перспективы и непрозрачность лежат в полях, точки узла считаются прямо по
+   * его матрице в пространстве камеры (`nodeView`), данные пишутся в буфер по индексу.
+   */
 
-  /** Масштаб перспективы по опорному узлу или `null`, если тот за глазом камеры. */
-  #scale(drawable: Drawable, camera: Camera): number | null {
+  /** Масштаб перспективы по опорному узлу в `#s`; `false`, если тот за глазом камеры. */
+  #scale(drawable: Drawable, camera: Camera): boolean {
     camera.toView(scratch, drawable.perspectiveReference.getWorldPosition(scratch));
-    return camera.isInFront(scratch.z) ? camera.scaleAt(scratch.z) : null;
-  }
-
-  /** Длина локальной оси узла в пространстве камеры: масштаб узла по этой оси. */
-  #axisScale(node: Node, camera: Camera, x: number, y: number, z: number): number {
-    const o = this.#screen(node, camera, 1, 0, 0, 0);
-    const ox = o.x;
-    const oy = o.y;
-    const oz = o.z;
-    const a = this.#screen(node, camera, 1, x, y, z);
-    return Math.hypot(a.x - ox, a.y - oy, a.z - oz);
+    if (!camera.isInFront(scratch.z)) return false;
+    this.#s = camera.scaleAt(scratch.z);
+    return true;
   }
 
   /**
@@ -321,78 +362,82 @@ export class GLCollector {
   }
 
   #emit(drawable: Drawable, camera: Camera, bucket: Bucket, opacity: number): void {
-    const s = this.#scale(drawable, camera);
-    if (s === null) return;
-    if (drawable instanceof Shape) this.#shape(drawable, camera, s, bucket, opacity);
-    else if (drawable instanceof Sphere) this.#sphere(drawable, camera, s, bucket, opacity);
-    else if (drawable instanceof Capsule) this.#capsule(drawable, camera, s, bucket, opacity);
-    else if (drawable instanceof HemisphereDome) this.#dome(drawable, camera, s, bucket, opacity);
-    else if (drawable instanceof CylinderBody)
-      this.#cylinderBody(drawable, camera, s, bucket, opacity);
-    else if (drawable instanceof ConeSurface)
-      this.#coneSurface(drawable, camera, s, bucket, opacity);
+    if (!this.#scale(drawable, camera)) return;
+    this.#opacity = opacity;
+    this.#camera = camera;
+    mat3x4.multiply(nodeView, camera.viewMatrix, drawable.worldMatrix);
+    if (drawable instanceof Shape) this.#shape(drawable, bucket);
+    else if (drawable instanceof Sphere) this.#sphere(drawable, bucket);
+    else if (drawable instanceof Capsule) this.#capsule(drawable, bucket);
+    else if (drawable instanceof HemisphereDome) this.#dome(drawable, bucket);
+    else if (drawable instanceof CylinderBody) this.#cylinderBody(drawable, bucket);
+    else if (drawable instanceof ConeSurface) this.#coneSurface(drawable, bucket);
   }
 
-  #color(buffer: FloatBuffer, css: string, opacity: number): void {
-    const [r, g, b, a] = rgba(css);
-    buffer.push(r);
-    buffer.push(g);
-    buffer.push(b);
-    buffer.push(a * opacity);
+  /** Цвет `css` с непрозрачностью фигуры в `d` с индекса `o`. */
+  #writeColor(d: Float32Array, o: number, css: string): void {
+    const color = rgba(css);
+    d[o] = color[0];
+    d[o + 1] = color[1];
+    d[o + 2] = color[2];
+    d[o + 3] = color[3] * this.#opacity;
   }
 
-  #pushSphere(
-    bucket: Bucket,
-    x: number,
-    y: number,
-    z: number,
-    r: number,
-    css: string,
-    opacity: number,
-  ): void {
+  /** Шар с центром в `scratch` и радиусом `#radius`. */
+  #pushSphere(bucket: Bucket, css: string): void {
     const out = bucket.data.sphere;
-    out.push(x);
-    out.push(y);
-    out.push(z);
-    out.push(r);
-    this.#color(out, css, opacity);
-    this.#extent(z, r);
+    const o = out.reserve(STRIDE.sphere);
+    const d = out.data;
+    const r = this.#radius;
+    d[o] = scratch.x;
+    d[o + 1] = scratch.y;
+    d[o + 2] = scratch.z;
+    d[o + 3] = r;
+    this.#writeColor(d, o + 4, css);
+    this.#extent(scratch.z, r);
   }
 
-  #pushSegment(
-    kind: 'capsule' | 'cylinder',
-    bucket: Bucket,
-    ax: number,
-    ay: number,
-    az: number,
-    bx: number,
-    by: number,
-    bz: number,
-    r: number,
-    css: string,
-    opacity: number,
-  ): void {
-    const out = bucket.data[kind];
-    out.push(ax);
-    out.push(ay);
-    out.push(az);
-    out.push(bx);
-    out.push(by);
-    out.push(bz);
-    out.push(r);
-    this.#color(out, css, opacity);
+  /**
+   * Отрезок вдоль локальной оси z узла: от `from` до `to` (в единицах узла), радиус
+   * `#radius`. Для капсул и боков цилиндров.
+   */
+  #pushAxisSegment(out: FloatBuffer, from: number, to: number, css: string): void {
+    const m = nodeView;
+    const s = this.#s;
+    const r = this.#radius;
+    const o = out.reserve(STRIDE.capsule);
+    const d = out.data;
+    const tx = m[9] as number;
+    const ty = m[10] as number;
+    const tz = m[11] as number;
+    const zx = m[6] as number;
+    const zy = m[7] as number;
+    const zz = m[8] as number;
+    const az = (tz + zz * from) * s;
+    const bz = (tz + zz * to) * s;
+    d[o] = (tx + zx * from) * s;
+    d[o + 1] = (ty + zy * from) * s;
+    d[o + 2] = az;
+    d[o + 3] = (tx + zx * to) * s;
+    d[o + 4] = (ty + zy * to) * s;
+    d[o + 5] = bz;
+    d[o + 6] = r;
+    this.#writeColor(d, o + 7, css);
     this.#extent(az, r);
     this.#extent(bz, r);
   }
 
   // ----- фигуры с путём ----- //
 
-  #shape(shape: Shape, camera: Camera, s: number, bucket: Bucket, opacity: number): void {
+  #shape(shape: Shape, bucket: Bucket): void {
     const style = shape.style;
+    const m = nodeView;
     // Обратная сторона, как в Zdog: только если точка `front` строго дальше начала.
-    const origin = this.#screen(shape, camera, 1, 0, 0, 0).z;
-    const front = this.#screen(shape, camera, 1, shape.front.x, shape.front.y, shape.front.z).z;
-    const facingBack = front < origin;
+    const f = shape.front;
+    const originZ = m[11] as number;
+    const frontZ =
+      (m[2] as number) * f.x + (m[5] as number) * f.y + (m[8] as number) * f.z + originZ;
+    const facingBack = frontZ < originZ;
     if (facingBack && !style.backfaceVisible) return;
     const css = facingBack ? (style.backfaceColor ?? style.color) : style.color;
 
@@ -405,63 +450,73 @@ export class GLCollector {
       shape instanceof Ellipse &&
       (owner instanceof Cylinder || owner instanceof Cone || owner instanceof Hemisphere)
     ) {
-      this.#cap(shape, camera, s, bucket, css, opacity);
+      this.#cap(shape, bucket, css);
       return;
     }
     if (style.fill && shape instanceof Rect && owner instanceof Box) {
-      this.#boxFace(shape, owner, camera, s, bucket, css, opacity);
+      this.#boxFace(shape, owner, bucket, css);
       return;
     }
 
+    const s = this.#s;
     const world = shape.worldMatrix;
+    const wx0 = world[0] as number;
+    const wx1 = world[1] as number;
+    const wx2 = world[2] as number;
+    const wy0 = world[3] as number;
+    const wy1 = world[4] as number;
+    const wy2 = world[5] as number;
     const nodeScale = Math.sqrt(
-      Math.hypot(world[0] ?? 0, world[1] ?? 0, world[2] ?? 0) *
-        Math.hypot(world[3] ?? 0, world[4] ?? 0, world[5] ?? 0),
+      Math.sqrt(wx0 * wx0 + wx1 * wx1 + wx2 * wx2) * Math.sqrt(wy0 * wy0 + wy1 * wy1 + wy2 * wy2),
     );
-    const radius = (style.stroke * nodeScale * s) / 2;
+    this.#radius = (style.stroke * nodeScale * s) / 2;
 
-    mat3x4.multiply(modelView, camera.viewMatrix, world);
+    // Масштаб перспективы входит в матрицу: s · (V · W · p) = (s · V · W) · p.
+    for (let k = 0; k < 12; k++) modelView[k] = (m[k] as number) * s;
     const { ops, points, opCount, closed } = shape.geometry;
 
     if (opCount === 1) {
-      if (radius <= 0) return;
-      const p = project(points, 0, s);
-      this.#pushSphere(bucket, p.x, p.y, p.z, radius, css, opacity);
+      if (this.#radius <= 0) return;
+      project(points, 0);
+      this.#pushSphere(bucket, css);
       return;
     }
 
-    const xs = this.#xs;
-    const ys = this.#ys;
-    const zs = this.#zs;
-    xs.length = 0;
-    ys.length = 0;
-    zs.length = 0;
+    const line = this.#line;
+    line.clear();
     let fillDone = false;
 
     let index = 0;
     for (let op = 0; op < opCount; op++) {
       const code = ops[op];
       if (code === PathOp.cubic) {
-        const x0 = xs.at(-1) as number;
-        const y0 = ys.at(-1) as number;
-        const z0 = zs.at(-1) as number;
-        const c1 = project(points, index, s);
+        const last = line.length - 1;
+        const x0 = line.xs[last] as number;
+        const y0 = line.ys[last] as number;
+        const z0 = line.zs[last] as number;
+        const c1 = project(points, index);
         const c1x = c1.x;
         const c1y = c1.y;
         const c1z = c1.z;
-        const c2 = project(points, index + 1, s);
+        const c2 = project(points, index + 1);
         const c2x = c2.x;
         const c2y = c2.y;
         const c2z = c2.z;
-        const e = project(points, index + 2, s);
+        const e = project(points, index + 2);
         const ex = e.x;
         const ey = e.y;
         const ez = e.z;
         // Число отрезков — по длине опорной ломаной на экране, примерно по 3 пикселя.
+        const d1x = c1x - x0;
+        const d1y = c1y - y0;
+        const d2x = c2x - c1x;
+        const d2y = c2y - c1y;
+        const d3x = ex - c2x;
+        const d3y = ey - c2y;
         const chord =
-          Math.hypot(c1x - x0, c1y - y0) +
-          Math.hypot(c2x - c1x, c2y - c1y) +
-          Math.hypot(ex - c2x, ey - c2y);
+          Math.sqrt(d1x * d1x + d1y * d1y) +
+          Math.sqrt(d2x * d2x + d2y * d2y) +
+          Math.sqrt(d3x * d3x + d3y * d3y);
         const steps = Math.min(48, Math.max(2, Math.ceil(chord / 3)));
         for (let k = 1; k <= steps; k++) {
           const t = k / steps;
@@ -470,265 +525,242 @@ export class GLCollector {
           const w1 = 3 * u * u * t;
           const w2 = 3 * u * t * t;
           const w3 = t * t * t;
-          xs.push(w0 * x0 + w1 * c1x + w2 * c2x + w3 * ex);
-          ys.push(w0 * y0 + w1 * c1y + w2 * c2y + w3 * ey);
-          zs.push(w0 * z0 + w1 * c1z + w2 * c2z + w3 * ez);
+          const n = line.add();
+          line.xs[n] = w0 * x0 + w1 * c1x + w2 * c2x + w3 * ex;
+          line.ys[n] = w0 * y0 + w1 * c1y + w2 * c2y + w3 * ey;
+          line.zs[n] = w0 * z0 + w1 * c1z + w2 * c2z + w3 * ez;
         }
         index += 3;
       } else {
-        if (code === PathOp.move && xs.length > 0) {
-          this.#contour(bucket, css, opacity, radius, closed, style.fill && !fillDone);
+        if (code === PathOp.move && line.length > 0) {
+          this.#contour(bucket, css, closed, style.fill && !fillDone);
           fillDone ||= style.fill;
         }
-        const p = project(points, index, s);
-        xs.push(p.x);
-        ys.push(p.y);
-        zs.push(p.z);
+        const p = project(points, index);
+        const n = line.add();
+        line.xs[n] = p.x;
+        line.ys[n] = p.y;
+        line.zs[n] = p.z;
         index++;
       }
     }
-    if (xs.length > 0) this.#contour(bucket, css, opacity, radius, closed, style.fill && !fillDone);
+    if (line.length > 0) {
+      this.#contour(bucket, css, closed, style.fill && !fillDone);
+    }
   }
 
   /**
-   * Обводка текущей ломаной капсулами и, если `fill`, заливка. Заливается только первый
-   * контур, как у Canvas с одним контуром. Ломаная после вызова пуста.
+   * Обводка текущей ломаной капсулами радиуса `#radius` и, если `fill`, заливка.
+   * Заливается только первый контур, как у Canvas с одним контуром. Ломаная после
+   * вызова пуста.
    */
-  #contour(
-    bucket: Bucket,
-    css: string,
-    opacity: number,
-    radius: number,
-    closed: boolean,
-    fill: boolean,
-  ): void {
-    const xs = this.#xs;
-    const ys = this.#ys;
-    const zs = this.#zs;
-    if (closed && xs.length > 2) {
-      xs.push(xs[0] as number);
-      ys.push(ys[0] as number);
-      zs.push(zs[0] as number);
+  #contour(bucket: Bucket, css: string, closed: boolean, fill: boolean): void {
+    const line = this.#line;
+    const radius = this.#radius;
+    if (closed && line.length > 2) {
+      const n = line.add();
+      line.xs[n] = line.xs[0] as number;
+      line.ys[n] = line.ys[0] as number;
+      line.zs[n] = line.zs[0] as number;
     }
-    if (radius > 0) {
-      for (let i = 1; i < xs.length; i++) {
-        this.#pushSegment(
-          'capsule',
-          bucket,
-          xs[i - 1] as number,
-          ys[i - 1] as number,
-          zs[i - 1] as number,
-          xs[i] as number,
-          ys[i] as number,
-          zs[i] as number,
-          radius,
-          css,
-          opacity,
-        );
+    if (radius > 0 && line.length > 1) {
+      const { xs, ys, zs } = line;
+      const out = bucket.data.capsule;
+      let o = out.reserve((line.length - 1) * STRIDE.capsule);
+      const d = out.data;
+      for (let i = 1; i < line.length; i++) {
+        const az = zs[i - 1] as number;
+        const bz = zs[i] as number;
+        d[o] = xs[i - 1] as number;
+        d[o + 1] = ys[i - 1] as number;
+        d[o + 2] = az;
+        d[o + 3] = xs[i] as number;
+        d[o + 4] = ys[i] as number;
+        d[o + 5] = bz;
+        d[o + 6] = radius;
+        this.#writeColor(d, o + 7, css);
+        o += STRIDE.capsule;
+        if (az - radius < this.#zMin) this.#zMin = az - radius;
+        if (az + radius > this.#zMax) this.#zMax = az + radius;
+        if (bz - radius < this.#zMin) this.#zMin = bz - radius;
+        if (bz + radius > this.#zMax) this.#zMax = bz + radius;
       }
     }
-    if (fill) this.#fill(bucket, css, opacity, closed && xs.length > 2 ? xs.length - 1 : xs.length);
-    xs.length = 0;
-    ys.length = 0;
-    zs.length = 0;
+    if (fill) this.#fill(bucket, css, closed && line.length > 2 ? line.length - 1 : line.length);
+    line.clear();
   }
 
   /** Крышка цилиндра, конуса или полусферы: диск радиусом основания плюс полтолщины обводки. */
-  #cap(
-    base: Ellipse,
-    camera: Camera,
-    s: number,
-    bucket: Bucket,
-    css: string,
-    opacity: number,
-  ): void {
+  #cap(base: Ellipse, bucket: Bucket, css: string): void {
+    const m = nodeView;
+    const s = this.#s;
     const rx = base.width / 2 + base.style.stroke / 2;
     const ry = base.height / 2 + base.style.stroke / 2;
-    const xs = this.#xs;
-    const ys = this.#ys;
-    const zs = this.#zs;
-    xs.length = 0;
-    ys.length = 0;
-    zs.length = 0;
+    const xx = m[0] as number;
+    const xy = m[1] as number;
+    const xz = m[2] as number;
+    const yx = m[3] as number;
+    const yy = m[4] as number;
+    const yz = m[5] as number;
+    const tx = m[9] as number;
+    const ty = m[10] as number;
+    const tz = m[11] as number;
+    const line = this.#line;
+    line.clear();
     // Число точек — по размеру на экране, примерно по 3 пикселя дуги.
-    const k = this.#axisScale(base, camera, 1, 0, 0) * s;
+    const k = Math.sqrt(xx * xx + xy * xy + xz * xz) * s;
     const steps = Math.min(128, Math.max(16, Math.ceil((2 * Math.PI * Math.max(rx, ry) * k) / 3)));
     for (let i = 0; i < steps; i++) {
       const angle = (i / steps) * Math.PI * 2;
-      const p = this.#screen(base, camera, s, Math.cos(angle) * rx, Math.sin(angle) * ry, 0);
-      xs.push(p.x);
-      ys.push(p.y);
-      zs.push(p.z);
+      const cx = Math.cos(angle) * rx;
+      const cy = Math.sin(angle) * ry;
+      const n = line.add();
+      line.xs[n] = (xx * cx + yx * cy + tx) * s;
+      line.ys[n] = (xy * cx + yy * cy + ty) * s;
+      line.zs[n] = (xz * cx + yz * cy + tz) * s;
     }
-    this.#fill(bucket, css, opacity, steps);
+    this.#fill(bucket, css, steps);
   }
 
   /**
    * Грань залитой коробки: коробка раздута на полтолщины обводки во все стороны,
    * грани плоские и сходятся точно по рёбрам.
    */
-  #boxFace(
-    face: Rect,
-    box: Box,
-    camera: Camera,
-    s: number,
-    bucket: Bucket,
-    css: string,
-    opacity: number,
-  ): void {
+  #boxFace(face: Rect, box: Box, bucket: Bucket, css: string): void {
+    const s = this.#s;
     const pad = box.style.stroke / 2;
-    const xs = this.#xs;
-    const ys = this.#ys;
-    const zs = this.#zs;
-    xs.length = 0;
-    ys.length = 0;
-    zs.length = 0;
+    // Углы считаются в координатах коробки, поэтому нужна её матрица, а не грани.
+    mat3x4.multiply(boxView, (this.#camera as Camera).viewMatrix, box.worldMatrix);
+    const line = this.#line;
+    line.clear();
     const local = face.localMatrix;
-    for (const [cx, cy] of CORNERS) {
-      corner.x = (cx * face.width) / 2;
-      corner.y = (cy * face.height) / 2;
+    for (let i = 0; i < CORNERS.length; i++) {
+      const c = CORNERS[i] as readonly [number, number];
+      corner.x = (c[0] * face.width) / 2;
+      corner.y = (c[1] * face.height) / 2;
       corner.z = 0;
       // Угол в координатах коробки: каждая координата — ±половина размера, раздуваем её.
       mat3x4.transformPoint(corner, local, corner);
-      const p = this.#screen(
-        box,
-        camera,
-        s,
-        corner.x + Math.sign(corner.x) * pad,
-        corner.y + Math.sign(corner.y) * pad,
-        corner.z + Math.sign(corner.z) * pad,
-      );
-      xs.push(p.x);
-      ys.push(p.y);
-      zs.push(p.z);
+      corner.x += Math.sign(corner.x) * pad;
+      corner.y += Math.sign(corner.y) * pad;
+      corner.z += Math.sign(corner.z) * pad;
+      const p = mat3x4.transformPoint(scratch, boxView, corner);
+      const n = line.add();
+      line.xs[n] = p.x * s;
+      line.ys[n] = p.y * s;
+      line.zs[n] = p.z * s;
     }
-    this.#fill(bucket, css, opacity, 4);
+    this.#fill(bucket, css, 4);
   }
 
   /** Заливка первых `n` точек текущей ломаной треугольниками. */
-  #fill(bucket: Bucket, css: string, opacity: number, n: number): void {
+  #fill(bucket: Bucket, css: string, n: number): void {
     const triangles = this.#triangles;
-    triangulate(this.#xs, this.#ys, n, triangles);
+    const line = this.#line;
+    triangulate(line.xs, line.ys, n, triangles);
     const out = bucket.data.fill;
-    for (const i of triangles) {
-      out.push(this.#xs[i] as number);
-      out.push(this.#ys[i] as number);
-      const z = this.#zs[i] as number;
-      out.push(z);
-      this.#color(out, css, opacity);
-      this.#extent(z, 0);
+    const indices = triangles.data;
+    let o = out.reserve(triangles.length * STRIDE.fill);
+    const d = out.data;
+    for (let k = 0; k < triangles.length; k++) {
+      const i = indices[k] as number;
+      const z = line.zs[i] as number;
+      d[o] = line.xs[i] as number;
+      d[o + 1] = line.ys[i] as number;
+      d[o + 2] = z;
+      this.#writeColor(d, o + 3, css);
+      o += STRIDE.fill;
+      if (z < this.#zMin) this.#zMin = z;
+      if (z > this.#zMax) this.#zMax = z;
     }
   }
 
   // ----- поверхности ----- //
 
-  #sphere(sphere: Sphere, camera: Camera, s: number, bucket: Bucket, opacity: number): void {
-    const k = this.#axisScale(sphere, camera, 1, 0, 0);
-    const c = this.#screen(sphere, camera, s, 0, 0, 0);
-    const r = ((sphere.diameter + sphere.style.stroke) / 2) * k * s;
-    this.#pushSphere(bucket, c.x, c.y, c.z, r, sphere.style.color, opacity);
+  /** Длина локальной оси x (`axis` 0) или z (`axis` 6) узла в пространстве камеры. */
+  #axisLength(axis: 0 | 6): void {
+    const m = nodeView;
+    const x = m[axis] as number;
+    const y = m[axis + 1] as number;
+    const z = m[axis + 2] as number;
+    this.#axis = Math.sqrt(x * x + y * y + z * z);
   }
 
-  #capsule(capsule: Capsule, camera: Camera, s: number, bucket: Bucket, opacity: number): void {
-    const k = this.#axisScale(capsule, camera, 1, 0, 0);
+  #sphere(sphere: Sphere, bucket: Bucket): void {
+    const m = nodeView;
+    const s = this.#s;
+    this.#axisLength(0);
+    this.#radius = ((sphere.diameter + sphere.style.stroke) / 2) * this.#axis * s;
+    scratch.x = (m[9] as number) * s;
+    scratch.y = (m[10] as number) * s;
+    scratch.z = (m[11] as number) * s;
+    this.#pushSphere(bucket, sphere.style.color);
+  }
+
+  #capsule(capsule: Capsule, bucket: Bucket): void {
+    this.#axisLength(0);
     const half = capsule.length / 2;
-    const a = this.#screen(capsule, camera, s, 0, 0, -half);
-    const ax = a.x;
-    const ay = a.y;
-    const az = a.z;
-    const b = this.#screen(capsule, camera, s, 0, 0, half);
-    const r = ((capsule.diameter + capsule.style.stroke) / 2) * k * s;
-    this.#pushSegment(
-      'capsule',
-      bucket,
-      ax,
-      ay,
-      az,
-      b.x,
-      b.y,
-      b.z,
-      r,
-      capsule.style.color,
-      opacity,
-    );
+    this.#radius = ((capsule.diameter + capsule.style.stroke) / 2) * this.#axis * this.#s;
+    this.#pushAxisSegment(bucket.data.capsule, -half, half, capsule.style.color);
   }
 
-  #dome(dome: HemisphereDome, camera: Camera, s: number, bucket: Bucket, opacity: number): void {
-    const k = this.#axisScale(dome, camera, 0, 0, 1);
-    const c = this.#screen(dome, camera, s, 0, 0, 0);
-    const cx = c.x;
-    const cy = c.y;
-    const cz = c.z;
-    const tip = this.#screen(dome, camera, s, 0, 0, 1);
-    const length = Math.hypot(tip.x - cx, tip.y - cy, tip.z - cz) || 1;
+  #dome(dome: HemisphereDome, bucket: Bucket): void {
+    const m = nodeView;
+    const s = this.#s;
+    this.#axisLength(6);
+    const axis = this.#axis || 1;
     const out = bucket.data.hemisphere;
-    const r = ((dome.diameter + dome.style.stroke) / 2) * k * s;
-    out.push(cx);
-    out.push(cy);
-    out.push(cz);
-    out.push(r);
-    out.push((tip.x - cx) / length);
-    out.push((tip.y - cy) / length);
-    out.push((tip.z - cz) / length);
-    this.#color(out, dome.style.color, opacity);
+    const o = out.reserve(STRIDE.hemisphere);
+    const d = out.data;
+    const r = ((dome.diameter + dome.style.stroke) / 2) * this.#axis * s;
+    const cz = (m[11] as number) * s;
+    d[o] = (m[9] as number) * s;
+    d[o + 1] = (m[10] as number) * s;
+    d[o + 2] = cz;
+    d[o + 3] = r;
+    d[o + 4] = (m[6] as number) / axis;
+    d[o + 5] = (m[7] as number) / axis;
+    d[o + 6] = (m[8] as number) / axis;
+    this.#writeColor(d, o + 7, dome.style.color);
     this.#extent(cz, r);
   }
 
-  #cylinderBody(
-    body: CylinderBody,
-    camera: Camera,
-    s: number,
-    bucket: Bucket,
-    opacity: number,
-  ): void {
-    const k = this.#axisScale(body, camera, 0, 0, 1);
+  #cylinderBody(body: CylinderBody, bucket: Bucket): void {
+    this.#axisLength(6);
     const half = body.length / 2;
-    const a = this.#screen(body, camera, s, 0, 0, half);
-    const ax = a.x;
-    const ay = a.y;
-    const az = a.z;
-    const b = this.#screen(body, camera, s, 0, 0, -half);
-    const r = ((body.diameter + body.style.stroke) / 2) * k * s;
-    this.#pushSegment('cylinder', bucket, ax, ay, az, b.x, b.y, b.z, r, body.style.color, opacity);
+    this.#radius = ((body.diameter + body.style.stroke) / 2) * this.#axis * this.#s;
+    this.#pushAxisSegment(bucket.data.cylinder, half, -half, body.style.color);
   }
 
-  #coneSurface(
-    surface: ConeSurface,
-    camera: Camera,
-    s: number,
-    bucket: Bucket,
-    opacity: number,
-  ): void {
-    const k = this.#axisScale(surface, camera, 0, 0, 1);
-    const c = this.#screen(surface, camera, s, 0, 0, 0);
-    const cx = c.x;
-    const cy = c.y;
-    const cz = c.z;
-    const apex = this.#screen(surface, camera, s, 0, 0, surface.length);
-    const r = ((surface.diameter + surface.style.stroke) / 2) * k * s;
+  #coneSurface(surface: ConeSurface, bucket: Bucket): void {
+    const m = nodeView;
+    const s = this.#s;
+    this.#axisLength(6);
+    const length = surface.length;
     const out = bucket.data.cone;
-    out.push(cx);
-    out.push(cy);
-    out.push(cz);
-    out.push(apex.x);
-    out.push(apex.y);
-    out.push(apex.z);
-    out.push(r);
-    this.#color(out, surface.style.color, opacity);
+    const o = out.reserve(STRIDE.cone);
+    const d = out.data;
+    const r = ((surface.diameter + surface.style.stroke) / 2) * this.#axis * s;
+    const cz = (m[11] as number) * s;
+    const apexZ = ((m[11] as number) + (m[8] as number) * length) * s;
+    d[o] = (m[9] as number) * s;
+    d[o + 1] = (m[10] as number) * s;
+    d[o + 2] = cz;
+    d[o + 3] = ((m[9] as number) + (m[6] as number) * length) * s;
+    d[o + 4] = ((m[10] as number) + (m[7] as number) * length) * s;
+    d[o + 5] = apexZ;
+    d[o + 6] = r;
+    this.#writeColor(d, o + 7, surface.style.color);
     this.#extent(cz, r);
-    this.#extent(apex.z, 0);
+    this.#extent(apexZ, 0);
   }
 }
 
-/** Точка `index` геометрии через `modelView` в экранное 3D. */
-function project(points: Float64Array, index: number, s: number): Vec3 {
+/** Точка `index` геометрии через `modelView` (с масштабом перспективы) в экранное 3D. */
+function project(points: Float64Array, index: number): Vec3 {
   const i = index * 3;
   local.x = points[i] ?? 0;
   local.y = points[i + 1] ?? 0;
   local.z = points[i + 2] ?? 0;
-  mat3x4.transformPoint(scratch, modelView, local);
-  scratch.x *= s;
-  scratch.y *= s;
-  scratch.z *= s;
-  return scratch;
+  return mat3x4.transformPoint(scratch, modelView, local);
 }

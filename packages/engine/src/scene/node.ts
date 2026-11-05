@@ -214,6 +214,7 @@ export class Node {
     if (value !== this.#sortMode) {
       this.#sortMode = value;
       sortSettingsVersion++;
+      this.#changed();
     }
   }
 
@@ -223,7 +224,11 @@ export class Node {
   }
   set zBias(value: number) {
     // Глубина со смещением считается в каждом кадре, пересборка структуры не нужна.
-    this.#zBias = checkBias(value);
+    const bias = checkBias(value);
+    if (bias !== this.#zBias) {
+      this.#zBias = bias;
+      this.#changed();
+    }
   }
 
   /** Слой для режима `layer`. */
@@ -235,6 +240,7 @@ export class Node {
       this.#layer = value;
       // Слой хранится в структуре сортировщика, но учитывается только в режиме layer.
       if (this.#sortMode === 'layer') sortSettingsVersion++;
+      this.#changed();
     }
   }
 
@@ -258,6 +264,7 @@ export class Node {
     if (value !== this.#visible) {
       this.#visible = value;
       this.#appearanceVersion++;
+      this.#changed();
     }
   }
 
@@ -270,6 +277,7 @@ export class Node {
     if (opacity !== this.#opacity) {
       this.#opacity = opacity;
       this.#appearanceVersion++;
+      this.#changed();
     }
   }
 
@@ -475,6 +483,7 @@ export class Node {
   /** Для подклассов со своими параметрами внешнего вида (цвет, обводка): увеличивает `appearanceVersion`. */
   protected markAppearanceChanged(): void {
     this.#appearanceVersion++;
+    this.#changed();
   }
 
   // ----- жизненный цикл ----- //
@@ -510,6 +519,13 @@ export class Node {
   #invalidateLocal(): void {
     this.#localDirty = true;
     this.#invalidateWorld();
+    this.#changed();
+  }
+
+  /** Сообщает сцене, что в ней что-то изменилось (`Scene.changeVersion`). */
+  #changed(): void {
+    const scene = this.#scene;
+    if (scene) sceneInternals.changed(scene);
   }
 
   #invalidateWorld(): void {

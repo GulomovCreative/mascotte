@@ -13,6 +13,7 @@ import {
   type GLFrame,
   type GLLayer,
   Hemisphere,
+  IndexBuffer,
   MAX_ANCHORS,
   Node,
   PathShape,
@@ -62,36 +63,41 @@ function area(xs: number[], ys: number[], triangles: number[]): number {
   return sum / 2;
 }
 
+/** Индексы треугольников из буфера как массив. */
+function ids(out: IndexBuffer): number[] {
+  return Array.from(out.data.subarray(0, out.length));
+}
+
 describe('triangulate', () => {
   it('выпуклый и невыпуклый многоугольники покрываются без потерь площади', () => {
-    const out: number[] = [];
+    const out = new IndexBuffer();
     expect(triangulate([0, 10, 10, 0], [0, 0, 10, 10], 4, out)).toBe(2);
-    expect(area([0, 10, 10, 0], [0, 0, 10, 10], out)).toBeCloseTo(100, 9);
+    expect(area([0, 10, 10, 0], [0, 0, 10, 10], ids(out))).toBeCloseTo(100, 9);
     // Буква «Г»: площадь 75.
     const xs = [0, 10, 10, 5, 5, 0];
     const ys = [0, 0, 5, 5, 10, 10];
     expect(triangulate(xs, ys, 6, out)).toBe(4);
-    expect(area(xs, ys, out)).toBeCloseTo(75, 9);
+    expect(area(xs, ys, ids(out))).toBeCloseTo(75, 9);
     // Обход по часовой стрелке тоже работает.
     expect(triangulate([0, 0, 10, 10], [0, 10, 10, 0], 4, out)).toBe(2);
     expect(triangulate([0, 1], [0, 1], 2, out)).toBe(0);
   });
 
   it('вырожденные контуры не ломают разбиение: индексы в пределах, площадь не теряется', () => {
-    const out: number[] = [];
+    const out = new IndexBuffer();
     // Все точки на одной прямой: площадь нулевая.
     triangulate([0, 5, 10, 15], [0, 0, 0, 0], 4, out);
-    expect(area([0, 5, 10, 15], [0, 0, 0, 0], out)).toBeCloseTo(0, 9);
+    expect(area([0, 5, 10, 15], [0, 0, 0, 0], ids(out))).toBeCloseTo(0, 9);
     // Повторённые вершины.
     const xs = [0, 10, 10, 10, 0];
     const ys = [0, 0, 0, 10, 10];
     triangulate(xs, ys, 5, out);
-    expect(out.every((i) => i >= 0 && i < 5)).toBe(true);
-    expect(area(xs, ys, out)).toBeCloseTo(100, 9);
+    expect(ids(out).every((i) => i >= 0 && i < 5)).toBe(true);
+    expect(area(xs, ys, ids(out))).toBeCloseTo(100, 9);
     // Самопересекающийся «бантик»: разбиение завершается, индексы в пределах.
     const n = triangulate([0, 10, 0, 10], [0, 10, 10, 0], 4, out);
-    expect(out).toHaveLength(n * 3);
-    expect(out.every((i) => i >= 0 && i < 4)).toBe(true);
+    expect(out.length).toBe(n * 3);
+    expect(ids(out).every((i) => i >= 0 && i < 4)).toBe(true);
   });
 });
 

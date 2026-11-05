@@ -1,5 +1,6 @@
 import { Camera, CanvasRenderer, HitTester, Scene, WebGLRenderer } from '@mascotte/engine';
 import {
+  buildBenchmark,
   type EngineScene,
   engineScenes,
   type ReferenceScene,
@@ -53,16 +54,17 @@ function mountCanvas(
   controls: ExampleControls,
   scene: Pick<ReferenceScene, 'width' | 'height'>,
   draw: Draw,
+  scale = displayScale,
 ): () => void {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas 2D недоступен в этом браузере.');
-  canvas.style.width = `${scene.width * displayScale}px`;
+  canvas.style.width = `${scene.width * scale}px`;
   canvas.style.maxWidth = '100%';
 
   let pixelRatio = 1;
   const resize = () => {
-    pixelRatio = (window.devicePixelRatio || 1) * displayScale;
+    pixelRatio = (window.devicePixelRatio || 1) * scale;
     canvas.width = scene.width * pixelRatio;
     canvas.height = scene.height * pixelRatio;
   };
@@ -174,9 +176,10 @@ function mountGL(
   scene: Pick<ReferenceScene, 'width' | 'height'>,
   draw: DrawGL,
   pick?: HitSource,
+  scale = displayScale,
 ): () => void {
   const canvas = document.createElement('canvas');
-  canvas.style.width = `${scene.width * displayScale}px`;
+  canvas.style.width = `${scene.width * scale}px`;
   canvas.style.maxWidth = '100%';
   let renderer: WebGLRenderer;
   try {
@@ -187,7 +190,7 @@ function mountGL(
   }
   let pixelRatio = 1;
   const resize = () => {
-    pixelRatio = (window.devicePixelRatio || 1) * displayScale;
+    pixelRatio = (window.devicePixelRatio || 1) * scale;
     canvas.width = scene.width * pixelRatio;
     canvas.height = scene.height * pixelRatio;
   };
@@ -335,10 +338,120 @@ function fromEngineOnlyScene(scene: EngineScene): Example {
   };
 }
 
+/**
+ * Строка под холстом бенчмарка: число фигур и среднее время кадра на процессоре —
+ * поза, сортировка, сборка и команды отрисовки, без работы видеокарты.
+ */
+function frameStats(container: HTMLElement, drawables: number) {
+  const label = document.createElement('p');
+  label.className = 'hit';
+  container.append(label);
+  let total = 0;
+  let frames = 0;
+  let shown = performance.now();
+  const show = (text: string) => {
+    label.textContent = `${drawables} фигур · ${text}`;
+  };
+  show('кадр ещё не нарисован');
+  return {
+    measure(ms: number) {
+      total += ms;
+      frames++;
+      const now = performance.now();
+      if (now - shown < 500) return;
+      const average = total / frames;
+      show(
+        `кадр ${average.toFixed(1)} мс на процессоре (до ${Math.floor(1000 / average)} кадров в секунду)`,
+      );
+      total = 0;
+      frames = 0;
+      shown = now;
+    },
+    dispose() {
+      label.remove();
+    },
+  };
+}
+
+const BENCHMARK_TITLE = 'Бенчмарк: 20 маскотов';
+
+function benchmarkGL(): Example {
+  return {
+    id: 'webgl/benchmark',
+    title: BENCHMARK_TITLE,
+    group: 'WebGL2',
+    mount(container, controls) {
+      const bench = buildBenchmark();
+      const world = new Scene(bench.root);
+      const unmount = mountGL(
+        container,
+        controls,
+        bench,
+        (renderer, pixelRatio, time) => {
+          const start = performance.now();
+          bench.pose(time);
+          const drawn = renderer.render(world, bench.camera, {
+            width: bench.width,
+            height: bench.height,
+            pixelRatio,
+            background: bench.background,
+          });
+          // В покое кадр не рисуется, и мерить нечего.
+          if (drawn) stats.measure(performance.now() - start);
+        },
+        { scene: world, camera: bench.camera },
+        1,
+      );
+      const stats = frameStats(container, bench.drawables);
+      return () => {
+        unmount();
+        stats.dispose();
+      };
+    },
+  };
+}
+
+function benchmarkCanvas(): Example {
+  return {
+    id: 'engine/benchmark',
+    title: BENCHMARK_TITLE,
+    group: 'Canvas 2D',
+    mount(container, controls) {
+      const bench = buildBenchmark();
+      const world = new Scene(bench.root);
+      const renderer = new CanvasRenderer();
+      const unmount = mountCanvas(
+        container,
+        controls,
+        bench,
+        (ctx, pixelRatio, time) => {
+          const start = performance.now();
+          bench.pose(time);
+          renderer.render(ctx, world, bench.camera, {
+            width: bench.width,
+            height: bench.height,
+            pixelRatio,
+            background: bench.background,
+          });
+          stats.measure(performance.now() - start);
+        },
+        1,
+      );
+      const stats = frameStats(container, bench.drawables);
+      return () => {
+        unmount();
+        stats.dispose();
+      };
+    },
+  };
+}
+
 export const examples: Example[] = [
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
+  benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
+  benchmarkCanvas(),
   ...referenceScenes.map(fromReferenceScene),
 ];

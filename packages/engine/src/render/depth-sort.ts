@@ -52,11 +52,16 @@ export class DepthSorter {
   #structureVersion = -1;
   #settingsVersion = -1;
   #next = 0;
+  // Результат и номера прогонов пишутся по индексу, длина ставится в конце: обнуление
+  // длины массива в V8 освобождает его память, и каждый кадр выделял бы её снова.
   readonly #out: Drawable[] = [];
+  #outCount = 0;
   readonly #runs: number[] = [];
   // Слои на пути от верхнего списка к текущему элементу и путь текущего прогона.
   readonly #path: number[] = [];
+  #pathLength = 0;
   readonly #runPath: number[] = [];
+  #runPathLength = 0;
   #run = 0;
 
   sort(scene: Scene, camera: Camera): readonly Drawable[] {
@@ -68,12 +73,13 @@ export class DepthSorter {
       this.#rebuild(scene);
     }
     const out = this.#out;
-    out.length = 0;
-    this.#runs.length = 0;
-    this.#path.length = 0;
-    this.#runPath.length = 0;
+    this.#outCount = 0;
+    this.#pathLength = 0;
+    this.#runPathLength = 0;
     this.#run = 0;
     this.#emitList(this.#top, camera);
+    if (out.length !== this.#outCount) out.length = this.#outCount;
+    if (this.#runs.length !== this.#outCount) this.#runs.length = this.#outCount;
     return out;
   }
 
@@ -153,48 +159,51 @@ export class DepthSorter {
   // ----- кадр ----- //
 
   #emitList(list: Unit[], camera: Camera): void {
-    for (const unit of list) unit.depth = this.#depth(unit.node, camera);
+    for (let i = 0; i < list.length; i++) this.#depth(list[i] as Unit, camera);
     insertionSort(list);
-    for (const unit of list) this.#emitUnit(unit, camera);
+    for (let i = 0; i < list.length; i++) this.#emitUnit(list[i] as Unit, camera);
   }
 
   #emitUnit(unit: Unit, camera: Camera): void {
     if (!unit.node.visibleInTree) return;
-    this.#path.push(unit.layer);
+    this.#path[this.#pathLength++] = unit.layer;
     if (unit.drawable) this.#push(unit.drawable);
     else this.#emitList(unit.members, camera);
     const decals = unit.decals;
     if (decals.length > 0) {
-      for (const decal of decals) decal.depth = this.#depth(decal.node, camera);
+      for (let i = 0; i < decals.length; i++) this.#depth(decals[i] as Unit, camera);
       insertionSort(decals);
-      for (const decal of decals) {
+      for (let i = 0; i < decals.length; i++) {
+        const decal = decals[i] as Unit;
         if (isFacing(decal.node, camera)) this.#emitUnit(decal, camera);
       }
     }
-    this.#path.pop();
+    this.#pathLength--;
   }
 
   /** Добавляет элемент в результат и отмечает его прогон слоёв. */
   #push(drawable: Drawable): void {
     const path = this.#path;
     const runPath = this.#runPath;
-    let n = path.length;
+    let n = this.#pathLength;
     while (n > 0 && path[n - 1] === 0) n--;
-    let same = n === runPath.length;
+    let same = n === this.#runPathLength;
     for (let i = 0; same && i < n; i++) same = path[i] === runPath[i];
     if (!same) {
-      if (this.#out.length > 0) this.#run++;
-      runPath.length = n;
+      if (this.#outCount > 0) this.#run++;
+      this.#runPathLength = n;
       for (let i = 0; i < n; i++) runPath[i] = path[i] as number;
     }
-    this.#out.push(drawable);
-    this.#runs.push(this.#run);
+    this.#runs[this.#outCount] = this.#run;
+    this.#out[this.#outCount++] = drawable;
   }
 
-  #depth(node: Node, camera: Camera): number {
+  /** Глубина элемента в `unit.depth`: запись на месте, без возврата дробного числа. */
+  #depth(unit: Unit, camera: Camera): void {
+    const node = unit.node;
     node.getSortPoint(local);
     node.localToWorld(world, local);
-    return camera.toView(world, world).z + node.zBias;
+    unit.depth = camera.toView(world, world).z + node.zBias;
   }
 }
 

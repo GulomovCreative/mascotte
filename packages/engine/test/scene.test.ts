@@ -59,6 +59,7 @@ describe('служебный доступ закрыт', () => {
         'decalAnchor',
         'GLCollector',
         'HitTester',
+        'IndexBuffer',
         'MAX_ANCHORS',
         'PIXEL_BUDGET',
         'supersampleFor',
@@ -351,5 +352,62 @@ describe('typeName', () => {
     }
     expect(checked.length).toBeGreaterThan(15);
     expect(new Node().typeName).toBe('Node');
+  });
+});
+
+describe('Scene.changeVersion', () => {
+  it('растёт при любом изменении сцены и не растёт от чтения', async () => {
+    const { PathShape: Path, Sphere: Ball } = await import('../src/index.ts');
+    const scene = new Scene();
+    const ball = new Ball({ diameter: 10 });
+    const path = new Path({ style: { stroke: 2 } });
+    scene.root.add(ball);
+    let version = scene.changeVersion;
+    const changed = (name: string, change: () => void) => {
+      change();
+      expect(scene.changeVersion, name).toBeGreaterThan(version);
+      version = scene.changeVersion;
+    };
+    changed('добавление', () => scene.root.add(path));
+    changed('позиция', () => {
+      ball.position.x = 5;
+    });
+    changed('поворот', () => ball.setRotationFromEuler({ x: 0.3, y: 0, z: 0, order: 'XYZ' }));
+    changed('масштаб', () => {
+      ball.scale.y = 2;
+    });
+    changed('видимость', () => {
+      ball.visible = false;
+    });
+    changed('непрозрачность', () => {
+      ball.opacity = 0.5;
+    });
+    changed('стиль', () => {
+      ball.style.color = '#123456';
+    });
+    changed('параметр', () => {
+      ball.diameter = 20;
+    });
+    changed('режим сортировки', () => {
+      path.sortMode = 'layer';
+    });
+    changed('слой', () => {
+      path.layer = 2;
+    });
+    changed('смещение глубины', () => {
+      path.zBias = 3;
+    });
+    changed('удаление', () => scene.root.remove(path));
+
+    // Чтение матриц, видимости и непрозрачности ничего не меняет; то же значение — тоже.
+    ball.worldMatrix;
+    ball.visibleInTree;
+    ball.worldOpacity;
+    ball.position.x = 5;
+    ball.opacity = 0.5;
+    expect(scene.changeVersion).toBe(version);
+    // Узел вне сцены сцену не трогает.
+    path.position.x = 9;
+    expect(scene.changeVersion).toBe(version);
   });
 });

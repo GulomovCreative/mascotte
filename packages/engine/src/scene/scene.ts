@@ -11,6 +11,8 @@ export let sceneInternals!: {
   detach(scene: Scene, subtree: Node): void;
   /** Сообщает о смене структуры дерева. */
   touch(scene: Scene): void;
+  /** Сообщает о любом изменении узла сцены. */
+  changed(scene: Scene): void;
 };
 
 /**
@@ -25,6 +27,7 @@ export class Scene {
   #nodes: readonly Node[] = [];
   #nodesVersion = -1;
   #structureVersion = 0;
+  #changeVersion = 0;
   #destroyed = false;
 
   /** Корень можно передать готовым, вместе с детьми: их id тоже регистрируются. */
@@ -36,6 +39,15 @@ export class Scene {
   /** Счётчик изменений структуры. Растёт на 1 при каждом добавлении, удалении или перестановке. */
   get structureVersion(): number {
     return this.#structureVersion;
+  }
+
+  /**
+   * Счётчик любых изменений сцены: структуры, трансформаций, видимости, прозрачности,
+   * стиля, параметров фигур и настроек сортировки. Если он, камера и размеры кадра
+   * не изменились, кадр тот же и его можно не пересобирать.
+   */
+  get changeVersion(): number {
+    return this.#changeVersion;
   }
 
   get destroyed(): boolean {
@@ -73,6 +85,7 @@ export class Scene {
     this.#byId.clear();
     this.#nodes = [];
     this.#structureVersion++;
+    this.#changeVersion++;
   }
 
   #attach(subtree: Node): void {
@@ -101,6 +114,10 @@ export class Scene {
       detach: (scene, subtree) => scene.#detach(subtree),
       touch: (scene) => {
         scene.#structureVersion++;
+        scene.#changeVersion++;
+      },
+      changed: (scene) => {
+        scene.#changeVersion++;
       },
     };
   }
