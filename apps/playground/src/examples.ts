@@ -1,9 +1,18 @@
-import { Camera, CanvasRenderer, HitTester, Scene, Ticker, WebGLRenderer } from '@mascotte/engine';
+import {
+  bindClip,
+  Camera,
+  CanvasRenderer,
+  HitTester,
+  Scene,
+  Ticker,
+  WebGLRenderer,
+} from '@mascotte/engine';
 import { pauseWhenOffscreen } from '@mascotte/player';
 import {
   buildBenchmark,
   type EngineScene,
   engineScenes,
+  lookAroundClip,
   type ReferenceScene,
   referenceScenes,
 } from '@mascotte/reference';
@@ -430,9 +439,41 @@ function benchmarkCanvas(): Example {
   };
 }
 
+/** The 3D mascot played by a clip instead of its scripted pose. */
+function clipExampleGL(): Example {
+  return {
+    id: 'webgl/clip',
+    title: 'Clip: mascot looks around',
+    group: 'WebGL2',
+    mount(container, controls) {
+      const scene = engineScenes.find((item) => item.id === 'engine-mascot-3d');
+      if (!scene) throw new Error('No engine-mascot-3d scene.');
+      const { root, camera } = scene.build();
+      const world = new Scene(root);
+      const clip = bindClip(lookAroundClip, world);
+      return mountGL(
+        container,
+        controls,
+        scene,
+        (renderer, pixelRatio, time) => {
+          clip.apply(time);
+          renderer.render(world, camera, {
+            width: scene.width,
+            height: scene.height,
+            pixelRatio,
+            background: scene.background,
+          });
+        },
+        { scene: world, camera },
+      );
+    },
+  };
+}
+
 export const examples: Example[] = [
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
+  clipExampleGL(),
   benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),

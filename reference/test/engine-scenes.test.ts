@@ -27,3 +27,20 @@ describe('new-engine-only scenes', () => {
     });
   }
 });
+
+describe('demo clips', () => {
+  it('lookAroundClip binds to the 3D mascot and moves its head', async () => {
+    const { bindClip, Scene } = await import('@mascotte/engine');
+    const { lookAroundClip } = await import('../src/index.ts');
+    const scene = engineScenes.find((item) => item.id === 'engine-mascot-3d');
+    if (!scene) throw new Error('No engine-mascot-3d scene.');
+    const world = new Scene(scene.build().root);
+    const binding = bindClip(lookAroundClip, world);
+    const head = world.getById('head');
+    binding.apply(0);
+    const start = head?.rotation.y;
+    binding.apply(1);
+    expect(head?.rotation.y).not.toBe(start);
+    expect(head?.position.y).toBeCloseTo(0, 9);
+  });
+});

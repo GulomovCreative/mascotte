@@ -1,4 +1,13 @@
-import { Camera, DepthSorter, GLCollector, HitTester, Scene } from '@mascotte/engine';
+import {
+  bindClip,
+  Camera,
+  type Clip,
+  DepthSorter,
+  GLCollector,
+  HitTester,
+  Node,
+  Scene,
+} from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
 import { allocatedBytesPerCall } from '../src/allocations.ts';
 import { buildBenchmark, engineScenes, referenceScenes } from '../src/index.ts';
@@ -91,5 +100,54 @@ describe('allocations in the frame loop', () => {
       { warmup: 100, runs: 30 },
     );
     expect(bytes, `${Math.round(bytes)} bytes`).toBeLessThan(16384);
+  }, 60_000);
+
+  it('applying a clip with number, vector and quaternion tracks', async () => {
+    const world = new Scene();
+    const tracks: Clip['tracks'][number][] = [];
+    for (let i = 0; i < 20; i++) {
+      world.root.add(new Node({ id: `n${i}` }));
+      tracks.push(
+        {
+          target: `n${i}`,
+          property: 'rotation',
+          keys: [
+            { time: 0, value: { x: 0, y: 0, z: 0, w: 1 }, easing: 'sineInOut' },
+            { time: 1, value: { x: 0, y: Math.SQRT1_2, z: 0, w: Math.SQRT1_2 } },
+          ],
+        },
+        {
+          target: `n${i}`,
+          property: 'position',
+          keys: [
+            { time: 0, value: { x: 0, y: 0, z: 0 } },
+            { time: 1, value: { x: i, y: 1, z: 2 } },
+          ],
+        },
+        {
+          target: `n${i}`,
+          property: 'opacity',
+          keys: [
+            { time: 0, value: 1 },
+            { time: 1, value: 0.2 },
+          ],
+        },
+      );
+    }
+    const binding = bindClip({ duration: 1, loop: 'pingpong', tracks }, world);
+    let time = 0;
+    const bytes = await allocatedBytesPerCall(
+      () => {
+        time += 1 / 60;
+        binding.apply(time);
+      },
+      { warmup: 3000, runs: 300 },
+    );
+    // About 20–55 bytes per track: numbers boxed at polymorphic calls (the easing result and
+    // the value passed to the property setter). Vectors and quaternions are copied without
+    // allocating. The threshold of 100 bytes per track catches real per-frame allocations.
+    expect(bytes, `${Math.round(bytes)} bytes for ${tracks.length} tracks`).toBeLessThan(
+      tracks.length * 100,
+    );
   }, 60_000);
 });

@@ -60,8 +60,21 @@ export class ObservedVec3 implements Vec3 {
     return this;
   }
 
+  /**
+   * Copies `v`. It has its own body rather than calling `set`: passing the components as
+   * number arguments would box them on every call in animation loops.
+   */
   copy(v: Readonly<Vec3>): this {
-    return this.set(v.x, v.y, v.z);
+    const x = v.x;
+    const y = v.y;
+    const z = v.z;
+    if (x !== this.#x || y !== this.#y || z !== this.#z) {
+      this.#x = x;
+      this.#y = y;
+      this.#z = z;
+      this.#onChange();
+    }
+    return this;
   }
 }
 
@@ -129,7 +142,19 @@ export class ObservedQuat implements Quat {
     return this;
   }
 
+  /** Copies `q`, with its own body for the same reason as `ObservedVec3.copy`. */
   copy(q: Readonly<Quat>): this {
-    return this.set(q.x, q.y, q.z, q.w);
+    const x = q.x;
+    const y = q.y;
+    const z = q.z;
+    const w = q.w;
+    if (x !== this.#x || y !== this.#y || z !== this.#z || w !== this.#w) {
+      this.#x = x;
+      this.#y = y;
+      this.#z = z;
+      this.#w = w;
+      this.#onChange();
+    }
+    return this;
   }
 }
