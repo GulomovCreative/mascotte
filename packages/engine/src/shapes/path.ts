@@ -8,7 +8,8 @@ export type PathPoint = Readonly<Partial<Vec3>>;
  * - `move` starts a new contour;
  * - `line` is a segment to a point;
  * - `bezier` is a cubic Bezier curve;
- * - `arc` is a quarter arc: from the current point to `point` through the corner `corner`, as in Zdog.
+ * - `arc` is a quarter arc: from the current point to `point` through the corner `corner`, as in
+ *   Zdog.
  */
 export type PathCommand =
   | { readonly type: 'move'; readonly point: PathPoint }
@@ -33,17 +34,17 @@ export const PathOp = {
 export type PathOp = (typeof PathOp)[keyof typeof PathOp];
 
 /**
- * Handle length of the Bezier curve that replaces a quarter arc, as a fraction of the distance to the corner.
- * The value is from Zdog (`arcHandleLength = 9/16`) so the geometry matches. The exact
+ * Handle length of the Bezier curve that replaces a quarter arc, as a fraction of the distance to
+ * the corner. The value is from Zdog (`arcHandleLength = 9/16`) so the geometry matches. The exact
  * circle approximation is 4/3·tan(π/8) ≈ 0.5523.
  */
 export const ARC_HANDLE = 9 / 16;
 
 /**
- * Built path geometry: only `move`, `line` and cubic curves, arcs already
- * replaced by curves. Only the first `opCount` operations and `pointCount`
- * points should be read. The arrays are reused between rebuilds and replaced with new ones only when
- * they grow, so references to `ops` and `points` must not be kept longer than one `geometryVersion`.
+ * Built path geometry: only `move`, `line` and cubic curves, arcs already replaced by curves. Only
+ * the first `opCount` operations and `pointCount` points should be read. The arrays are reused
+ * between rebuilds and replaced with new ones only when they grow, so references to `ops` and
+ * `points` must not be kept longer than one `geometryVersion`.
  */
 export interface PathGeometry {
   readonly ops: Uint8Array;
@@ -51,7 +52,9 @@ export interface PathGeometry {
   readonly points: Float64Array;
   readonly opCount: number;
   readonly pointCount: number;
-  /** Whether to close the contour. A path of a single segment (`move` and `line`) is never closed. */
+  /**
+   * Whether to close the contour. A path of a single segment (`move` and `line`) is never closed.
+   */
   readonly closed: boolean;
 }
 

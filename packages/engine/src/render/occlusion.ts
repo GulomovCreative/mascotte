@@ -1,14 +1,14 @@
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 
 /*
- * Partial occlusion: a stroke that passes behind an occluder is cut into the part
- * behind it (drawn before the occluder) and the part in front of it (drawn after).
+ * Partial occlusion: a stroke that passes behind an occluder is cut into the part behind it (drawn
+ * before the occluder) and the part in front of it (drawn after).
  *
- * - A sphere cuts with its front surface: a point is hidden if on screen it is inside
- *   the silhouette and deeper than the front surface. This is exact even for shapes that go inside
- *   the sphere, for example an ear growing out of a head.
- * - A capsule cuts with a plane perpendicular to the view, through the middle of the axis. When the capsule
- *   tilts toward the view, this is an approximation.
+ * - A sphere cuts with its front surface: a point is hidden if on screen it is inside the
+ *   silhouette and deeper than the front surface. This is exact even for shapes that go inside the
+ *   sphere, for example an ear growing out of a head.
+ * - A capsule cuts with a plane perpendicular to the view, through the middle of the axis. When the
+ *   capsule tilts toward the view, this is an approximation.
  *
  * Path coordinates are in screen space (pixels), depth is in camera space units.
  */
@@ -28,7 +28,8 @@ export interface Cutter {
 }
 
 /**
- * Sign: a negative value means the point is behind the occluder, a non-negative one means in front of it.
+ * Sign: a negative value means the point is behind the occluder, a non-negative one means in front
+ * of it.
  */
 export function cutValue(cutter: Readonly<Cutter>, x: number, y: number, z: number): number {
   if (cutter.kind === 'plane') return z - cutter.depth;

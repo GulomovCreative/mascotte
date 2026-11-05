@@ -76,9 +76,9 @@ export interface CapsuleOptions extends SurfaceOptions {
 }
 
 /**
- * Capsule: a thick segment with rounded ends along local z, like a Zdog line
- * as thick as the diameter plus the style's stroke. The thickness takes the scale along the local x axis.
- * The mascot's body and limbs.
+ * Capsule: a thick segment with rounded ends along local z, like a Zdog line as thick as the
+ * diameter plus the style's stroke. The thickness takes the scale along the local x axis. The
+ * mascot's body and limbs.
  */
 export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
   static override readonly typeName: string = 'Capsule';
@@ -133,7 +133,8 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
     this.applyStyle(out, width);
     out.hasStroke = true;
     out.hasFill = false;
-    // A capsule is both cut by occluders and occludes itself: the plane goes through the middle of the axis.
+    // A capsule is both cut by occluders and occludes itself: the plane goes through the middle of
+    // the axis.
     out.splittable = true;
     out.occluder = 'capsule';
     out.occluderX = a.x * s;
@@ -168,7 +169,8 @@ export class HemisphereDome extends Surface<typeof DOME_PARAMS> {
     if (s === null) return false;
     this.toView(camera, o, 0, 0, 0);
     this.toView(camera, a, 0, 0, 1);
-    // Normal as in Zdog: from point +z to the center; its length is the node's scale along the axis.
+    // Normal as in Zdog: from point +z to the center; its length is the node's scale along the
+    // axis.
     const nx = o.x - a.x;
     const ny = o.y - a.y;
     const k = length3(nx, ny, o.z - a.z);
@@ -297,16 +299,15 @@ export class ConeSurface extends Surface<typeof CONE_SURFACE_PARAMS> {
 export type SolidOptions = StyledOptions;
 
 /**
- * Solid: a node that creates child shapes and surfaces
- * (their `owner` is this solid, `id` is `<solid id>/<key>`) and passes them its style
- * and parameters. On every sync the children's style, sizes
- * and position are overwritten, so there is no need to change them directly. The perspective of all parts is computed
- * from the depth of the solid's own origin so the parts do not drift apart.
+ * Solid: a node that creates child shapes and surfaces (their `owner` is this solid, `id` is
+ * `<solid id>/<key>`) and passes them its style and parameters. On every sync the children's style,
+ * sizes and position are overwritten, so there is no need to change them directly. The perspective
+ * of all parts is computed from the depth of the solid's own origin so the parts do not drift
+ * apart.
  *
- * A solid is always sorted as a group; its `sortMode` only sets where the group goes.
- * The side parts (dome, cylinder side, cone surface) have `zBias = -Infinity`
- * and are drawn first within the group, as in Zdog; the cylinder bases and box faces
- * by depth. Decals can be attached to a solid.
+ * A solid is always sorted as a group; its `sortMode` only sets where the group goes. The side
+ * parts (dome, cylinder side, cone surface) have `zBias = -Infinity` and are drawn first within the
+ * group, as in Zdog; the cylinder bases and box faces by depth. Decals can be attached to a solid.
  */
 export abstract class Solid<S extends ParamSchema = ParamSchema> extends Styled<S> {
   static override readonly defaultStyle = { fill: true };
@@ -322,7 +323,9 @@ export abstract class Solid<S extends ParamSchema = ParamSchema> extends Styled<
     this.sync();
   }
 
-  /** Passes style and parameters to the child shapes. Called at the end of the subclass constructor. */
+  /**
+   * Passes style and parameters to the child shapes. Called at the end of the subclass constructor.
+   */
   protected abstract sync(): void;
 }
 
@@ -392,7 +395,9 @@ const CYLINDER_PARAMS = {
 export interface CylinderOptions extends SolidOptions {
   diameter?: number;
   length?: number;
-  /** Color of the base visible from the +z side; `null` means the cylinder's `style.backfaceColor`. */
+  /**
+   * Color of the base visible from the +z side; `null` means the cylinder's `style.backfaceColor`.
+   */
   frontFaceColor?: string | null;
 }
 
@@ -435,7 +440,9 @@ export class Cylinder extends Solid<typeof CYLINDER_PARAMS> {
     this.setParam('length', value);
   }
 
-  /** Color of the base visible from the +z side; `null` means the cylinder's `style.backfaceColor`. */
+  /**
+   * Color of the base visible from the +z side; `null` means the cylinder's `style.backfaceColor`.
+   */
   get frontFaceColor(): string | null {
     return this.#frontFaceColor;
   }

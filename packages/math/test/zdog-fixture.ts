@@ -11,15 +11,15 @@ interface Entry {
 }
 
 /**
- * Zdog results for comparison: the numbers produced by the Zdog copy while it was in the
- * repository (before #15) are saved in `fixtures/zdog/<name>.json`. The copy itself is gone,
- * so they cannot be regenerated: this is a frozen reference, like the Zdog frame snapshots.
+ * Zdog results for comparison: the numbers produced by the Zdog copy while it was in the repository
+ * (before #15) are saved in `fixtures/zdog/<name>.json`. The copy itself is gone, so they cannot be
+ * regenerated: this is a frozen reference, like the Zdog frame snapshots.
  *
- * Each value is stored together with the test inputs (rotations, points, shape
- * parameters), and `next` checks them: if a test changes, it fails with a clear error instead
- * of comparing numbers against someone else's reference. Do not change inputs or insert cases in the middle:
- * new checks need their own expected values. At the end of the file it is checked
- * that all stored values were used, so a case cannot be removed silently either.
+ * Each value is stored together with the test inputs (rotations, points, shape parameters), and
+ * `next` checks them: if a test changes, it fails with a clear error instead of comparing numbers
+ * against someone else's reference. Do not change inputs or insert cases in the middle: new checks
+ * need their own expected values. At the end of the file it is checked that all stored values were
+ * used, so a case cannot be removed silently either.
  */
 export function zdogFixture(name: string) {
   const stored = JSON.parse(readFileSync(join(dir, `${name}.json`), 'utf8')) as Record<

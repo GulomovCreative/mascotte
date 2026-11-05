@@ -83,7 +83,8 @@ export class DisplayList {
           ? projectShape(drawable, camera, item)
           : drawable.buildOutline(camera, item);
       if (!ready) continue;
-      // Canvas does not accept a zero width and would keep the previous one: there is no such stroke.
+      // Canvas does not accept a zero width and would keep the previous one: there is no such
+      // stroke.
       if (!(item.lineWidth > 0)) item.hasStroke = false;
       if (!(item.hasStroke || item.hasFill)) continue;
       item.node = drawable;
@@ -217,9 +218,10 @@ export class DisplayList {
 }
 
 /**
- * A decal's anchor: the nearest drawable ancestor that is not a decal itself. A node is a decal if it
- * or an intermediate node up to the anchor is in `attached` mode (a pupil on an eye on a head,
- * the eye white in an eye group on a head): the anchor of all of them is the head. For the rest, `null`.
+ * A decal's anchor: the nearest drawable ancestor that is not a decal itself. A node is a decal if
+ * it or an intermediate node up to the anchor is in `attached` mode (a pupil on an eye on a head,
+ * the eye white in an eye group on a head): the anchor of all of them is the head. For the rest,
+ * `null`.
  */
 function decalAnchor(node: Node | null): Node | null {
   if (!node) return null;
@@ -259,10 +261,10 @@ function sortByRadius(list: DisplayItem[]): void {
 const cutter: Cutter = { kind: 'plane', x: 0, y: 0, depth: 0, radius: 0, scale: 1 };
 
 /**
- * The occluder's cutting surface: a sphere by its front surface, a capsule by a plane.
- * The seam is searched along the stroke's axis, but the stroke itself is thick, so the sphere is inflated by
- * half its width `pad`: the visible part starts where the stroke edge, not its axis,
- * touches the surface. Otherwise a stroke end half a width wide would lie over the sphere.
+ * The occluder's cutting surface: a sphere by its front surface, a capsule by a plane. The seam is
+ * searched along the stroke's axis, but the stroke itself is thick, so the sphere is inflated by
+ * half its width `pad`: the visible part starts where the stroke edge, not its axis, touches the
+ * surface. Otherwise a stroke end half a width wide would lie over the sphere.
  */
 function setCutter(occluder: DisplayItem, pad: number): void {
   cutter.kind = occluder.occluder === 'sphere' ? 'sphere' : 'plane';
@@ -317,8 +319,8 @@ function overlaps(occluder: DisplayItem): boolean {
 }
 
 /**
- * Projects a shape's path into screen coordinates. Returns `false` if there is nothing
- * to draw: the back face is hidden, the shape is behind the camera eye or the path is a point without a stroke.
+ * Projects a shape's path into screen coordinates. Returns `false` if there is nothing to draw: the
+ * back face is hidden, the shape is behind the camera eye or the path is a point without a stroke.
  */
 function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const style = shape.style;
@@ -339,9 +341,9 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const s = camera.scaleAt(point.z);
 
   mat3x4.multiply(modelView, camera.viewMatrix, shape.worldMatrix);
-  // The node's scale for the stroke is the geometric mean of the scales along the shape's x and y axes:
-  // flat shapes lie in that plane, so the z scale does not affect the width.
-  // For uniform scale this is the exact scale.
+  // The node's scale for the stroke is the geometric mean of the scales along the shape's x and y
+  // axes: flat shapes lie in that plane, so the z scale does not affect the width. For uniform
+  // scale this is the exact scale.
   const world = shape.worldMatrix;
   const nodeScale = Math.sqrt(
     Math.hypot(world[0] ?? 0, world[1] ?? 0, world[2] ?? 0) *
@@ -363,7 +365,7 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
     out.lineWidth = 0;
     out.hasStroke = false;
     out.hasFill = true;
-    // A point with a thick stroke is a ball, like the mascot's head in Zdog: it occludes.
+    // A point with a thick stroke is a sphere, like the mascot's head in Zdog: it occludes.
     out.setSphereOccluder(point.x * s, point.y * s, lineWidth / 2, point.z, s);
     return true;
   }

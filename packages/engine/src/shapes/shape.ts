@@ -159,7 +159,7 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
 }
 
 export interface PathShapeOptions extends ShapeOptions {
-  /** Path commands. By default a single point at the origin, that is, a round dot. */
+  /** Path commands. By default a single point at the origin: a round dot. */
   path?: readonly PathCommand[];
 }
 

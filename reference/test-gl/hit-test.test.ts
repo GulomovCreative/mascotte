@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest';
 import { engineScenes, referenceScenes } from '../src/index.ts';
 
 /*
- * Hit testing against a real WebGL2 frame: each shape gets its own color, and in every pixel
+ * Hit-testing against a real WebGL2 frame: each shape gets its own color, and in every pixel
  * inside shapes the frame color must be the color of the shape that was hit. Pixels at edges
  * (neighbors of another color) are skipped: antialiasing mixes the color there.
  */
@@ -52,7 +52,10 @@ const cases: Case[] = [
 
 const BACKGROUND = [0, 0, 0];
 
-/** A unique color for shape `i`: channels are spread apart so antialiasing cannot produce another shape's color. */
+/**
+ * A unique color for shape `i`: channels are spread apart so antialiasing cannot produce another
+ * shape's color.
+ */
 function colorOf(i: number): [number, number, number] {
   return [40 + ((i * 53) % 200), 40 + ((i * 97) % 200), 40 + ((i * 29) % 200)];
 }

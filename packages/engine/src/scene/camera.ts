@@ -52,14 +52,14 @@ function checkPositive(name: string, value: number): number {
  * The camera is a scene node. The node's position and rotation define the view, so the camera can
  * be moved, rotated around the mascot or attached to rig nodes.
  *
- * The coordinate system is as in Zdog: x right, y down, z toward the viewer. The camera looks along −z
- * of its local frame. The camera node is the picture plane and the center of rotation:
- * a point at it lands in the frame center with scale `zoom`. In perspective the eye stands
- * `distance` behind the node (`getEyePosition`), as if a Zdog illustration were shot from afar.
+ * The coordinate system is as in Zdog: x right, y down, z toward the viewer. The camera looks along
+ * −z of its local frame. The camera node is the picture plane and the center of rotation: a point
+ * at it lands in the frame center with scale `zoom`. In perspective the eye stands `distance`
+ * behind the node (`getEyePosition`), as if a Zdog illustration were shot from afar.
  *
  * The scale of the camera node and its ancestors does not reach the frame: camera space is built
- * only from position and rotation. So the camera can be hung on any rig node,
- * and magnification is set only by `zoom`.
+ * only from position and rotation. So the camera can be hung on any rig node, and magnification is
+ * set only by `zoom`.
  *
  * The camera is part of `Scene.nodes` like a regular node; drawing skips it.
  */
@@ -148,17 +148,20 @@ export class Camera extends Node {
   }
 
   /**
-   * Magnification for a point at depth `depth` in camera space. In orthographic projection it equals
-   * `zoom`. In perspective it grows toward the eye and tends to infinity at the eye plane
-   * (depth `distance`). For `depth ≥ distance` the result is meaningless (infinite or
-   * negative): check `isInFront` first.
+   * Magnification for a point at depth `depth` in camera space. In orthographic projection it
+   * equals `zoom`. In perspective it grows toward the eye and tends to infinity at the eye plane
+   * (depth `distance`). For `depth ≥ distance` the result is meaningless (infinite or negative):
+   * check `isInFront` first.
    */
   scaleAt(depth: number): number {
     if (this.#projection === 'orthographic') return this.#zoom;
     return (this.#zoom * this.#distance) / (this.#distance - depth);
   }
 
-  /** Whether a point at depth `depth` is visible: in perspective, nothing on the eye plane or behind it is visible. */
+  /**
+   * Whether a point at depth `depth` is visible: in perspective, nothing on the eye plane or behind
+   * it is visible.
+   */
   isInFront(depth: number): boolean {
     return this.#projection === 'orthographic' || depth < this.#distance;
   }

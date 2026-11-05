@@ -32,19 +32,17 @@ const world: Vec3 = { x: 0, y: 0, z: 0 };
 const front: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Depth sorting of the scene for drawing: returns drawables from far
- * to near, taking into account `SortMode` modes, `zBias` and layers.
+ * Depth sorting of the scene for drawing: returns drawables from far to near, taking into account
+ * `SortMode` modes, `zBias` and layers.
  *
- * Sorted as a group: a node in `group` mode, a solid (always) and a non-drawing
- * node in `layer` or `attached` mode. The mode of such a node determines where
- * the group goes: into the depth list, into a layer or into the decals of the nearest drawable
- * ancestor or group.
+ * Sorted as a group: a node in `group` mode, a solid (always) and a non-drawing node in `layer` or
+ * `attached` mode. The mode of such a node determines where the group goes: into the depth list,
+ * into a layer or into the decals of the nearest drawable ancestor or group.
  *
- * The structure (groups, decals, layers) is rebuilt only when the tree
- * or the modes and layers change. In other frames the depths are recomputed (together with `zBias`),
- * and the lists are re-sorted by insertion: the order barely changes between frames,
- * so this is fast and creates no objects. The result is one and the same array,
- * overwritten on every call.
+ * The structure (groups, decals, layers) is rebuilt only when the tree or the modes and layers
+ * change. In other frames the depths are recomputed (together with `zBias`), and the lists are
+ * re-sorted by insertion: the order barely changes between frames, so this is fast and creates no
+ * objects. The result is one and the same array, overwritten on every call.
  */
 export class DepthSorter {
   #top: Unit[] = [];
@@ -152,7 +150,8 @@ export class DepthSorter {
       return;
     }
 
-    // A non-drawing node in auto mode is transparent: its descendants are sorted together with its siblings.
+    // A non-drawing node in auto mode is transparent: its descendants are sorted together with its
+    // siblings.
     for (const child of node.children) this.#add(child, list, anchor);
   }
 

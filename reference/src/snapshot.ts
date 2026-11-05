@@ -12,7 +12,10 @@ import type { ReferenceScene, RenderOptions } from './scene.ts';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const snapshotDir = join(root, 'snapshots');
 export const diffDir = join(root, 'test', '__diff__');
-/** Snapshots drawn by the Zdog copy before its removal: the frozen reference for reference scenes. */
+/**
+ * Snapshots drawn by the Zdog copy before its removal: frozen ground truth for the reference
+ * scenes.
+ */
 export const zdogSnapshotDir = join(snapshotDir, 'zdog');
 
 /**
@@ -29,7 +32,7 @@ export function renderEngineToPng(
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
   scene.engine.pose(world.root, options.time ?? 0);
-  // The Zdog snapshots were drawn without partial overlap, so it is off here.
+  // The Zdog snapshots were drawn without partial occlusion, so it is off here.
   new CanvasRenderer({ partialOcclusion: false }).render(
     canvas.getContext('2d'),
     world,
@@ -108,7 +111,9 @@ export interface SnapshotOptions extends CompareOptions {
   snapshotDir?: string;
   /** Folder for differing frames. Defaults to `reference/test/__diff__`. */
   diffDir?: string;
-  /** The command that creates snapshots, for the error message. Defaults to `pnpm snapshots:update`. */
+  /**
+   * The command that creates snapshots, for the error message. Defaults to `pnpm snapshots:update`.
+   */
   updateCommand?: string;
 }
 
@@ -118,7 +123,9 @@ export type SnapshotResult =
   | { status: 'mismatch'; diffPixels: number; ratio: number; actualPath: string; diffPath: string }
   | { status: 'size-mismatch'; expected: Size; actual: Size; actualPath: string };
 
-/** Whether snapshot update mode is on. It is forbidden in CI so a run cannot turn green by itself. */
+/**
+ * Whether snapshot update mode is on. It is forbidden in CI so a run cannot turn green by itself.
+ */
 export function isUpdatingSnapshots(): boolean {
   const update = process.env.UPDATE_SNAPSHOTS === '1';
   if (update && process.env.CI) {

@@ -114,7 +114,8 @@ describe('splitPath', () => {
   it('the closing line of a closed path is cut too', () => {
     const path = new ScreenPath().moveTo(0, 0, -5).lineTo(10, 0, -5).lineTo(10, 10, 5).close();
     const { back, front } = split(path, plane(0));
-    // Two pieces are behind the plane: the path start up to the middle of the second line, and the end of the closing one.
+    // Two pieces are behind the plane: the path start up to the middle of the second line, and the
+    // end of the closing one.
     expectPoints(points(back), [
       [0, 0, -5],
       [10, 0, -5],
@@ -139,12 +140,13 @@ describe('splitPath', () => {
     ]);
   });
 
-  it('sphere: a line passing through the ball is hidden inside the silhouette up to the front surface', () => {
-    // From a point behind the ball on the left to a point in front of the ball on the right.
+  it('sphere: a line passing through the sphere is hidden inside the silhouette up to the front surface', () => {
+    // From a point behind the sphere on the left to a point in front of it on the right.
     const path = new ScreenPath().moveTo(-20, 0, -20).lineTo(20, 0, 20);
     const { back, front } = split(path, sphere(10));
     const f = points(front);
-    // Outside the silhouette on the left the sphere covers nothing: the first front part runs to the silhouette edge.
+    // Outside the silhouette on the left the sphere covers nothing: the first front part runs to
+    // the silhouette edge.
     expectPoints(
       f.slice(0, 2),
       [
@@ -220,7 +222,8 @@ describe('partial occlusion in the draw list', () => {
         id: 'filled',
         width: 20,
         height: 20,
-        // In front of the head center but crossing it: with fill it is not cut and stays one element.
+        // In front of the head center but crossing it: with fill it is not cut and stays one
+        // element.
         position: { x: 0, y: 0, z: 10 },
         rotation: euler.create(0, 1.2, 0),
         style: { fill: true },

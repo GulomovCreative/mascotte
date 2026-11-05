@@ -206,8 +206,8 @@ const mascot3d: EngineScene = {
         }),
       );
     }
-    // The mouth is a tube lying on the head surface: the tube center is slightly more than
-    // half its width above the sphere, otherwise segments between points enter the head and get clipped.
+    // The mouth is a tube lying on the head surface: the tube center is slightly more than half its
+    // width above the sphere, otherwise segments between points enter the head and get clipped.
     const mouth = [];
     for (let i = 0; i <= 8; i++) {
       const x = -9 + (18 * i) / 8;

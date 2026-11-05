@@ -130,7 +130,9 @@ const ROUNDED_RECT_PARAMS = {
   cornerRadius: { kind: 'length', default: 0.25 },
 } as const satisfies ParamSchema;
 
-/** Rectangle with rounded corners. The path returns to its start, so it is not closed, as in Zdog. */
+/**
+ * Rectangle with rounded corners. The path returns to its start, so it is not closed, as in Zdog.
+ */
 export class RoundedRect extends Rect<typeof ROUNDED_RECT_PARAMS> {
   static override readonly typeName: string = 'RoundedRect';
   static override readonly params: ParamSchema = ROUNDED_RECT_PARAMS;

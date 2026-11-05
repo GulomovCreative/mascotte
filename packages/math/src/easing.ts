@@ -96,7 +96,10 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   const sampleY = (s: number) => ((ay * s + by) * s + cy) * s;
   const slopeX = (s: number) => (3 * ax * s + 2 * bx) * s + cx;
 
-  /** Curve parameter `s` where x(s) = x. Newton's method, falling back to bisection on poor convergence. */
+  /**
+   * Curve parameter `s` where x(s) = x. Newton's method, falling back to bisection on poor
+   * convergence.
+   */
   const solve = (x: number) => {
     let s = x;
     for (let i = 0; i < 8; i++) {

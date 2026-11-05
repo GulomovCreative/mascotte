@@ -5,24 +5,23 @@ import { DepthSorter, type Drawable } from './depth-sort.ts';
 import { Bucket, decalAnchor, GLCollector, MAX_ANCHORS, STRIDE } from './gl/collect.ts';
 
 /*
- * Hit testing: which shape is visible at a frame point. Shapes are decomposed into the same
- * screen 3D primitives as for WebGL2, and the intersection of the view ray
- * with each one is computed at the point, with the same formulas as in the shaders. The visibility rules are the same too:
+ * Hit-testing: which shape is visible at a frame point. Shapes are decomposed into the same screen
+ * 3D primitives as for WebGL2, and the intersection of the view ray with each one is computed at
+ * the point, with the same formulas as in the shaders. The visibility rules are the same too:
  * - an upper sort layer covers lower ones;
  * - within a layer the nearest shape is visible; at equal depth, the one earlier in sort order;
- * - a decal is visible only where its opaque anchor is visible, and then covers it;
- *   of several decals, the one drawn last is visible;
- * - with a translucent anchor, and beyond `MAX_ANCHORS` anchors in a layer, decals are regular shapes;
- * - hidden, fully transparent and back-facing shapes without `backfaceVisible`
- *   are not hit.
+ * - a decal is visible only where its opaque anchor is visible, and then covers it; of several
+ *   decals, the one drawn last is visible;
+ * - with a translucent anchor, and beyond `MAX_ANCHORS` anchors in a layer, decals are regular
+ *   shapes;
+ * - hidden, fully transparent and back-facing shapes without `backfaceVisible` are not hit.
  *
  * Mismatches with the frame are possible only for exactly coincident surfaces: at equal depth
- * WebGL2 keeps what was drawn earlier, and it draws by buckets and by primitive
- * kind, not strictly in sort order.
+ * WebGL2 keeps what was drawn earlier, and it draws by buckets and by primitive kind, not strictly
+ * in sort order.
  *
- * The test works per pixel, as in WebGL2, not by display list order. Canvas 2D
- * draws overlaps in order, so near the edges of overlapping shapes its image
- * may differ slightly from the result.
+ * The test works per pixel, as in WebGL2, not by display list order. Canvas 2D draws overlaps in
+ * order, so near the edges of overlapping shapes its image may differ slightly from the result.
  */
 
 /** Hit test result. */
@@ -50,7 +49,7 @@ interface Candidate {
 }
 
 /**
- * Hit testing over a scene. The sorter, the collector, the primitive buffer and the decal records
+ * Hit-testing over a scene. The sorter, the collector, the primitive buffer and the decal records
  * are reused between calls; only the result is created per call. It costs
  * roughly as much as building a WebGL2 frame.
  */
@@ -145,7 +144,8 @@ export class HitTester {
     const nearest = this.#nearest.drawable;
     let hit: Hit | null = null;
     if (nearest) {
-      // A decal is visible if its anchor is visible at the point: the shape itself or a part of the solid.
+      // A decal is visible if its anchor is visible at the point: the shape itself or a part of the
+      // solid.
       const decal = this.#decals.get(nearest) ?? (nearest.owner && this.#decals.get(nearest.owner));
       const drawable = decal ? (decal.drawable as Drawable) : nearest;
       hit = {
@@ -205,8 +205,8 @@ function sphereDepth(px: number, py: number, cx: number, cy: number, cz: number,
 }
 
 /*
- * The formulas below are intersections of the ray from (px, py, +∞) along −z, as in the shaders. The ray
- * starts slightly closer than the primitive itself: z = rayZ, the result is depth rayZ − t.
+ * The formulas below are intersections of the ray from (px, py, +∞) along −z, as in the shaders.
+ * The ray starts slightly closer than the primitive itself: z = rayZ, the result is depth rayZ − t.
  */
 
 function capsuleDepth(px: number, py: number, d: Float32Array | Float64Array, i: number) {

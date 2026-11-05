@@ -1,7 +1,7 @@
 /*
- * Ticker is the shared frame loop. The core knows nothing about the DOM: frames are requested by a pluggable
- * scheduler, and tab visibility, `prefers-reduced-motion` and element visibility
- * are reported by outside code (in the browser, `@mascotte/player`) through pauses with reasons.
+ * Ticker is the shared frame loop. The core knows nothing about the DOM: frames are requested by a
+ * pluggable scheduler, and tab visibility, `prefers-reduced-motion` and element visibility are
+ * reported by outside code (in the browser, `@mascotte/player`) through pauses with reasons.
  */
 
 /**
@@ -95,12 +95,12 @@ let tickerInternals!: {
 let shared: Ticker | null = null;
 
 /**
- * Shared frame loop. Subscriptions receive `dt` in seconds, capped at `maxDelta`.
- * Frames are requested only while there is an active subscription and the ticker is not paused: when idle the loop
- * does not spin. After a pause the first frame does not receive the time spent paused.
+ * Shared frame loop. Subscriptions receive `dt` in seconds, capped at `maxDelta`. Frames are
+ * requested only while there is an active subscription and the ticker is not paused: at rest the
+ * loop does not spin. After a pause the first frame does not receive the time spent paused.
  *
- * Pauses are set by reasons so that different sources do not interfere: for example,
- * `'hidden'` (the tab is hidden) and `'reduced-motion'`. The ticker runs when there are no reasons.
+ * Pauses are set by reasons so that different sources do not interfere: for example, `'hidden'`
+ * (the tab is hidden) and `'reduced-motion'`. The ticker runs when there are no reasons.
  */
 export class Ticker {
   /** Shared ticker per page: one frame loop for all mascots. */
@@ -158,16 +158,17 @@ export class Ticker {
   }
 
   /**
-   * A frame at time `now` (milliseconds). Usually the scheduler calls it, but it can also
-   * be called manually, in tests or with a custom loop. The first frame after start or pause
-   * sets the reference point and gives `dt = 0`. Pausing one subscription while others run does not reset
-   * the reference: its first frame after the pause and the first frame of a new subscription receive
-   * the regular frame `dt`, and the paused time does not get into it. A call from a frame handler
-   * does nothing. If handlers throw, the rest still receive the
-   * frame, and the first error is rethrown after it.
+   * A frame at time `now` (milliseconds). Usually the scheduler calls it, but it can also be called
+   * manually, in tests or with a custom loop. The first frame after start or pause sets the
+   * reference point and gives `dt = 0`. Pausing one subscription while others run does not reset
+   * the reference: its first frame after the pause and the first frame of a new subscription
+   * receive the regular frame `dt`, and the paused time does not get into it. A call from a frame
+   * handler does nothing. If handlers throw, the rest still receive the frame, and the first error
+   * is rethrown after it.
    */
   tick(now: number): void {
-    // A frame from inside a frame handler does nothing: otherwise the outer frame would run unprotected.
+    // A frame from inside a frame handler does nothing: otherwise the outer frame would run
+    // unprotected.
     if (this.#ticking) return;
     // A manual call while a request is pending: otherwise there would be two requests.
     if (this.#handle !== null) this.#scheduler.cancel(this.#handle);
@@ -179,8 +180,8 @@ export class Ticker {
     const last = this.#last;
     this.#last = now;
     const dt = last === null ? 0 : Math.min(Math.max(0, (now - last) / 1000), this.maxDelta);
-    // Subscriptions added during a frame receive frames from the next one; ones removed
-    // during a frame no longer receive them. The list is not copied: removed ones are purged afterwards.
+    // Subscriptions added during a frame receive frames from the next one; ones removed during a
+    // frame no longer receive them. The list is not copied: removed ones are purged afterwards.
     const list = this.#subscriptions;
     const count = list.length;
     // An error in one handler does not affect the others: the first is rethrown after the frame.

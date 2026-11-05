@@ -155,7 +155,7 @@ function showHits(
     const text = hit
       ? hit.node === hit.drawable
         ? `Under the pointer: ${nodeLabel(hit.node)}`
-        : `Under the pointer: ${nodeLabel(hit.node)}, part ${nodeLabel(hit.drawable)}`
+        : `Under the pointer: ${nodeLabel(hit.drawable)}, part of ${nodeLabel(hit.node)}`
       : 'Nothing under the pointer.';
     if (label.textContent !== text) label.textContent = text;
   };
@@ -346,7 +346,7 @@ function frameStats(container: HTMLElement, drawables: number) {
       const now = performance.now();
       if (now - shown < 500) return;
       const average = total / frames;
-      show(`frame ${average.toFixed(1)} ms on CPU (up to ${Math.floor(1000 / average)} fps)`);
+      show(`frame ${average.toFixed(1)} ms CPU (up to ${Math.floor(1000 / average)} fps)`);
       total = 0;
       frames = 0;
       shown = now;
