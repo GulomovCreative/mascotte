@@ -224,7 +224,7 @@ function vec3Property(
       return out;
     },
     set(node, value) {
-      node[name].set(value.x, value.y, value.z);
+      node[name].copy(value);
     },
   };
 }
@@ -290,7 +290,7 @@ registerProperties(Node, [
       return out;
     },
     set(node, value) {
-      node.rotation.set(value.x, value.y, value.z, value.w);
+      node.rotation.copy(value);
     },
   },
   vec3Property('scale', { x: 1, y: 1, z: 1 }),
@@ -373,7 +373,7 @@ registerProperties(Shape, [
       return out;
     },
     set(node, value) {
-      node.front.set(value.x, value.y, value.z);
+      node.front.copy(value);
     },
   },
   {

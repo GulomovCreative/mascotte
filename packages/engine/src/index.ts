@@ -1,6 +1,17 @@
 // Scene, primitives, sorting, rendering, animation and rig. See docs/PLAN.md, sections 5.4–5.12.
 
 export {
+  bindClip,
+  type Clip,
+  type ClipBinding,
+  clipTime,
+  type Key,
+  LOOP_MODES,
+  type LoopMode,
+  segmentAt,
+  type Track,
+} from './animation/clip.ts';
+export {
   type BoolProperty,
   type ColorProperty,
   type EnumProperty,
