@@ -6,7 +6,7 @@ import {
   type TickSubscription,
 } from '../src/index.ts';
 
-/** Планировщик, который отдаёт кадры по команде `frame(now)`. */
+/** A scheduler that delivers frames on `frame(now)`. */
 function manualScheduler() {
   let next = 1;
   const pending = new Map<number, (now: number) => void>();
@@ -25,7 +25,7 @@ function manualScheduler() {
     get pending() {
       return pending.size;
     },
-    /** Кадр в момент `now` (мс): вызывает всё, что было запрошено до него. */
+    /** Frame at `now` (ms): calls everything requested before it. */
     frame(now: number) {
       const callbacks = [...pending.values()];
       pending.clear();
@@ -35,7 +35,7 @@ function manualScheduler() {
 }
 
 describe('Ticker', () => {
-  it('отдаёт dt в секундах и копит время подписки; первый кадр — нулевой', () => {
+  it('gives dt in seconds and accumulates subscription time; the first frame is zero', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     const calls: [number, number][] = [];
@@ -48,7 +48,7 @@ describe('Ticker', () => {
     expect(calls.at(-1)?.[1]).toBeCloseTo(0.05, 9);
   });
 
-  it('большой скачок ограничен maxDelta, время назад даёт ноль', () => {
+  it('a large jump is capped by maxDelta, time going backwards gives zero', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler, maxDelta: 0.05 });
     const dts: number[] = [];
@@ -60,7 +60,7 @@ describe('Ticker', () => {
     expect(() => new Ticker({ maxDelta: 0 })).toThrow(RangeError);
   });
 
-  it('в покое кадры не просятся: без подписок, на паузе, при паузе всех подписок', () => {
+  it('no frames are requested when idle: no subscriptions, paused, all subscriptions paused', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     expect(ticker.running).toBe(false);
@@ -78,7 +78,7 @@ describe('Ticker', () => {
     expect([ticker.running, clock.pending]).toEqual([false, 0]);
   });
 
-  it('паузы по разным причинам не мешают друг другу', () => {
+  it('pauses for different reasons do not interfere', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     ticker.add(() => {});
@@ -86,14 +86,14 @@ describe('Ticker', () => {
     ticker.pause('reduced-motion');
     ticker.resume('hidden');
     expect(ticker.paused).toBe(true);
-    // Повторное снятие той же причины ничего не меняет.
+    // Releasing the same reason again changes nothing.
     ticker.resume('hidden');
     expect(ticker.paused).toBe(true);
     ticker.resume('reduced-motion');
     expect([ticker.paused, ticker.running]).toEqual([false, true]);
   });
 
-  it('время паузы не попадает в dt', () => {
+  it('paused time is not included in dt', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler, maxDelta: 10 });
     const dts: number[] = [];
@@ -107,7 +107,7 @@ describe('Ticker', () => {
     expect(dts.map((dt) => Math.round(dt * 1000))).toEqual([0, 16, 0, 16]);
   });
 
-  it('подписка на паузе не получает кадров и не копит время, остальные идут', () => {
+  it('a paused subscription gets no frames and accumulates no time, the others run', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     const a: number[] = [];
@@ -126,14 +126,14 @@ describe('Ticker', () => {
     expect(first.time).toBeCloseTo(0.02, 9);
   });
 
-  it('подписки, добавленные и удалённые во время кадра, вступают в силу корректно', () => {
+  it('subscriptions added and removed during a frame take effect correctly', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     const order: string[] = [];
     let late = null as TickSubscription | null;
     const self = ticker.add(() => {
       order.push('self');
-      // Удаляет себя и соседа, добавляет новую подписку.
+      // Removes itself and a neighbor, adds a new subscription.
       self.remove();
       other.remove();
       late = ticker.add(() => order.push('late'));
@@ -148,21 +148,21 @@ describe('Ticker', () => {
     expect(ticker.running).toBe(false);
   });
 
-  it('ошибка в подписке не останавливает цикл навсегда', () => {
+  it('an error in a subscription does not stop the loop for good', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     let calls = 0;
     ticker.add(() => {
       calls++;
-      if (calls === 1) throw new Error('сбой');
+      if (calls === 1) throw new Error('failure');
     });
-    expect(() => clock.frame(0)).toThrow('сбой');
+    expect(() => clock.frame(0)).toThrow('failure');
     expect(ticker.running).toBe(true);
     clock.frame(16);
     expect(calls).toBe(2);
   });
 
-  it('ручной кадр при ждущем запросе не удваивает запросы', () => {
+  it('a manual frame with a pending request does not double requests', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     ticker.add(() => {});
@@ -171,33 +171,33 @@ describe('Ticker', () => {
     expect(clock.pending).toBe(1);
   });
 
-  it('общий тикер один на страницу', () => {
+  it('there is one shared ticker per page', () => {
     expect(Ticker.shared).toBe(Ticker.shared);
   });
 
-  it('ошибка одного обработчика не мешает остальным получить кадр', () => {
+  it('an error in one callback does not stop the others from getting the frame', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     const seen: string[] = [];
     ticker.add(() => {
       seen.push('a');
-      throw new Error('первая');
+      throw new Error('first');
     });
     ticker.add(() => {
       seen.push('b');
-      throw new Error('вторая');
+      throw new Error('second');
     });
     ticker.add(() => seen.push('c'));
-    expect(() => clock.frame(0)).toThrow('первая');
+    expect(() => clock.frame(0)).toThrow('first');
     expect(seen).toEqual(['a', 'b', 'c']);
-    // Отсчёт не сброшен: следующий кадр получает обычный dt.
+    // Timing is not reset: the next frame gets a normal dt.
     const dts: number[] = [];
     ticker.add((dt) => dts.push(dt));
-    expect(() => clock.frame(16)).toThrow('первая');
+    expect(() => clock.frame(16)).toThrow('first');
     expect(dts.map((dt) => Math.round(dt * 1000))).toEqual([16]);
   });
 
-  it('кадр из обработчика ничего не делает', () => {
+  it('a frame from inside a callback does nothing', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     const seen: string[] = [];
@@ -216,7 +216,7 @@ describe('Ticker', () => {
     expect(seen).toEqual(['a', 'b', 'c', 'a', 'c']);
   });
 
-  it('пауза из обработчика останавливает запросы кадров, снятие — возобновляет', () => {
+  it('pausing from a callback stops frame requests, resuming restarts them', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     let calls = 0;
@@ -230,7 +230,7 @@ describe('Ticker', () => {
     expect(clock.pending).toBe(1);
   });
 
-  it('dt общий для тикера: новая и вернувшаяся с паузы подписки получают dt кадра', () => {
+  it('dt is shared by the ticker: new and resumed subscriptions get the frame dt', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler, maxDelta: 10 });
     ticker.add(() => {});
@@ -243,7 +243,7 @@ describe('Ticker', () => {
     const late: number[] = [];
     ticker.add((dt) => late.push(dt));
     clock.frame(1016);
-    // Время паузы подписке не досталось, новая подписка получила обычный dt кадра.
+    // The subscription did not get the paused time, the new subscription got the normal frame dt.
     expect(Math.round(paused.time * 1000)).toBe(32);
     expect(late.map((dt) => Math.round(dt * 1000))).toEqual([16]);
   });
@@ -255,7 +255,7 @@ describe('defaultScheduler', () => {
     vi.useRealTimers();
   });
 
-  it('берёт requestAnimationFrame, если он есть', () => {
+  it('uses requestAnimationFrame when available', () => {
     const request = vi.fn(() => 7);
     const cancel = vi.fn();
     vi.stubGlobal('requestAnimationFrame', request);
@@ -268,7 +268,7 @@ describe('defaultScheduler', () => {
     expect(cancel).toHaveBeenCalledWith(7);
   });
 
-  it('без requestAnimationFrame — таймер на 60 Гц со временем в миллисекундах', () => {
+  it('without requestAnimationFrame a 60 Hz timer with millisecond time', () => {
     vi.stubGlobal('requestAnimationFrame', undefined);
     vi.useFakeTimers();
     const scheduler = defaultScheduler();

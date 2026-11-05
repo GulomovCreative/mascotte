@@ -22,7 +22,7 @@ export const backfaceGroupsEngine: EngineVersion = {
           style: { stroke: 4, fill: true, color: '#27a', backfaceColor: '#e62' },
         }),
       );
-    // Как Zdog.Group с updateSort: группа целиком, внутри — по глубине.
+    // Like Zdog.Group with updateSort: the group as a whole, sorted by depth inside.
     const group = new Node({ sortMode: 'group', position: { x: 100, y: 0, z: 0 } });
     group
       .add(

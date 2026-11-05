@@ -1,25 +1,25 @@
 import { Node, nodeInternals } from './node.ts';
 
 /**
- * Доступ `Node` к закрытому состоянию сцены. Заполняется в статическом блоке `Scene`
- * и не экспортируется из пакета, поэтому внешний код не может испортить индекс.
+ * `Node` access to the scene's private state. Filled in the static block of `Scene`
+ * and not exported from the package, so outside code cannot corrupt the index.
  */
 export let sceneInternals!: {
-  /** Регистрирует id поддерева. Сначала проверяет все id и при конфликте бросает ошибку, ничего не изменив. */
+  /** Registers the ids of a subtree. First checks all ids and throws on a conflict without changing anything. */
   attach(scene: Scene, subtree: Node): void;
-  /** Снимает регистрацию id поддерева. */
+  /** Unregisters the ids of a subtree. */
   detach(scene: Scene, subtree: Node): void;
-  /** Сообщает о смене структуры дерева. */
+  /** Reports a change in the tree structure. */
   touch(scene: Scene): void;
-  /** Сообщает о любом изменении узла сцены. */
+  /** Reports any change of a scene node. */
   changed(scene: Scene): void;
 };
 
 /**
- * Сцена: корневой узел, индекс узлов по `id` и кэш плоского списка узлов.
+ * Scene: the root node, an index of nodes by `id` and a cached flat list of nodes.
  *
- * Плоский список пересобирается только после изменения структуры дерева (добавления,
- * удаления или перестановки узлов). Изменение трансформаций его не трогает.
+ * The flat list is rebuilt only after the tree structure changes (adding,
+ * removing or reordering nodes). Transform changes do not touch it.
  */
 export class Scene {
   readonly root: Node;
@@ -30,21 +30,21 @@ export class Scene {
   #changeVersion = 0;
   #destroyed = false;
 
-  /** Корень можно передать готовым, вместе с детьми: их id тоже регистрируются. */
+  /** The root can be passed ready-made, with children: their ids are registered too. */
   constructor(root: Node = new Node()) {
     this.root = root;
     nodeInternals.attachRoot(root, this);
   }
 
-  /** Счётчик изменений структуры. Растёт на 1 при каждом добавлении, удалении или перестановке. */
+  /** Structure change counter. Grows by 1 on every add, remove or reorder. */
   get structureVersion(): number {
     return this.#structureVersion;
   }
 
   /**
-   * Счётчик любых изменений сцены: структуры, трансформаций, видимости, прозрачности,
-   * стиля, геометрии и параметров фигур, режима сортировки, слоя и `zBias`. Если он,
-   * камера и размеры кадра не изменились, кадр тот же и его можно не пересобирать.
+   * Counter of any scene change: structure, transforms, visibility, opacity,
+   * style, shape geometry and parameters, sort mode, layer and `zBias`. If it,
+   * the camera and the frame size have not changed, the frame is the same and need not be rebuilt.
    */
   get changeVersion(): number {
     return this.#changeVersion;
@@ -58,7 +58,7 @@ export class Scene {
     return this.#byId.get(id) ?? null;
   }
 
-  /** Все узлы сцены в порядке обхода в глубину, начиная с корня. После `destroy` — пустой список. */
+  /** All scene nodes in depth-first order, starting from the root. After `destroy`, an empty list. */
   get nodes(): readonly Node[] {
     if (!this.#destroyed && this.#nodesVersion !== this.#structureVersion) {
       const nodes: Node[] = [];
@@ -71,12 +71,12 @@ export class Scene {
     return this.#nodes;
   }
 
-  /** Пересчитывает устаревшие мировые матрицы всех узлов. Актуальные не трогает. */
+  /** Recomputes stale world matrices of all nodes. Leaves up-to-date ones alone. */
   updateWorldMatrices(): void {
     for (const node of this.nodes) node.worldMatrix;
   }
 
-  /** Уничтожает корень со всем деревом и очищает индекс. Повторный вызов ничего не делает. */
+  /** Destroys the root with the whole tree and clears the index. A repeated call does nothing. */
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
@@ -89,11 +89,11 @@ export class Scene {
   }
 
   #attach(subtree: Node): void {
-    if (this.#destroyed) throw new Error('Сцена уничтожена.');
+    if (this.#destroyed) throw new Error('Scene is destroyed.');
     const ids = new Set<string>();
     subtree.traverse((node) => {
       if (this.#byId.has(node.id) || ids.has(node.id)) {
-        throw new Error(`В сцене уже есть узел с id «${node.id}».`);
+        throw new Error(`The scene already has a node with id "${node.id}".`);
       }
       ids.add(node.id);
     });

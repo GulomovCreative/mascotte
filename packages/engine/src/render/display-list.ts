@@ -9,26 +9,26 @@ import { DepthSorter, type Drawable, isDrawable } from './depth-sort.ts';
 import { type Cutter, type SplitTarget, splitPath } from './occlusion.ts';
 
 /**
- * Элемент списка отрисовки: путь в пикселях относительно центра кадра, кисть и
- * прозрачность. Объекты переиспользуются между кадрами.
+ * Display list item: a path in pixels relative to the frame center, a brush and
+ * opacity. The objects are reused between frames.
  */
 export class DisplayItem extends SurfaceOutline {
-  /** Узел, из которого получен элемент: для отладки и поиска под курсором. */
+  /** The node the item came from: for debugging and picking under the cursor. */
   node: Drawable | null = null;
-  /** Итоговая непрозрачность с учётом предков. */
+  /** Final opacity including ancestors. */
   opacity = 1;
-  /** @internal Элемент разрезан, вместо него рисуются части. */
+  /** @internal The item is cut; its parts are drawn instead. */
   split = false;
-  /** @internal Части чужих обводок, которые рисуются до этого перекрывателя. */
+  /** @internal Parts of other strokes drawn before this occluder. */
   readonly behind: DisplayItem[] = [];
-  /** @internal Части чужих обводок, которые рисуются после этого перекрывателя. */
+  /** @internal Parts of other strokes drawn after this occluder. */
   readonly inFront: DisplayItem[] = [];
 }
 
 export interface DisplayListOptions {
   /**
-   * Резать ли обводки плоскостями перекрывателей (частичное перекрытие). По умолчанию
-   * включено; выключается, например, для сравнения кадра с Zdog.
+   * Whether to cut strokes with occluder planes (partial occlusion). Enabled
+   * by default; disabled, for example, to compare the frame with Zdog.
    */
   partialOcclusion?: boolean;
 }
@@ -38,12 +38,12 @@ const point: Vec3 = { x: 0, y: 0, z: 0 };
 const front: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Список отрисовки кадра: что и в каком порядке рисовать. Строится из сцены и камеры:
- * сортировка по глубине, проекция путей фигур, контуры поверхностей, обратные стороны,
- * прозрачность. Бэкенд рисует готовый список без знания о сцене.
+ * The frame's display list: what to draw and in what order. Built from the scene and camera:
+ * depth sorting, projection of shape paths, surface outlines, back faces,
+ * opacity. The backend draws the finished list without knowing about the scene.
  *
- * Элементы и их буферы переиспользуются между кадрами; новые создаются, только когда
- * элементов становится больше, чем было.
+ * Items and their buffers are reused between frames; new ones are created only when
+ * there are more items than before.
  */
 export class DisplayList {
   readonly #sorter = new DepthSorter();
@@ -59,15 +59,15 @@ export class DisplayList {
     this.#partialOcclusion = options.partialOcclusion ?? true;
   }
 
-  /** Число элементов после последней сборки. */
+  /** Number of items after the last build. */
   get count(): number {
     return this.#order.length;
   }
 
-  /** Элемент `index` из первых `count` в порядке отрисовки. */
+  /** Item `index` of the first `count` in drawing order. */
   item(index: number): DisplayItem {
     const item = this.#order[index];
-    if (!item) throw new RangeError(`Нет элемента ${index}.`);
+    if (!item) throw new RangeError(`No item ${index}.`);
     return item;
   }
 
@@ -83,7 +83,7 @@ export class DisplayList {
           ? projectShape(drawable, camera, item)
           : drawable.buildOutline(camera, item);
       if (!ready) continue;
-      // Canvas не принимает нулевую толщину и оставил бы прежнюю: такой обводки нет.
+      // Canvas does not accept a zero width and would keep the previous one: there is no such stroke.
       if (!(item.lineWidth > 0)) item.hasStroke = false;
       if (!(item.hasStroke || item.hasFill)) continue;
       item.node = drawable;
@@ -94,7 +94,7 @@ export class DisplayList {
     return this;
   }
 
-  /** Раскладывает элементы в порядок отрисовки с учётом частичного перекрытия. */
+  /** Arranges items in drawing order, taking partial occlusion into account. */
   #arrange(): void {
     const items = this.#items;
     const count = this.#itemCount;
@@ -120,7 +120,7 @@ export class DisplayList {
     }
   }
 
-  /** Декали на сфере обрезаются по её силуэту и не режутся ей. */
+  /** Decals on a sphere are clipped by its silhouette and not cut by it. */
   #clipDecals(): void {
     const items = this.#items;
     const count = this.#itemCount;
@@ -135,7 +135,7 @@ export class DisplayList {
     }
   }
 
-  /** Элемент опоры декали в этом кадре или `null`, если элемент не декаль. */
+  /** The item of the decal's anchor in this frame, or `null` if the item is not a decal. */
   #anchorItem(item: DisplayItem): DisplayItem | null {
     const node = item.node;
     if (!node) return null;
@@ -152,8 +152,8 @@ export class DisplayList {
   #split(): void {
     const items = this.#items;
     const count = this.#itemCount;
-    // Сначала режутся капсулы, от больших к меньшим: разрезанный перекрыватель потом
-    // не используется, поэтому части ничьих обводок к нему не прикрепятся.
+    // Capsules are cut first, from larger to smaller: a cut occluder is not used
+    // afterwards, so no stroke parts get attached to it.
     const queue = this.#queue;
     queue.length = 0;
     for (let i = 0; i < count; i++) {
@@ -167,7 +167,7 @@ export class DisplayList {
       for (let j = 0; j < count; j++) {
         const occluder = items[j] as DisplayItem;
         if (j === index || occluder.occluder === 'none' || occluder.split) continue;
-        // Декаль лежит на поверхности своей опоры: опора её не режет.
+        // A decal lies on the surface of its anchor: the anchor does not cut it.
         if (occluder.node !== null && occluder.node === decalAnchor(shape.node)) continue;
         if (shape.occluder !== 'none' && !(occluder.occluderRadius > shape.occluderRadius))
           continue;
@@ -181,8 +181,8 @@ export class DisplayList {
         splitPath(shape.path, cutter, target as unknown as SplitTarget);
         const hasBack = back.path.opCount > 0;
         const hasFront = front.path.opCount > 0;
-        // Разрез нужен, если обводка с двух сторон перекрывателя или целиком
-        // стоит не на своей стороне в порядке отрисовки.
+        // A cut is needed if the stroke is on both sides of the occluder or entirely
+        // on the wrong side in drawing order.
         const needed = (hasBack && hasFront) || (hasBack && index > j) || (hasFront && index < j);
         if (!needed) {
           this.#partCount = mark;
@@ -196,7 +196,7 @@ export class DisplayList {
     }
   }
 
-  /** Пустая часть обводки `shape` с её кистью. */
+  /** An empty part of the stroke of `shape` with its brush. */
   #part(shape: DisplayItem): DisplayItem {
     const part = nextItem(this.#parts, this.#partCount++);
     part.path.reset();
@@ -217,9 +217,9 @@ export class DisplayList {
 }
 
 /**
- * Опора декали: ближайший рисуемый предок, который сам не декаль. Узел — декаль, если он
- * сам или промежуточный узел до опоры в режиме `attached` (зрачок на глазу на голове,
- * белок в группе-глазе на голове): опора всех — голова. Для остальных — `null`.
+ * A decal's anchor: the nearest drawable ancestor that is not a decal itself. A node is a decal if it
+ * or an intermediate node up to the anchor is in `attached` mode (a pupil on an eye on a head,
+ * the eye white in an eye group on a head): the anchor of all of them is the head. For the rest, `null`.
  */
 function decalAnchor(node: Node | null): Node | null {
   if (!node) return null;
@@ -242,7 +242,7 @@ function nextItem(pool: DisplayItem[], index: number): DisplayItem {
 
 const target: [unknown, unknown] = [null, null];
 
-/** Сортировка вставками: сначала перекрыватели (капсулы) большего радиуса, затем остальное. */
+/** Insertion sort: occluders (capsules) of larger radius first, then the rest. */
 function sortByRadius(list: DisplayItem[]): void {
   const key = (item: DisplayItem) => (item.occluder === 'none' ? -1 : item.occluderRadius);
   for (let i = 1; i < list.length; i++) {
@@ -259,10 +259,10 @@ function sortByRadius(list: DisplayItem[]): void {
 const cutter: Cutter = { kind: 'plane', x: 0, y: 0, depth: 0, radius: 0, scale: 1 };
 
 /**
- * Поверхность разреза перекрывателя: сфера — её передней поверхностью, капсула — плоскостью.
- * Шов ищется по оси обводки, а сама обводка толстая, поэтому сфера раздувается на
- * половину её толщины `pad`: видимая часть начинается там, где касается поверхности
- * край обводки, а не её ось. Иначе конец обводки шириной в полтолщины лёг бы поверх сферы.
+ * The occluder's cutting surface: a sphere by its front surface, a capsule by a plane.
+ * The seam is searched along the stroke's axis, but the stroke itself is thick, so the sphere is inflated by
+ * half its width `pad`: the visible part starts where the stroke edge, not its axis,
+ * touches the surface. Otherwise a stroke end half a width wide would lie over the sphere.
  */
 function setCutter(occluder: DisplayItem, pad: number): void {
   cutter.kind = occluder.occluder === 'sphere' ? 'sphere' : 'plane';
@@ -273,7 +273,7 @@ function setCutter(occluder: DisplayItem, pad: number): void {
   cutter.scale = occluder.occluderScale;
 }
 
-// Габариты текущей разрезаемой обводки.
+// Bounds of the stroke currently being cut.
 let minX = 0;
 let minY = 0;
 let maxX = 0;
@@ -300,7 +300,7 @@ function bounds(item: DisplayItem): void {
   maxY += pad;
 }
 
-/** Пересекаются ли габариты текущей обводки с перекрывателем на экране. */
+/** Whether the bounds of the current stroke intersect the occluder on screen. */
 function overlaps(occluder: DisplayItem): boolean {
   const r = occluder.occluderRadius;
   let ox0 = occluder.occluderX;
@@ -317,14 +317,14 @@ function overlaps(occluder: DisplayItem): boolean {
 }
 
 /**
- * Проецирует путь фигуры в экранные координаты. Возвращает `false`, если рисовать
- * нечего: обратная сторона скрыта, фигура за глазом камеры или путь — точка без обводки.
+ * Projects a shape's path into screen coordinates. Returns `false` if there is nothing
+ * to draw: the back face is hidden, the shape is behind the camera eye or the path is a point without a stroke.
  */
 function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const style = shape.style;
 
-  // Обратная сторона, как в Zdog: только если точка `front` строго дальше от камеры,
-  // чем начало. Фигура ребром к камере рисуется лицевой стороной.
+  // Back face, as in Zdog: only if the `front` point is strictly farther from the camera
+  // than the origin. A shape edge-on to the camera is drawn with its front face.
   shape.localToWorld(point, ORIGIN);
   const originDepth = camera.toView(point, point).z;
   front.x = shape.front.x;
@@ -339,9 +339,9 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const s = camera.scaleAt(point.z);
 
   mat3x4.multiply(modelView, camera.viewMatrix, shape.worldMatrix);
-  // Масштаб узла для обводки — среднее геометрическое масштабов по осям x и y фигуры:
-  // плоские фигуры лежат в этой плоскости, поэтому масштаб по z на толщину не влияет.
-  // Для равномерного масштаба это точный масштаб.
+  // The node's scale for the stroke is the geometric mean of the scales along the shape's x and y axes:
+  // flat shapes lie in that plane, so the z scale does not affect the width.
+  // For uniform scale this is the exact scale.
   const world = shape.worldMatrix;
   const nodeScale = Math.sqrt(
     Math.hypot(world[0] ?? 0, world[1] ?? 0, world[2] ?? 0) *
@@ -356,14 +356,14 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   out.lineCap = 'round';
 
   if (opCount === 1) {
-    // Точка: круг диаметром в толщину обводки, как в Zdog.
+    // A point: a circle with a diameter equal to the stroke width, as in Zdog.
     if (lineWidth <= 0) return false;
     project(points, 0);
     path.arc(point.x * s, point.y * s, lineWidth / 2, 0, TAU).close();
     out.lineWidth = 0;
     out.hasStroke = false;
     out.hasFill = true;
-    // Точка с толстой обводкой — шар, как голова маскота в Zdog: она перекрывает.
+    // A point with a thick stroke is a ball, like the mascot's head in Zdog: it occludes.
     out.setSphereOccluder(point.x * s, point.y * s, lineWidth / 2, point.z, s);
     return true;
   }
@@ -398,7 +398,7 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   return true;
 }
 
-/** Переводит точку `index` геометрии в пространство камеры (в `point`). */
+/** Converts geometry point `index` into camera space (into `point`). */
 function project(points: Float64Array, index: number): void {
   const i = index * 3;
   local.x = points[i] ?? 0;

@@ -1,11 +1,11 @@
 import type { IndexBuffer } from './buffer.ts';
 
 /**
- * Разбивает простой многоугольник на треугольники методом отрезания ушей.
- * `xs`, `ys` — вершины по порядку (без повтора первой). Пишет тройки индексов в `out`
- * и возвращает число треугольников. Для самопересекающегося многоугольника, где уши
- * кончились раньше, остаток разбивается веером. Память не выделяет, пока хватает
- * буферов.
+ * Splits a simple polygon into triangles by ear clipping.
+ * `xs`, `ys` are the vertices in order (without repeating the first). Writes index triples to `out`
+ * and returns the number of triangles. For a self-intersecting polygon, where the ears
+ * ran out early, the rest is split as a fan. Allocates no memory while the buffers
+ * are large enough.
  */
 export function triangulate(
   xs: ArrayLike<number>,
@@ -15,7 +15,7 @@ export function triangulate(
 ): number {
   out.reset();
   if (n < 3) return 0;
-  // Ориентация по знаку площади: уши ищутся для обхода против часовой.
+  // Orientation from the sign of the area: ears are searched for a counterclockwise traversal.
   let area = 0;
   for (let i = 0; i < n; i++) {
     const j = (i + 1) % n;
@@ -36,7 +36,7 @@ export function triangulate(
       out.push(a);
       out.push(b);
       out.push(c);
-      // Убрать вершину i из кольца.
+      // Remove vertex i from the ring.
       ring.copyWithin(i, i + 1, size);
       size--;
       clipped = true;
@@ -44,7 +44,7 @@ export function triangulate(
     }
     if (!clipped) break;
   }
-  // Остаток (обычно ровно один треугольник) — веером.
+  // The rest (usually exactly one triangle) as a fan.
   for (let i = 1; i + 1 < size; i++) {
     out.push(ring[0] as number);
     out.push(ring[i] as number);
@@ -53,7 +53,7 @@ export function triangulate(
   return out.length / 3;
 }
 
-// Кольцо оставшихся вершин, общее для всех вызовов.
+// Ring of remaining vertices, shared by all calls.
 let ring = new Int32Array(64);
 
 function cross(ax: number, ay: number, bx: number, by: number, cx: number, cy: number): number {

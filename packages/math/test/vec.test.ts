@@ -3,13 +3,13 @@ import { approxEqual, clamp, lerp, vec2, vec3 } from '../src/index.ts';
 import { expectClose } from './helpers.ts';
 
 describe('common', () => {
-  it('approxEqual учитывает масштаб чисел', () => {
+  it('approxEqual accounts for the magnitude of the numbers', () => {
     expect(approxEqual(1, 1 + 1e-7)).toBe(true);
     expect(approxEqual(1, 1.001)).toBe(false);
     expect(approxEqual(1e9, 1e9 + 10)).toBe(true);
   });
 
-  it('clamp и lerp', () => {
+  it('clamp and lerp', () => {
     expect(clamp(5, 0, 1)).toBe(1);
     expect(clamp(-5, 0, 1)).toBe(0);
     expect(lerp(2, 4, 0.25)).toBe(2.5);
@@ -17,7 +17,7 @@ describe('common', () => {
 });
 
 describe('vec2', () => {
-  it('арифметика', () => {
+  it('arithmetic', () => {
     const a = vec2.create(1, 2);
     const b = vec2.create(3, -1);
     expect(vec2.add(vec2.create(), a, b)).toEqual({ x: 4, y: 1 });
@@ -28,24 +28,24 @@ describe('vec2', () => {
     expect(vec2.distance(a, b)).toBeCloseTo(Math.hypot(2, 3));
   });
 
-  it('rotate поворачивает от X к Y', () => {
+  it('rotate turns from X towards Y', () => {
     expectClose(vec2.rotate(vec2.create(), vec2.create(1, 0), Math.PI / 2), { x: 0, y: 1 });
   });
 
-  it('out может совпадать с аргументом', () => {
+  it('out may be the same as an argument', () => {
     const a = vec2.create(1, 2);
     expect(vec2.add(a, a, a)).toBe(a);
     expect(a).toEqual({ x: 2, y: 4 });
   });
 
-  it('нулевой вектор нормируется в ноль', () => {
+  it('a zero vector normalizes to zero', () => {
     expect(vec2.normalize(vec2.create(), vec2.create())).toEqual({ x: 0, y: 0 });
     expect(vec2.length(vec2.normalize(vec2.create(), vec2.create(3, 4)))).toBeCloseTo(1);
   });
 });
 
 describe('vec3', () => {
-  it('арифметика', () => {
+  it('arithmetic', () => {
     const a = vec3.create(1, 2, 3);
     const b = vec3.create(-2, 0, 1);
     expect(vec3.add(vec3.create(), a, b)).toEqual({ x: -1, y: 2, z: 4 });
@@ -57,27 +57,27 @@ describe('vec3', () => {
     expectClose(vec3.lerp(vec3.create(), a, b, 0.5), { x: -0.5, y: 1, z: 2 });
   });
 
-  it('cross подчиняется правилу правой руки', () => {
+  it('cross follows the right-hand rule', () => {
     const x = vec3.create(1, 0, 0);
     const y = vec3.create(0, 1, 0);
     expect(vec3.cross(vec3.create(), x, y)).toEqual({ x: 0, y: 0, z: 1 });
   });
 
-  it('cross корректен при out = a', () => {
+  it('cross is correct with out = a', () => {
     const a = vec3.create(1, 2, 3);
     const b = vec3.create(4, 5, 6);
     const expected = vec3.cross(vec3.create(), a, b);
     expect(vec3.cross(a, a, b)).toEqual(expected);
   });
 
-  it('normalize и equals', () => {
+  it('normalize and equals', () => {
     expect(vec3.normalize(vec3.create(), vec3.create())).toEqual({ x: 0, y: 0, z: 0 });
     expect(vec3.length(vec3.normalize(vec3.create(), vec3.create(1, 2, 2)))).toBeCloseTo(1);
     expect(vec3.equals(vec3.create(1, 2, 3), vec3.create(1, 2, 3 + 1e-9))).toBe(true);
     expect(vec3.equals(vec3.create(1, 2, 3), vec3.create(1, 2, 3.1))).toBe(false);
   });
 
-  it('clone создаёт независимую копию', () => {
+  it('clone creates an independent copy', () => {
     const a = vec3.create(1, 2, 3);
     const b = vec3.clone(a);
     b.x = 9;
@@ -85,7 +85,7 @@ describe('vec3', () => {
   });
 });
 
-describe('vec2: остальные операции', () => {
+describe('vec2: other operations', () => {
   it('set, copy, clone, scale, negate, lerp, lengthSq, equals', () => {
     const a = vec2.set(vec2.create(), 3, -4);
     expect(vec2.copy(vec2.create(), a)).toEqual({ x: 3, y: -4 });
@@ -101,7 +101,7 @@ describe('vec2: остальные операции', () => {
     expect(vec2.equals(a, vec2.create(3, -4.1))).toBe(false);
   });
 
-  it('все операции допускают out = аргумент', () => {
+  it('all operations allow out = argument', () => {
     const b = vec2.create(-2, 5);
     const cases: [string, (out: vec2.Vec2, a: vec2.Vec2) => vec2.Vec2][] = [
       ['add', (out, a) => vec2.add(out, a, b)],
@@ -121,7 +121,7 @@ describe('vec2: остальные операции', () => {
   });
 });
 
-describe('vec3: остальные операции', () => {
+describe('vec3: other operations', () => {
   it('scale, scaleAndAdd, length, distance, set, copy', () => {
     const a = vec3.set(vec3.create(), 1, 2, 2);
     expect(vec3.copy(vec3.create(), a)).toEqual(a);
@@ -136,7 +136,7 @@ describe('vec3: остальные операции', () => {
     expect(vec3.distance(a, vec3.create(1, 2, -2))).toBe(4);
   });
 
-  it('все операции допускают out = аргумент', () => {
+  it('all operations allow out = argument', () => {
     const b = vec3.create(-2, 5, 0.5);
     const cases: [string, (out: vec3.Vec3, a: vec3.Vec3) => vec3.Vec3][] = [
       ['add', (out, a) => vec3.add(out, a, b)],

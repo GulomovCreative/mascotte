@@ -48,12 +48,12 @@ function points(path: ScreenPath): number[][] {
   return out;
 }
 
-/** Точки совпадают с ожидаемыми с точностью до `digits` знаков (шов ищется делением пополам). */
+/** Points match the expected ones to `digits` digits (the seam is found by bisection). */
 function expectPoints(actual: number[][], expected: number[][], digits = 9): void {
   expect(actual).toHaveLength(expected.length);
   actual.forEach((point, i) => {
     point.forEach((value, k) => {
-      expect(value, `точка ${i}, координата ${k}`).toBeCloseTo(
+      expect(value, `point ${i}, coordinate ${k}`).toBeCloseTo(
         expected[i]?.[k] ?? Number.NaN,
         digits,
       );
@@ -69,22 +69,22 @@ function split(path: ScreenPath, cutter: Cutter) {
 }
 
 describe('cutValue', () => {
-  it('плоскость и передняя поверхность сферы', () => {
+  it('plane and the sphere front surface', () => {
     expect(cutValue(plane(5), 0, 0, 4)).toBeLessThan(0);
     expect(cutValue(plane(5), 0, 0, 6)).toBeGreaterThan(0);
-    // Вне силуэта сфера ничего не закрывает, даже позади центра.
+    // Outside the silhouette the sphere covers nothing, even behind the center.
     expect(cutValue(sphere(10), 20, 0, -100)).toBeGreaterThan(0);
-    // В центре силуэта передняя поверхность на глубине радиуса.
+    // At the silhouette center the front surface is at radius depth.
     expect(cutValue(sphere(10), 0, 0, 9)).toBeLessThan(0);
     expect(cutValue(sphere(10), 0, 0, 11)).toBeGreaterThan(0);
-    // У края силуэта поверхность ближе к центральной плоскости: sqrt(100 − 64) = 6.
+    // Near the silhouette edge the surface is closer to the center plane: sqrt(100 − 64) = 6.
     expect(cutValue(sphere(10), 8, 0, 5.9)).toBeLessThan(0);
     expect(cutValue(sphere(10), 8, 0, 6.1)).toBeGreaterThan(0);
   });
 });
 
 describe('splitPath', () => {
-  it('отрезок через плоскость: точка разреза на плоскости, части стыкуются', () => {
+  it('a line through a plane: the cut point is on the plane, the parts join', () => {
     const { back, front } = split(new ScreenPath().moveTo(0, 0, -10).lineTo(20, 10, 10), plane(0));
     expectPoints(points(back), [
       [0, 0, -10],
@@ -96,7 +96,7 @@ describe('splitPath', () => {
     ]);
   });
 
-  it('кривая через плоскость: шов на плоскости, концы на месте', () => {
+  it('a curve through a plane: the seam is on the plane, the ends stay in place', () => {
     const path = new ScreenPath().moveTo(0, 0, -10).cubicTo(10, 20, 20, 20, 30, 0, -10, 10, 10);
     const { back, front } = split(path, plane(0));
     const b = points(back);
@@ -105,16 +105,16 @@ describe('splitPath', () => {
     expect(f.at(-1)).toEqual([30, 0, 10]);
     expect(b.at(-1)?.[2]).toBeCloseTo(0, 9);
     expect(f[0]).toEqual(b.at(-1));
-    // Симметричная кривая пересекает плоскость посередине.
+    // A symmetric curve crosses the plane in the middle.
     expect(b.at(-1)?.[0]).toBeCloseTo(15, 6);
     expect(back.ops[1]).toBe(ScreenOp.cubic);
     expect(front.ops[1]).toBe(ScreenOp.cubic);
   });
 
-  it('замыкающий отрезок замкнутого пути тоже режется', () => {
+  it('the closing line of a closed path is cut too', () => {
     const path = new ScreenPath().moveTo(0, 0, -5).lineTo(10, 0, -5).lineTo(10, 10, 5).close();
     const { back, front } = split(path, plane(0));
-    // За плоскостью два куска: начало пути до середины второго отрезка и конец замыкающего.
+    // Two pieces are behind the plane: the path start up to the middle of the second line, and the end of the closing one.
     expectPoints(points(back), [
       [0, 0, -5],
       [10, 0, -5],
@@ -130,7 +130,7 @@ describe('splitPath', () => {
     expect(back.closed || front.closed).toBe(false);
   });
 
-  it('без пересечения всё уходит в одну часть', () => {
+  it('without an intersection everything goes into one part', () => {
     const { back, front } = split(new ScreenPath().moveTo(0, 0, 1).lineTo(5, 5, 3), plane(0));
     expect(back.opCount).toBe(0);
     expect(points(front)).toEqual([
@@ -139,12 +139,12 @@ describe('splitPath', () => {
     ]);
   });
 
-  it('сфера: отрезок, проходящий сквозь шар, скрыт внутри силуэта до передней поверхности', () => {
-    // От точки за шаром слева к точке перед шаром справа.
+  it('sphere: a line passing through the ball is hidden inside the silhouette up to the front surface', () => {
+    // From a point behind the ball on the left to a point in front of the ball on the right.
     const path = new ScreenPath().moveTo(-20, 0, -20).lineTo(20, 0, 20);
     const { back, front } = split(path, sphere(10));
     const f = points(front);
-    // Вне силуэта слева сфера ничего не закрывает: первая передняя часть — до края силуэта.
+    // Outside the silhouette on the left the sphere covers nothing: the first front part runs to the silhouette edge.
     expectPoints(
       f.slice(0, 2),
       [
@@ -153,7 +153,7 @@ describe('splitPath', () => {
       ],
       6,
     );
-    // Шов на передней поверхности: z = sqrt(100 − x²) при x = z, то есть x = sqrt(50).
+    // The seam is on the front surface: z = sqrt(100 − x²) with x = z, so x = sqrt(50).
     const seam = f[2] ?? [];
     expect(seam[0]).toBeCloseTo(Math.sqrt(50), 6);
     expect(seam[2]).toBeCloseTo(Math.sqrt(50), 6);
@@ -185,42 +185,42 @@ function ear(from: { x: number; y: number; z: number }, to: { x: number; y: numb
   });
 }
 
-describe('частичное перекрытие в списке отрисовки', () => {
+describe('partial occlusion in the draw list', () => {
   const camera = new Camera();
 
-  it('ухо из головы: часть за головой рисуется до неё, остальное — после', () => {
+  it('an ear sticking out of the head: the part behind the head is drawn before it, the rest after', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     head.add(ear({ x: 10, y: -10, z: -20 }, { x: 20, y: -60, z: 10 }));
     const list = new DisplayList().build(sceneWith(head), camera);
     expect(order(list)).toEqual(['ear', 'head', 'ear']);
-    // Ухо до самого края силуэта остаётся позади передней поверхности. Сфера при разрезе
-    // раздута на полтолщины уха (5), поэтому шов — на расстоянии 45 от центра на экране.
+    // The ear stays behind the front surface up to the silhouette edge. For cutting, the sphere
+    // is inflated by half the ear width (5), so the seam is 45 from the center on screen.
     const [x = 0, y = 0] = points(list.item(2).path)[0] ?? [];
     expect(Math.hypot(x, y)).toBeCloseTo(45, 6);
   });
 
-  it('обводка целиком за головой, но позже по дереву, переносится до неё', () => {
+  it('a stroke fully behind the head but later in the tree moves before it', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     head.add(ear({ x: -10, y: 0, z: -30 }, { x: 10, y: 0, z: -30 }));
     const list = new DisplayList().build(sceneWith(head), camera);
     expect(order(list)).toEqual(['ear', 'head']);
   });
 
-  it('не пересекается на экране — не режется и лишних частей нет', () => {
+  it('no overlap on screen: no cut and no extra parts', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 20 } });
     const far = ear({ x: 100, y: 0, z: -30 }, { x: 120, y: 0, z: 30 });
     const list = new DisplayList().build(sceneWith(head, far), camera);
     expect(order(list)).toEqual(['head', 'ear']);
   });
 
-  it('заливка не режется, выключатель отключает разрез', () => {
+  it('fill is not cut, the switch disables cutting', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     head.add(
       new Rect({
         id: 'filled',
         width: 20,
         height: 20,
-        // Перед центром головы, но пересекает её: с заливкой не режется и остаётся одним элементом.
+        // In front of the head center but crossing it: with fill it is not cut and stays one element.
         position: { x: 0, y: 0, z: 10 },
         rotation: euler.create(0, 1.2, 0),
         style: { fill: true },
@@ -230,7 +230,7 @@ describe('частичное перекрытие в списке отрисов
 
     const other = new PathShape({ id: 'head', style: { stroke: 80 } });
     other.add(ear({ x: 10, y: -10, z: -20 }, { x: 20, y: -60, z: 10 }));
-    // Без разреза ухо целиком сортируется по глубине центра (за головой) и не делится.
+    // Without cutting the whole ear sorts by its center depth (behind the head) and is not split.
     expect(
       order(new DisplayList({ partialOcclusion: false }).build(sceneWith(other), camera)),
     ).toEqual(['ear', 'head']);
@@ -241,7 +241,7 @@ describe('частичное перекрытие в списке отрисов
     ]);
   });
 
-  it('капсула режется большей сферой; к разрезанной капсуле ничего не крепится', () => {
+  it('a capsule is cut by a larger sphere; nothing attaches to a cut capsule', () => {
     const body = new Sphere({ id: 'body', diameter: 80 });
     const arm = new Capsule({
       id: 'arm',
@@ -256,11 +256,11 @@ describe('частичное перекрытие в списке отрисов
     expect(ids.filter((id) => id === 'arm')).toHaveLength(2);
     expect(ids.indexOf('arm')).toBeLessThan(ids.indexOf('body'));
     expect(ids.lastIndexOf('arm')).toBeGreaterThan(ids.indexOf('body'));
-    // Палец режется о тело, а не о разрезанную руку: он стоит вокруг тела.
+    // The finger is cut by the body, not by the cut arm: it sits around the body.
     expect(ids.indexOf('ear')).toBeLessThan(ids.indexOf('body'));
   });
 
-  it('части переиспользуются между кадрами', () => {
+  it('parts are reused between frames', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     head.add(ear({ x: 10, y: -10, z: -20 }, { x: 20, y: -60, z: 10 }));
     const scene = sceneWith(head);
@@ -274,12 +274,12 @@ describe('частичное перекрытие в списке отрисов
   });
 });
 
-describe('декали на сфере', () => {
+describe('decals on a sphere', () => {
   const camera = new Camera();
 
   function face() {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
-    // Рот лежит внутри сферы головы (z = 38 при радиусе 40), как в Zdog-маскоте.
+    // The mouth lies inside the head sphere (z = 38 with radius 40), as in the Zdog mascot.
     const mouth = new PathShape({
       id: 'mouth',
       sortMode: 'attached',
@@ -296,10 +296,10 @@ describe('декали на сфере', () => {
     return { head, scene: sceneWith(head) };
   }
 
-  it('опора не режет декаль, декаль обрезается по силуэту опоры', () => {
+  it('the anchor does not cut a decal, the decal is clipped to the anchor silhouette', () => {
     const { scene } = face();
     const list = new DisplayList().build(scene, camera);
-    // Декали сортируются между собой по глубине: рот (z = 38) ближе глаза (z = 36).
+    // Decals sort among themselves by depth: the mouth (z = 38) is closer than the eye (z = 36).
     expect(order(list)).toEqual(['head', 'white', 'mouth']);
     for (const id of ['mouth', 'white']) {
       const item = Array.from({ length: list.count }, (_, i) => list.item(i)).find(
@@ -314,7 +314,7 @@ describe('декали на сфере', () => {
     }
   });
 
-  it('обычный ребёнок внутри сферы закрыт ей, а не обрезан', () => {
+  it('a regular child inside a sphere is covered by it, not clipped', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     head.add(
       new PathShape({
@@ -332,7 +332,7 @@ describe('декали на сфере', () => {
     expect(list.item(0).clip).toBe('none');
   });
 
-  it('без частичного перекрытия декали не обрезаются', () => {
+  it('without partial occlusion decals are not clipped', () => {
     const { scene } = face();
     const list = new DisplayList({ partialOcclusion: false }).build(scene, camera);
     for (let i = 0; i < list.count; i++) expect(list.item(i).clip).toBe('none');

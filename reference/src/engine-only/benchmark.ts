@@ -2,10 +2,10 @@ import { Camera, Capsule, Cylinder, isDrawable, Node, PathShape, Sphere } from '
 import { type Euler, euler } from '@mascotte/math';
 
 /*
- * Бенчмарк из плана: много маскотов по 300 примитивов в одной сцене. Маскот собирается
- * программно: тело, голова, уши, руки, ноги, глаза и рот (декали), остальное — пятнышки
- * шерсти на поверхности тела и головы. Поза меняется каждый кадр без выделений памяти:
- * углы создаются один раз и потом только переписываются.
+ * The benchmark from the plan: many mascots of 300 primitives each in one scene. A mascot is
+ * built in code: body, head, ears, arms, legs, eyes and mouth (decals); the rest are fur spots
+ * on the body and head surfaces. The pose changes every frame without allocations: the angles
+ * are created once and then only overwritten.
  */
 
 export interface Benchmark {
@@ -14,16 +14,16 @@ export interface Benchmark {
   readonly background: string;
   readonly root: Node;
   readonly camera: Camera;
-  /** Число рисуемых узлов сцены. */
+  /** Number of drawable nodes in the scene. */
   readonly drawables: number;
-  /** Ставит позу всех маскотов в момент `time` (секунды). */
+  /** Sets the pose of all mascots at `time` (seconds). */
   pose(time: number): void;
 }
 
 export interface BenchmarkOptions {
-  /** Сколько маскотов. По умолчанию 20. */
+  /** Number of mascots. Defaults to 20. */
   count?: number;
-  /** Сколько рисуемых узлов в одном маскоте. По умолчанию 300. */
+  /** Drawable nodes per mascot. Defaults to 300. */
   primitives?: number;
 }
 
@@ -39,7 +39,7 @@ interface Mascot {
   phase: number;
 }
 
-/** Точка на сфере радиуса `radius`: `i`-я из `n` по золотой спирали. */
+/** A point on a sphere of radius `radius`: the `i`-th of `n` along a golden spiral. */
 function spiral(i: number, n: number, radius: number): { x: number; y: number; z: number } {
   const y = 1 - (2 * (i + 0.5)) / n;
   const r = Math.sqrt(1 - y * y);
@@ -99,7 +99,7 @@ function buildMascot(index: number, rows: number, primitives: number): Mascot {
         style: { stroke: 0, color: '#c86f10' },
       }),
     );
-    // Ухо, два узла глаза, рука и нога (у ноги — бок и две крышки).
+    // Ear, two eye nodes, arm and leg (the leg has a side and two caps).
     count += 1 + 2 + 1 + 3;
   }
   head.add(
@@ -114,7 +114,7 @@ function buildMascot(index: number, rows: number, primitives: number): Mascot {
     }),
   );
   count += 1;
-  // Остальное — пятнышки шерсти: две трети на теле, треть на голове.
+  // The rest are fur spots: two thirds on the body, one third on the head.
   const fur = Math.max(0, primitives - count);
   const onBody = Math.round((fur * 2) / 3);
   for (let i = 0; i < fur; i++) {
@@ -138,7 +138,7 @@ function buildMascot(index: number, rows: number, primitives: number): Mascot {
   };
 }
 
-/** Сцена бенчмарка: `count` маскотов сеткой по 5 в ряд. */
+/** The benchmark scene: `count` mascots in a grid of 5 per row. */
 export function buildBenchmark({ count = 20, primitives = 300 }: BenchmarkOptions = {}): Benchmark {
   const root = new Node();
   const mascots: Mascot[] = [];

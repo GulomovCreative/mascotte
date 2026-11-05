@@ -1,34 +1,34 @@
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 
 /*
- * Частичное перекрытие: обводка, которая проходит за перекрывателем, режется на часть
- * за ним (рисуется до перекрывателя) и часть перед ним (рисуется после).
+ * Partial occlusion: a stroke that passes behind an occluder is cut into the part
+ * behind it (drawn before the occluder) and the part in front of it (drawn after).
  *
- * - Сфера режет своей передней поверхностью: точка скрыта, если на экране она внутри
- *   силуэта и глубже передней поверхности. Это точно и для фигур, которые входят внутрь
- *   сферы, — например, уха, растущего из головы.
- * - Капсула режет плоскостью, перпендикулярной взгляду, через середину оси. При наклоне
- *   капсулы к взгляду это приближение.
+ * - A sphere cuts with its front surface: a point is hidden if on screen it is inside
+ *   the silhouette and deeper than the front surface. This is exact even for shapes that go inside
+ *   the sphere, for example an ear growing out of a head.
+ * - A capsule cuts with a plane perpendicular to the view, through the middle of the axis. When the capsule
+ *   tilts toward the view, this is an approximation.
  *
- * Координаты пути экранные (пиксели), глубина — в единицах пространства камеры.
+ * Path coordinates are in screen space (pixels), depth is in camera space units.
  */
 
-/** Чем режется путь. */
+/** What cuts the path. */
 export interface Cutter {
   kind: 'sphere' | 'plane';
-  /** Центр сферы на экране, пиксели. */
+  /** Sphere center on screen, pixels. */
   x: number;
   y: number;
-  /** Глубина центра сферы или плоскости. */
+  /** Depth of the sphere center or of the plane. */
   depth: number;
-  /** Радиус силуэта сферы, пиксели. */
+  /** Sphere silhouette radius, pixels. */
   radius: number;
-  /** Пикселей на единицу глубины в центре сферы: чтобы сравнивать экранное и глубину. */
+  /** Pixels per unit of depth at the sphere center: to compare screen distance and depth. */
   scale: number;
 }
 
 /**
- * Знак: отрицательное значение — точка за перекрывателем, неотрицательное — перед ним.
+ * Sign: a negative value means the point is behind the occluder, a non-negative one means in front of it.
  */
 export function cutValue(cutter: Readonly<Cutter>, x: number, y: number, z: number): number {
   if (cutter.kind === 'plane') return z - cutter.depth;
@@ -36,12 +36,12 @@ export function cutValue(cutter: Readonly<Cutter>, x: number, y: number, z: numb
   const dy = (y - cutter.y) / cutter.scale;
   const r = cutter.radius / cutter.scale;
   const inside = r * r - dx * dx - dy * dy;
-  // Вне силуэта сфера ничего не закрывает.
+  // Outside the silhouette the sphere covers nothing.
   if (inside <= 0) return 1;
   return z - (cutter.depth + Math.sqrt(inside));
 }
 
-/** Куда пишутся части: `[за перекрывателем, перед ним]`. */
+/** Where the parts are written: `[behind the occluder, in front of it]`. */
 export type SplitTarget = readonly [ScreenPath, ScreenPath];
 
 type Side = 0 | 1;
@@ -52,7 +52,7 @@ function sideOf(value: number): Side {
   return value < 0 ? 0 : 1;
 }
 
-/** Начинает кусок стороны `side` в текущей точке пера, если эта сторона не продолжается из неё. */
+/** Starts a piece of side `side` at the current pen point, unless that side continues from it. */
 function start(target: SplitTarget, side: Side): ScreenPath {
   const path = target[side];
   if (!pen.continuing[side]) {
@@ -68,7 +68,7 @@ function bezier(a: number, b: number, c: number, d: number, t: number): number {
   return u * u * u * a + 3 * u * u * t * b + 3 * u * t * t * c + t * t * t * d;
 }
 
-// Отрезок или кривая, которые сейчас режутся: точки по t.
+// The segment or curve being cut now: points by t.
 const seg = {
   cubic: false,
   x: [0, 0, 0, 0],
@@ -87,12 +87,12 @@ function valueAt(cutter: Readonly<Cutter>, t: number): number {
   return cutValue(cutter, at(t, seg.x), at(t, seg.y), at(t, seg.z));
 }
 
-/** Не больше этого числа смен стороны на одном куске. */
+/** At most this many side changes on one piece. */
 const MAX_ROOTS = 8;
 const roots = new Float64Array(MAX_ROOTS);
 const SAMPLES = 24;
 
-/** Значения `t` на (0, 1), где кусок пересекает поверхность разреза. */
+/** Values of `t` on (0, 1) where the piece crosses the cutting surface. */
 function crossings(cutter: Readonly<Cutter>): number {
   let count = 0;
   let prevT = 0;
@@ -118,7 +118,7 @@ function crossings(cutter: Readonly<Cutter>): number {
 
 const part = [0, 0, 0, 0];
 
-/** Опорные точки куска кривой на [t0, t1] по одной координате (де Кастельжо). */
+/** Control points of a curve piece on [t0, t1] for one coordinate (de Casteljau). */
 function subCurve(axis: number[], t0: number, t1: number): void {
   let p0 = axis[0] as number;
   let p1 = axis[1] as number;
@@ -151,7 +151,7 @@ function subCurve(axis: number[], t0: number, t1: number): void {
   part[3] = p3;
 }
 
-/** Режет текущий кусок (`seg`, начало — в пере) и дописывает части в `target`. */
+/** Cuts the current piece (`seg`, starting at the pen) and appends the parts to `target`. */
 function cutSegment(cutter: Readonly<Cutter>, target: SplitTarget): void {
   const count = crossings(cutter);
   let t0 = 0;
@@ -179,7 +179,7 @@ function cutSegment(cutter: Readonly<Cutter>, target: SplitTarget): void {
       pen.z = at(t1, seg.z);
       path.lineTo(pen.x, pen.y, pen.z);
     }
-    // На границе кусков другая сторона продолжит с этой же точки.
+    // At a piece boundary the other side continues from this same point.
     if (i < count) pen.continuing[side] = false;
     t0 = t1;
   }
@@ -196,10 +196,10 @@ function setLine(x: number, y: number, z: number): void {
 }
 
 /**
- * Режет путь с глубинами поверхностью `cutter` и дописывает части в `target`: `[0]` —
- * за перекрывателем, `[1]` — перед ним. Части не замкнуты: замыкающий отрезок
- * замкнутого пути режется так же, как остальные. Дуги пропускаются: у разрезаемых
- * обводок их нет.
+ * Cuts a path with depths by the `cutter` surface and appends the parts to `target`: `[0]` is
+ * behind the occluder, `[1]` is in front of it. The parts are not closed: the closing segment
+ * of a closed path is cut the same way as the others. Arcs are skipped: strokes being cut
+ * have none.
  */
 export function splitPath(path: ScreenPath, cutter: Readonly<Cutter>, target: SplitTarget): void {
   const { ops, data, depths, opCount } = path;

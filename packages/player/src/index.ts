@@ -1,4 +1,4 @@
-// Встраивание плеера на страницу. См. docs/PLAN.md, раздел 5.9 и этап 4.
+// Embedding the player in a page. See docs/PLAN.md, section 5.9 and stage 4.
 
 export {
   bindTickerToPage,

@@ -1,6 +1,6 @@
 import type { Ticker, TickSubscription } from '@mascotte/engine';
 
-/** Что нужно от страницы: видимость документа и медиазапросы. */
+/** What is needed from the page: document visibility and media queries. */
 export interface PageEnvironment {
   readonly document?: Pick<
     Document,
@@ -13,8 +13,8 @@ export interface PageEnvironment {
 
 export interface PageBindingOptions {
   /**
-   * Что делать, если пользователь просит меньше движения (`prefers-reduced-motion:
-   * reduce`): `'pause'` — остановить цикл (по умолчанию), `'ignore'` — не учитывать.
+   * What to do when the user asks for reduced motion (`prefers-reduced-motion:
+   * reduce`): `'pause'` stops the loop (default), `'ignore'` disregards it.
    */
   reducedMotion?: 'pause' | 'ignore';
 }
@@ -31,10 +31,10 @@ function browser(): PageEnvironment {
 }
 
 /**
- * Связывает тикер со страницей: пауза `'hidden'`, пока вкладка скрыта, и пауза
- * `'reduced-motion'`, пока пользователь просит меньше движения. Возвращает функцию,
- * которая снимает обработчики и паузы `'hidden'` и `'reduced-motion'`, кто бы их ни
- * поставил: причины пауз — множество, а не счётчик, поэтому на тикер нужна одна привязка.
+ * Binds a ticker to the page: pause `'hidden'` while the tab is hidden, and pause
+ * `'reduced-motion'` while the user asks for reduced motion. Returns a function
+ * that removes the listeners and the `'hidden'` and `'reduced-motion'` pauses, whoever
+ * set them: pause reasons are a set, not a counter, so a ticker needs only one binding.
  */
 export function bindTickerToPage(
   ticker: Ticker,
@@ -73,7 +73,7 @@ export function bindTickerToPage(
   };
 }
 
-/** Что нужно от `IntersectionObserver`. */
+/** What is needed from `IntersectionObserver`. */
 export type IntersectionObserverFactory = (
   callback: (entries: readonly Pick<IntersectionObserverEntry, 'isIntersecting'>[]) => void,
 ) => Pick<IntersectionObserver, 'observe' | 'disconnect'>;
@@ -84,10 +84,10 @@ function browserObserver(): IntersectionObserverFactory | undefined {
 }
 
 /**
- * Ставит подписку на паузу `'offscreen'`, пока элемент вне области видимости: маскот
- * за краем экрана не тратит кадры. Без `IntersectionObserver` ничего не делает.
- * Возвращает функцию, которая перестаёт следить и снимает паузу. На подписку нужен
- * один такой наблюдатель: второй снял бы паузу первого.
+ * Pauses a subscription with `'offscreen'` while the element is out of view: a mascot
+ * past the screen edge does not spend frames. Does nothing without `IntersectionObserver`.
+ * Returns a function that stops observing and removes the pause. A subscription needs
+ * only one such observer: a second one would remove the first one's pause.
  */
 export function pauseWhenOffscreen(
   subscription: TickSubscription,

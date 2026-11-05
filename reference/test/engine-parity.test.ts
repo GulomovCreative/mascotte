@@ -6,34 +6,34 @@ import { referenceScenes } from '../src/index.ts';
 import { compareImages, renderEngineToPng, zdogSnapshotDir } from '../src/snapshot.ts';
 
 /*
- * Новое ядро рисует эталонные сцены так же, как Zdog: кадры сравниваются со снимками,
- * которые нарисовала копия Zdog, пока она была в репозитории. Снимки не пересоздаются:
- * это замороженный эталон. На практике кадры совпадают пиксель в пиксель; допуск
- * сравнения оставлен на случай разного сглаживания.
+ * The new engine draws the reference scenes the same way Zdog does: frames are compared with
+ * snapshots drawn by the Zdog copy while it was in the repository. The snapshots are never
+ * regenerated: they are a frozen reference. In practice the frames match pixel for pixel; the
+ * comparison tolerance is kept in case antialiasing differs.
  *
- * Кадры Zdog растеризованы через @napi-rs/canvas 1.1.0, тот же, что рисует новое ядро
- * (версия закреплена в reference/package.json). Обновление растеризатора может сдвинуть
- * сглаживание краёв, а пересоздать снимки Zdog нельзя: при обновлении сверьте разницу
- * и при необходимости поднимите допуск, а не перезаписывайте снимки.
+ * The Zdog frames were rasterized with @napi-rs/canvas 1.1.0, the same one the new engine draws
+ * with (the version is pinned in reference/package.json). Updating the rasterizer may shift edge
+ * antialiasing, and the Zdog snapshots cannot be regenerated: when updating, check the
+ * difference and raise the tolerance if needed instead of overwriting the snapshots.
  */
 function zdogSnapshot(name: string): Buffer {
   return readFileSync(join(zdogSnapshotDir, `${name}.png`));
 }
 
-describe('новое ядро против снимков Zdog', () => {
-  it('у сцен уникальные id', () => {
+describe('new engine against Zdog snapshots', () => {
+  it('scenes have unique ids', () => {
     const ids = referenceScenes.map((scene) => scene.id);
     expect(new Set(ids).size).toBe(ids.length);
   });
 
   for (const scene of referenceScenes) {
-    it(`${scene.id}: кадр совпадает со снимком Zdog`, () => {
+    it(`${scene.id}: frame matches the Zdog snapshot`, () => {
       const png = renderEngineToPng(scene, { pixelRatio: 2 });
       const result = compareImages(zdogSnapshot(scene.id), png);
       expect(result.status, JSON.stringify({ ...result, diff: undefined })).toBe('match');
     });
 
-    it(`${scene.id}: кадры совпадают со снимками Zdog в нескольких моментах анимации`, () => {
+    it(`${scene.id}: frames match the Zdog snapshots at several animation times`, () => {
       for (const time of [0.4, 1.3, 2.9]) {
         const ours = renderEngineToPng(scene, { pixelRatio: 1, time });
         const result = compareImages(zdogSnapshot(`${scene.id}-${time}`), ours);
@@ -43,12 +43,12 @@ describe('новое ядро против снимков Zdog', () => {
       }
     });
 
-    it(`${scene.id}: поза меняет кадр, рендер детерминирован`, () => {
+    it(`${scene.id}: pose changes the frame, rendering is deterministic`, () => {
       expect(renderEngineToPng(scene).equals(renderEngineToPng(scene, { time: 0.5 }))).toBe(false);
       expect(renderEngineToPng(scene).equals(renderEngineToPng(scene))).toBe(true);
     });
 
-    it(`${scene.id}: повторный рендер того же графа не накапливает состояние`, () => {
+    it(`${scene.id}: rendering the same graph again does not accumulate state`, () => {
       const world = new Scene(scene.engine.build());
       renderEngineToPng(scene, { time: 0.5 }, world);
       expect(renderEngineToPng(scene, {}, world).equals(renderEngineToPng(scene))).toBe(true);

@@ -1,4 +1,4 @@
-// Снимки кадров для тестов в Node. Не импортировать в браузерный код.
+// Frame snapshots for tests in Node. Do not import into browser code.
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -12,14 +12,14 @@ import type { ReferenceScene, RenderOptions } from './scene.ts';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 export const snapshotDir = join(root, 'snapshots');
 export const diffDir = join(root, 'test', '__diff__');
-/** Снимки, которые нарисовала копия Zdog до удаления: замороженный эталон эталонных сцен. */
+/** Snapshots drawn by the Zdog copy before its removal: the frozen reference for reference scenes. */
 export const zdogSnapshotDir = join(snapshotDir, 'zdog');
 
 /**
- * Рисует эталонную сцену на новом ядре в canvas Node и возвращает PNG размером
- * `width × height`, умноженным на `pixelRatio` (у снимков Zdog: 2 у основного кадра,
- * 1 у кадров анимации). По умолчанию граф строится заново, но можно передать уже
- * построенную сцену, чтобы рисовать один граф несколько раз.
+ * Draws a reference scene with the new engine on a Node canvas and returns a PNG of size
+ * `width × height` multiplied by `pixelRatio` (for Zdog snapshots: 2 for the main frame,
+ * 1 for animation frames). By default the graph is built anew, but an already built scene
+ * can be passed to draw one graph several times.
  */
 export function renderEngineToPng(
   scene: ReferenceScene,
@@ -29,7 +29,7 @@ export function renderEngineToPng(
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
   scene.engine.pose(world.root, options.time ?? 0);
-  // Снимки Zdog нарисованы без частичного перекрытия, поэтому здесь оно выключено.
+  // The Zdog snapshots were drawn without partial overlap, so it is off here.
   new CanvasRenderer({ partialOcclusion: false }).render(
     canvas.getContext('2d'),
     world,
@@ -44,7 +44,7 @@ export function renderEngineToPng(
   return canvas.toBuffer('image/png');
 }
 
-/** Рисует сцену только для нового ядра в canvas Node и возвращает PNG. */
+/** Draws a new-engine-only scene on a Node canvas and returns a PNG. */
 export function renderEngineSceneToPng(scene: EngineScene, options: RenderOptions = {}): Buffer {
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
@@ -60,9 +60,9 @@ export function renderEngineSceneToPng(scene: EngineScene, options: RenderOption
 }
 
 export interface CompareOptions {
-  /** Чувствительность сравнения цвета пикселя, от 0 до 1 (параметр pixelmatch). */
+  /** Pixel color comparison sensitivity, from 0 to 1 (the pixelmatch threshold). */
   threshold?: number;
-  /** Допустимая доля отличающихся пикселей. */
+  /** Allowed fraction of differing pixels. */
   maxDiffRatio?: number;
 }
 
@@ -76,7 +76,7 @@ export type CompareResult =
   | { status: 'mismatch'; diffPixels: number; ratio: number; diff: Buffer }
   | { status: 'size-mismatch'; expected: Size; actual: Size };
 
-/** Сравнивает два PNG, ничего не записывая на диск. */
+/** Compares two PNGs without writing anything to disk. */
 export function compareImages(
   expectedPng: Buffer,
   actualPng: Buffer,
@@ -104,11 +104,11 @@ export function compareImages(
 }
 
 export interface SnapshotOptions extends CompareOptions {
-  /** Папка со снимками. По умолчанию `reference/snapshots`. */
+  /** Snapshot folder. Defaults to `reference/snapshots`. */
   snapshotDir?: string;
-  /** Папка для отличающихся кадров. По умолчанию `reference/test/__diff__`. */
+  /** Folder for differing frames. Defaults to `reference/test/__diff__`. */
   diffDir?: string;
-  /** Команда, которой создаются снимки, — для сообщения об ошибке. По умолчанию `pnpm snapshots:update`. */
+  /** The command that creates snapshots, for the error message. Defaults to `pnpm snapshots:update`. */
   updateCommand?: string;
 }
 
@@ -118,21 +118,21 @@ export type SnapshotResult =
   | { status: 'mismatch'; diffPixels: number; ratio: number; actualPath: string; diffPath: string }
   | { status: 'size-mismatch'; expected: Size; actual: Size; actualPath: string };
 
-/** Включён ли режим обновления снимков. В CI он запрещён, чтобы прогон не стал зелёным сам собой. */
+/** Whether snapshot update mode is on. It is forbidden in CI so a run cannot turn green by itself. */
 export function isUpdatingSnapshots(): boolean {
   const update = process.env.UPDATE_SNAPSHOTS === '1';
   if (update && process.env.CI) {
-    throw new Error('UPDATE_SNAPSHOTS=1 нельзя использовать в CI.');
+    throw new Error('UPDATE_SNAPSHOTS=1 cannot be used in CI.');
   }
   return update;
 }
 
 /**
- * Сравнивает PNG со снимком `<snapshotDir>/<name>.png`.
+ * Compares a PNG with the snapshot `<snapshotDir>/<name>.png`.
  *
- * Снимок записывается только в режиме `UPDATE_SNAPSHOTS=1`. Если снимка нет, функция
- * бросает ошибку. При расхождении фактический кадр и карта отличий сохраняются
- * в `diffDir`, а при совпадении старые файлы отличий этого снимка удаляются.
+ * The snapshot is written only in `UPDATE_SNAPSHOTS=1` mode. If there is no snapshot, the
+ * function throws. On mismatch the actual frame and the diff map are saved to `diffDir`;
+ * on match the old diff files for this snapshot are removed.
  */
 export function matchSnapshot(
   name: string,
@@ -154,7 +154,7 @@ export function matchSnapshot(
   }
   if (!existsSync(path)) {
     const command = options.updateCommand ?? 'pnpm snapshots:update';
-    throw new Error(`Нет снимка ${path}. Создайте его командой ${command}.`);
+    throw new Error(`No snapshot ${path}. Create it with ${command}.`);
   }
 
   const result = compareImages(readFileSync(path), png, options);

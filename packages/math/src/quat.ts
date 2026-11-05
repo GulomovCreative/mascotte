@@ -2,7 +2,7 @@ import { approxEqual, EPSILON } from './common.ts';
 import type { Euler, EulerOrder } from './euler.ts';
 import type { Vec3 } from './vec3.ts';
 
-/** Кватернион поворота `x·i + y·j + z·k + w`. Повороты считаются единичными кватернионами. */
+/** Rotation quaternion `x·i + y·j + z·k + w`. Rotations are represented by unit quaternions. */
 export interface Quat {
   x: number;
   y: number;
@@ -11,9 +11,9 @@ export interface Quat {
 }
 
 /*
- * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
- * с любым из аргументов. Положительный угол поворачивает по правилу правой руки:
- * вокруг Z от оси X к оси Y.
+ * All operations write the result to `out` and return it. `out` may be the same object
+ * as any of the arguments. A positive angle rotates by the right-hand rule:
+ * about Z from the X axis towards the Y axis.
  */
 
 export function create(): Quat {
@@ -40,14 +40,14 @@ export function identity(out: Quat): Quat {
   return set(out, 0, 0, 0, 1);
 }
 
-/** Поворот на `angle` радиан вокруг единичной оси `axis`. */
+/** Rotation by `angle` radians about the unit axis `axis`. */
 export function setAxisAngle(out: Quat, axis: Readonly<Vec3>, angle: number): Quat {
   const half = angle / 2;
   const s = Math.sin(half);
   return set(out, axis.x * s, axis.y * s, axis.z * s, Math.cos(half));
 }
 
-/** `out = a · b`: сначала применяется поворот `b`, потом `a`. */
+/** `out = a · b`: rotation `b` is applied first, then `a`. */
 export function multiply(out: Quat, a: Readonly<Quat>, b: Readonly<Quat>): Quat {
   const { x: ax, y: ay, z: az, w: aw } = a;
   const { x: bx, y: by, z: bz, w: bw } = b;
@@ -68,7 +68,7 @@ export function length(a: Readonly<Quat>): number {
   return Math.sqrt(dot(a, a));
 }
 
-/** Нормирует кватернион. Нулевой кватернион становится единичным. */
+/** Normalizes a quaternion. A zero quaternion becomes the identity. */
 export function normalize(out: Quat, a: Readonly<Quat>): Quat {
   const len = length(a);
   if (len === 0) return identity(out);
@@ -76,12 +76,12 @@ export function normalize(out: Quat, a: Readonly<Quat>): Quat {
   return set(out, a.x * inv, a.y * inv, a.z * inv, a.w * inv);
 }
 
-/** Сопряжённый кватернион. Для единичного кватерниона это обратный поворот. */
+/** Conjugate quaternion. For a unit quaternion this is the inverse rotation. */
 export function conjugate(out: Quat, a: Readonly<Quat>): Quat {
   return set(out, -a.x, -a.y, -a.z, a.w);
 }
 
-/** Обратный кватернион, в том числе для неединичного. Нулевой кватернион становится единичным. */
+/** Inverse quaternion, including non-unit ones. A zero quaternion becomes the identity. */
 export function invert(out: Quat, a: Readonly<Quat>): Quat {
   const lenSq = dot(a, a);
   if (lenSq === 0) return identity(out);
@@ -89,7 +89,7 @@ export function invert(out: Quat, a: Readonly<Quat>): Quat {
   return set(out, -a.x * inv, -a.y * inv, -a.z * inv, a.w * inv);
 }
 
-/** Сферическая интерполяция по кратчайшему пути. */
+/** Spherical interpolation along the shortest path. */
 export function slerp(out: Quat, a: Readonly<Quat>, b: Readonly<Quat>, t: number): Quat {
   let { x: bx, y: by, z: bz, w: bw } = b;
   let cos = dot(a, b);
@@ -103,7 +103,7 @@ export function slerp(out: Quat, a: Readonly<Quat>, b: Readonly<Quat>, t: number
   let wa: number;
   let wb: number;
   if (cos > 1 - EPSILON) {
-    // Почти совпадающие повороты: линейная интерполяция с нормировкой точнее и дешевле.
+    // Nearly identical rotations: normalized linear interpolation is more accurate and cheaper.
     wa = 1 - t;
     wb = t;
   } else {
@@ -116,7 +116,7 @@ export function slerp(out: Quat, a: Readonly<Quat>, b: Readonly<Quat>, t: number
   return normalize(out, out);
 }
 
-/** Поворачивает вектор `v` единичным кватернионом `q`. */
+/** Rotates vector `v` by unit quaternion `q`. */
 export function transformVec3(out: Vec3, q: Readonly<Quat>, v: Readonly<Vec3>): Vec3 {
   const { x: qx, y: qy, z: qz, w: qw } = q;
   const { x, y, z } = v;
@@ -131,11 +131,11 @@ export function transformVec3(out: Vec3, q: Readonly<Quat>, v: Readonly<Vec3>): 
 }
 
 /**
- * Угол в радианах между поворотами единичных кватернионов `a` и `b`, от 0 до π.
- * Точен и для очень близких поворотов.
+ * Angle in radians between the rotations of unit quaternions `a` and `b`, from 0 to π.
+ * Accurate for very close rotations too.
  */
 export function angleBetween(a: Readonly<Quat>, b: Readonly<Quat>): number {
-  // |a − b| = 2·sin(θ/4) после выбора знака b ближе к a; asin точен для малых углов.
+  // |a − b| = 2·sin(θ/4) after choosing the sign of b closer to a; asin is accurate for small angles.
   const sign = dot(a, b) < 0 ? -1 : 1;
   const dx = a.x - sign * b.x;
   const dy = a.y - sign * b.y;
@@ -146,8 +146,8 @@ export function angleBetween(a: Readonly<Quat>, b: Readonly<Quat>): number {
 }
 
 /**
- * Задают ли единичные кватернионы один и тот же поворот с точностью до угла `epsilon`
- * радиан (`q` и `-q` считаются равными).
+ * Whether unit quaternions represent the same rotation within an angle of `epsilon`
+ * radians (`q` and `-q` are considered equal).
  */
 export function equalsRotation(a: Readonly<Quat>, b: Readonly<Quat>, epsilon = EPSILON): boolean {
   return angleBetween(a, b) <= epsilon;
@@ -162,13 +162,13 @@ export function equals(a: Readonly<Quat>, b: Readonly<Quat>, epsilon = EPSILON):
   );
 }
 
-// ----- углы Эйлера ----- //
+// ----- Euler angles ----- //
 
-/** Поворот из углов Эйлера. Порядок осей описан в `EulerOrder`. */
+/** Rotation from Euler angles. Axis order is described in `EulerOrder`. */
 export function fromEuler(out: Quat, euler: Readonly<Euler>): Quat {
   const { x, y, z, order } = euler;
   identity(out);
-  // Матрица `Ra · Rb · Rc` для порядка 'ABC': умножаем справа в порядке записи.
+  // Matrix `Ra · Rb · Rc` for order 'ABC': multiply on the right in the written order.
   for (let i = 0; i < 3; i++) {
     const axis = order[i];
     const angle = axis === 'X' ? x : axis === 'Y' ? y : z;
@@ -185,14 +185,14 @@ export function fromEuler(out: Quat, euler: Readonly<Euler>): Quat {
 }
 
 /**
- * Углы Эйлера для единичного кватерниона в заданном порядке (по умолчанию `out.order`).
- * Средний угол лежит в диапазоне [-π/2, π/2], крайние в [-π, π]. В блокировке осей
- * (средний угол ±π/2) последний по порядку угол обнуляется, а поворот целиком
- * переносится на первый.
+ * Euler angles of a unit quaternion in the given order (default `out.order`).
+ * The middle angle lies in [-π/2, π/2], the outer ones in [-π, π]. In gimbal lock
+ * (middle angle ±π/2) the last angle in the order is set to zero and the whole rotation
+ * moves to the first one.
  */
 export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.order): Euler {
   const { x, y, z, w } = q;
-  // Элементы матрицы поворота, mRC — строка R, столбец C.
+  // Rotation matrix elements, mRC is row R, column C.
   const m11 = 1 - 2 * (y * y + z * z);
   const m12 = 2 * (x * y - w * z);
   const m13 = 2 * (x * z + w * y);
@@ -205,8 +205,8 @@ export function toEuler(out: Euler, q: Readonly<Quat>, order: EulerOrder = out.o
   let ex = 0;
   let ey = 0;
   let ez = 0;
-  // Средний угол считается через atan2, а не asin: asin теряет точность около ±π/2.
-  // Блокировка осей наступает, только когда косинус среднего угла неотличим от нуля.
+  // The middle angle uses atan2, not asin: asin loses precision near ±π/2.
+  // Gimbal lock applies only when the cosine of the middle angle is indistinguishable from zero.
   const lock = 1e-9;
   let cos: number;
 

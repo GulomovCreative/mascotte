@@ -6,8 +6,8 @@ export interface Vec2 {
 }
 
 /*
- * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
- * с любым из аргументов.
+ * All operations write the result to `out` and return it. `out` may be the same object
+ * as any of the arguments.
  */
 
 export function create(x = 0, y = 0): Vec2 {
@@ -66,8 +66,8 @@ export function dot(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
 }
 
 /**
- * Z-компонента векторного произведения. Положительна, если кратчайший поворот от `a` к `b`
- * идёт в ту же сторону, что от оси X к оси Y.
+ * Z component of the cross product. Positive if the shortest rotation from `a` to `b`
+ * goes the same way as from the X axis to the Y axis.
  */
 export function cross(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
   return a.x * b.y - a.y * b.x;
@@ -87,7 +87,7 @@ export function distance(a: Readonly<Vec2>, b: Readonly<Vec2>): number {
   return Math.sqrt(dx * dx + dy * dy);
 }
 
-/** Нормирует вектор. Нулевой вектор остаётся нулевым. */
+/** Normalizes a vector. A zero vector stays zero. */
 export function normalize(out: Vec2, a: Readonly<Vec2>): Vec2 {
   const len = length(a);
   const inv = len > 0 ? 1 / len : 0;
@@ -102,7 +102,7 @@ export function lerp(out: Vec2, a: Readonly<Vec2>, b: Readonly<Vec2>, t: number)
   return out;
 }
 
-/** Поворот на `angle` радиан от оси X к оси Y. */
+/** Rotation by `angle` radians from the X axis towards the Y axis. */
 export function rotate(out: Vec2, a: Readonly<Vec2>, angle: number): Vec2 {
   const cos = Math.cos(angle);
   const sin = Math.sin(angle);

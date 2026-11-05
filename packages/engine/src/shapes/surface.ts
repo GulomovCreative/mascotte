@@ -5,12 +5,12 @@ import type { ParamSchema } from './params.ts';
 import { Styled, type StyledOptions } from './styled.ts';
 
 /**
- * Контур экранной поверхности для отрисовки: путь в пикселях относительно центра кадра
- * и параметры кисти. Объект переиспользуется между кадрами.
+ * Outline of a screen surface for drawing: a path in pixels relative to the frame center
+ * and brush parameters. The object is reused between frames.
  */
 export class SurfaceOutline {
   readonly path = new ScreenPath();
-  /** Толщина обводки в пикселях. */
+  /** Stroke width in pixels. */
   lineWidth = 0;
   lineCap: 'round' | 'butt' = 'round';
   hasStroke = false;
@@ -18,16 +18,16 @@ export class SurfaceOutline {
   color = '#333';
 
   /**
-   * Можно ли резать обводку плоскостью перекрывателя: только обводки без заливки,
-   * у точек пути которых записана глубина.
+   * Whether the stroke can be cut by the occluder plane: only strokes without fill
+   * whose path points have recorded depth.
    */
   splittable = false;
   /**
-   * Перекрыватель для частичного перекрытия: `sphere` — круг с центром
-   * (`occluderX`, `occluderY`) и радиусом `occluderRadius`; `capsule` — отрезок
-   * (`occluderX`, `occluderY`)–(`occluderX2`, `occluderY2`) толщиной 2·`occluderRadius`.
-   * Координаты экранные, `occluderDepth` — глубина центра сферы или плоскости разреза
-   * капсулы.
+   * Occluder for partial occlusion: `sphere` is a circle centered at
+   * (`occluderX`, `occluderY`) with radius `occluderRadius`; `capsule` is a segment
+   * (`occluderX`, `occluderY`)–(`occluderX2`, `occluderY2`) of thickness 2·`occluderRadius`.
+   * Coordinates are in screen space; `occluderDepth` is the depth of the sphere center or of
+   * the capsule's cutting plane.
    */
   occluder: 'none' | 'sphere' | 'capsule' = 'none';
   occluderX = 0;
@@ -36,26 +36,26 @@ export class SurfaceOutline {
   occluderY2 = 0;
   occluderRadius = 0;
   occluderDepth = 0;
-  /** Пикселей на единицу глубины у перекрывателя-сферы. */
+  /** Pixels per unit of depth for a sphere occluder. */
   occluderScale = 1;
 
   /**
-   * Обрезка по силуэту: декаль на сфере рисуется только внутри круга
-   * (`clipX`, `clipY`, `clipRadius`), чтобы не выходить за край повёрнутой головы.
+   * Silhouette clipping: a decal on a sphere is drawn only inside the circle
+   * (`clipX`, `clipY`, `clipRadius`) so it does not spill past the edge of a turned head.
    */
   clip: 'none' | 'circle' = 'none';
   clipX = 0;
   clipY = 0;
   clipRadius = 0;
 
-  /** Сбрасывает данные перекрытия и обрезки перед сборкой. */
+  /** Resets occlusion and clipping data before collection. */
   resetOcclusion(): void {
     this.splittable = false;
     this.occluder = 'none';
     this.clip = 'none';
   }
 
-  /** Записывает перекрыватель-сферу: центр и радиус в пикселях, глубина центра, масштаб. */
+  /** Records a sphere occluder: center and radius in pixels, center depth, scale. */
   setSphereOccluder(x: number, y: number, radius: number, depth: number, scale: number): void {
     this.occluder = 'sphere';
     this.occluderX = x;
@@ -69,20 +69,20 @@ export class SurfaceOutline {
 export type SurfaceOptions = StyledOptions;
 
 /**
- * Экранная поверхность: часть фигуры, которую нельзя описать трёхмерным путём
- * и которая строится сразу в экранных координатах по камере (сфера, капсула, купол
- * полусферы, бок цилиндра, поверхность конуса). Формулы повторяют Zdog.
+ * Screen surface: a part of a shape that cannot be described by a 3D path
+ * and is built directly in screen coordinates from the camera (sphere, capsule, hemisphere
+ * dome, cylinder side, cone surface). The formulas follow Zdog.
  *
- * Отрисовка вызывает `buildOutline` в каждом кадре. Метод не создаёт объектов: буферы
- * пути растут только при первом заполнении. Перспектива считается по глубине
- * `perspectiveReference`, обводка масштабируется вместе с узлом.
+ * Drawing calls `buildOutline` every frame. The method creates no objects: the path
+ * buffers grow only on the first fill. Perspective is computed from the depth of
+ * `perspectiveReference`; the stroke scales together with the node.
  */
 export abstract class Surface<S extends ParamSchema = ParamSchema> extends Styled<S> {
   static override readonly defaultStyle = { fill: true };
 
   /**
-   * Строит контур в `out` для камеры `camera`. Возвращает `false`, если рисовать нечего
-   * (поверхность не видна с этой стороны или находится за глазом камеры).
+   * Builds the outline into `out` for camera `camera`. Returns `false` if there is nothing to draw
+   * (the surface is not visible from this side or is behind the camera eye).
    */
   abstract buildOutline(camera: Camera, out: SurfaceOutline): boolean;
 
@@ -91,15 +91,15 @@ export abstract class Surface<S extends ParamSchema = ParamSchema> extends Style
   }
 
   /**
-   * Масштаб перспективы и увеличения по глубине опорного узла или `null`, если опорный
-   * узел за глазом камеры.
+   * Perspective and zoom scale from the depth of the reference node, or `null` if the reference
+   * node is behind the camera eye.
    */
   protected screenScale(camera: Camera): number | null {
     camera.toView(reference, this.perspectiveReference.getWorldPosition(reference));
     return camera.isInFront(reference.z) ? camera.scaleAt(reference.z) : null;
   }
 
-  /** Переводит локальную точку узла в пространство камеры. */
+  /** Converts a local point of the node into camera space. */
   protected toView(camera: Camera, out: Vec3, x: number, y: number, z: number): Vec3 {
     local.x = x;
     local.y = y;
@@ -108,7 +108,7 @@ export abstract class Surface<S extends ParamSchema = ParamSchema> extends Style
     return camera.toView(out, out);
   }
 
-  /** Заполняет кисть контура из стиля поверхности. */
+  /** Fills the outline brush from the surface style. */
   protected applyStyle(out: SurfaceOutline, lineWidth: number): void {
     const style = this.style;
     out.hasStroke = style.stroke > 0;

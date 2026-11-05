@@ -12,137 +12,137 @@ import { type Scene, sceneInternals } from './scene.ts';
 
 export interface NodeOptions {
   /**
-   * Стабильный идентификатор. Если не задан, создаётся автоматически с префиксом `~`.
-   * Свои идентификаторы не могут быть пустыми, начинаться с `~` и содержать `/`.
-   * У узла с `owner` это ключ внутри владельца, а полный `id` — `«id владельца»/«ключ»`.
+   * Stable identifier. If not given, one is generated automatically with the `~` prefix.
+   * Custom identifiers cannot be empty, start with `~` or contain `/`.
+   * For a node with `owner` this is the key within the owner, and the full `id` is `<owner id>/<key>`.
    */
   id?: string;
   /**
-   * Составная фигура, которая создала этот узел как свою часть (грань коробки,
-   * основание цилиндра). Такие узлы не сохраняются в документ отдельно, а поиск
-   * фигуры под курсором возвращает владельца.
+   * The solid that created this node as its part (a box face,
+   * a cylinder base). Such nodes are not saved to the document separately, and picking
+   * a shape under the cursor returns the owner.
    */
   owner?: Node;
   name?: string;
   position?: Readonly<Vec3>;
-  /** Поворот углами Эйлера; внутри хранится кватернионом. */
+  /** Rotation as Euler angles; stored internally as a quaternion. */
   rotation?: Readonly<Euler>;
-  /** Масштаб: число для всех осей или вектор. */
+  /** Scale: a number for all axes or a vector. */
   scale?: number | Readonly<Vec3>;
-  /** Точка, вокруг которой выполняются поворот и масштаб. */
+  /** The point around which rotation and scale are applied. */
   pivot?: Readonly<Vec3>;
   visible?: boolean;
   opacity?: number;
-  /** Режим сортировки по глубине, см. `SortMode`. */
+  /** Depth sort mode, see `SortMode`. */
   sortMode?: SortMode;
-  /** Смещение глубины при сортировке: больше — ближе к зрителю. Допускаются ±Infinity. */
+  /** Depth offset for sorting: larger is closer to the viewer. ±Infinity is allowed. */
   zBias?: number;
-  /** Слой для режима `layer`: отрицательные под основным содержимым, положительные над ним. */
+  /** Layer for `layer` mode: negative ones are below the main content, positive ones above it. */
   layer?: number;
 }
 
 /**
- * Как узел участвует в сортировке по глубине.
- * - `auto` — по глубине своей точки сортировки; узел без рисования прозрачен для сортировки,
- *   его потомки сортируются вместе с соседями;
- * - `group` — поддерево сортируется как одно целое по глубине точки сортировки узла,
- *   а внутри — своим порядком;
- * - `attached` — декаль на поверхности ближайшего рисуемого предка или составной фигуры
- *   (глаз, рот, пятно): рисуется сразу после неё и видна, только когда обращена лицевой
- *   стороной к камере; скрытая или отвёрнутая декаль скрывает и свои декали;
- * - `layer` — в фиксированном слое `layer` под или над остальным содержимым списка.
+ * How a node takes part in depth sorting.
+ * - `auto`: by the depth of its sort point; a non-drawing node is transparent to sorting,
+ *   its descendants are sorted together with its siblings;
+ * - `group`: the subtree is sorted as a whole by the depth of the node's sort point,
+ *   and in its own order inside;
+ * - `attached`: a decal on the surface of the nearest drawable ancestor or solid
+ *   (eye, mouth, spot): drawn right after it and visible only when its front face
+ *   faces the camera; a hidden or turned-away decal also hides its own decals;
+ * - `layer`: in the fixed layer `layer` below or above the rest of the list's content.
  *
- * Узел без рисования в режиме `attached` или `layer` сортируется как группа.
+ * A non-drawing node in `attached` or `layer` mode is sorted as a group.
  */
 export type SortMode = 'auto' | 'group' | 'attached' | 'layer';
 
 let sortSettingsVersion = 0;
 
 /**
- * Счётчик изменений настроек сортировки во всех узлах: `sortMode` и `layer` в режиме
- * `layer`. Сортировщик пересобирает свою структуру, когда он меняется. `zBias`
- * и видимость (`visible`) учитываются в каждом кадре и счётчик не меняют, поэтому
- * их анимация и моргание скрытием не создают объектов.
+ * Counter of sort setting changes across all nodes: `sortMode`, and `layer` in `layer`
+ * mode. The sorter rebuilds its structure when it changes. `zBias`
+ * and visibility (`visible`) are applied every frame and do not change the counter, so
+ * animating them and blinking by hiding create no objects.
  */
 export function getSortSettingsVersion(): number {
   return sortSettingsVersion;
 }
 
 function checkBias(value: number): number {
-  if (Number.isNaN(value)) throw new RangeError('zBias не может быть NaN.');
+  if (Number.isNaN(value)) throw new RangeError('zBias cannot be NaN.');
   return value;
 }
 
 function checkLayer(value: number): number {
-  if (!Number.isInteger(value)) throw new RangeError(`layer должен быть целым, получено ${value}.`);
+  if (!Number.isInteger(value)) throw new RangeError(`layer must be an integer, got ${value}.`);
   return value;
 }
 
-/** Префикс автоматических идентификаторов. Документам он запрещён, поэтому совпадений нет. */
+/** Prefix of automatic identifiers. It is forbidden in documents, so there are no collisions. */
 export const AUTO_ID_PREFIX = '~';
 
 let nextId = 1;
 
-/** Разделитель в идентификаторах частей составной фигуры. */
+/** Separator in identifiers of solid parts. */
 export const OWNER_SEPARATOR = '/';
 
 function checkId(id: string): string {
-  if (id.trim() === '') throw new RangeError('Идентификатор узла не может быть пустым.');
+  if (id.trim() === '') throw new RangeError('Node identifier cannot be empty.');
   if (id.startsWith(AUTO_ID_PREFIX)) {
-    throw new RangeError(`Идентификатор «${id}» не может начинаться с «${AUTO_ID_PREFIX}».`);
+    throw new RangeError(`Identifier "${id}" cannot start with "${AUTO_ID_PREFIX}".`);
   }
   if (id.includes(OWNER_SEPARATOR)) {
-    throw new RangeError(`Идентификатор «${id}» не может содержать «${OWNER_SEPARATOR}».`);
+    throw new RangeError(`Identifier "${id}" cannot contain "${OWNER_SEPARATOR}".`);
   }
   return id;
 }
 
 function checkOpacity(value: number): number {
-  if (Number.isNaN(value)) throw new RangeError('Непрозрачность не может быть NaN.');
+  if (Number.isNaN(value)) throw new RangeError('Opacity cannot be NaN.');
   return Math.min(1, Math.max(0, value));
 }
 
 /**
- * Доступ `Scene` к закрытому состоянию узлов. Заполняется в статическом блоке `Node`
- * и не экспортируется из пакета.
+ * `Scene` access to the nodes' private state. Filled in the static block of `Node`
+ * and not exported from the package.
  */
 export let nodeInternals!: {
-  /** Подключает узел как корень сцены. */
+  /** Attaches the node as the scene root. */
   attachRoot(root: Node, scene: Scene): void;
-  /** Отключает корень от сцены, не трогая индекс. */
+  /** Detaches the root from the scene without touching the index. */
   detachRoot(root: Node): void;
 };
 
 /**
- * Узел сцены: локальная трансформация и дети.
+ * Scene node: a local transform and children.
  *
- * Мировая матрица считается лениво. Изменение позиции, поворота, масштаба или pivot
- * помечает узел и всё его поддерево устаревшими, а пересчёт происходит при первом
- * обращении к `worldMatrix`. Пока ничего не менялось, повторные обращения бесплатны.
+ * The world matrix is computed lazily. Changing position, rotation, scale or pivot
+ * marks the node and its whole subtree stale, and recomputation happens on the first
+ * access to `worldMatrix`. While nothing has changed, repeated accesses are free.
  *
- * Инвариант: если мировая матрица узла устарела, устарели и матрицы всех его потомков.
- * Поэтому пометка поддерева останавливается на уже устаревших узлах и стоит столько,
- * сколько узлов стали устаревшими.
+ * Invariant: if a node's world matrix is stale, the matrices of all its descendants are stale too.
+ * So marking a subtree stops at already stale nodes and costs as much
+ * as the number of nodes that became stale.
  *
- * Подклассы (фигуры) могут переопределить `onWorldInvalidated`, чтобы сбросить свои кэши.
- * Переопределённый `destroy` обязан вызывать `super.destroy()`.
+ * Subclasses (shapes) can override `onWorldInvalidated` to reset their caches.
+ * An overridden `destroy` must call `super.destroy()`.
  */
 export class Node {
   readonly id: string;
-  /** Составная фигура, частью которой является узел, или `null`. */
+  /** The solid this node is a part of, or `null`. */
   readonly owner: Node | null;
-  /** Имя для редактора. На отрисовку не влияет. */
+  /** Name for the editor. Does not affect drawing. */
   name: string;
 
-  /** Позиция относительно родителя. */
+  /** Position relative to the parent. */
   readonly position: ObservedVec3;
   /**
-   * Поворот относительно родителя. Кватернион должен быть единичным: неединичный
-   * добавит масштаб. `setRotationFromEuler` всегда даёт единичный.
+   * Rotation relative to the parent. The quaternion must be unit: a non-unit one
+   * adds scale. `setRotationFromEuler` always gives a unit one.
    */
   readonly rotation: ObservedQuat;
   readonly scale: ObservedVec3;
-  /** Точка в локальных координатах, вокруг которой выполняются поворот и масштаб. */
+  /** The point in local coordinates around which rotation and scale are applied. */
   readonly pivot: ObservedVec3;
 
   #visible: boolean;
@@ -186,26 +186,26 @@ export class Node {
     this.#layer = checkLayer(options.layer ?? 0);
   }
 
-  /** Режим сортировки по умолчанию для класса. */
+  /** Default sort mode for the class. */
   static readonly defaultSortMode: SortMode = 'auto';
   /**
-   * Сортируется ли узел класса всегда как группа (составные фигуры). Тогда `sortMode`
-   * определяет только место группы: в списке по глубине, в слое или в декалях.
+   * Whether a node of the class is always sorted as a group (solids). Then `sortMode`
+   * only determines where the group goes: in the depth list, in a layer or in decals.
    */
   static readonly sortsAsGroup: boolean = false;
 
   /**
-   * Имя типа узла: для подписей, отладки и формата документа. Задано строкой, а не
-   * берётся из имени класса — при сборке с сжатием имена классов меняются.
+   * Node type name: for labels, debugging and the document format. Given as a string rather than
+   * taken from the class name, since minification changes class names.
    */
   static readonly typeName: string = 'Node';
 
-  /** Имя типа этого узла, см. `Node.typeName`. */
+  /** Type name of this node, see `Node.typeName`. */
   get typeName(): string {
     return (this.constructor as typeof Node).typeName;
   }
 
-  // ----- сортировка ----- //
+  // ----- sorting ----- //
 
   get sortMode(): SortMode {
     return this.#sortMode;
@@ -218,12 +218,12 @@ export class Node {
     }
   }
 
-  /** Смещение глубины при сортировке: больше — ближе к зрителю. Допускаются ±Infinity. */
+  /** Depth offset for sorting: larger is closer to the viewer. ±Infinity is allowed. */
   get zBias(): number {
     return this.#zBias;
   }
   set zBias(value: number) {
-    // Глубина со смещением считается в каждом кадре, пересборка структуры не нужна.
+    // The offset depth is computed every frame, no structure rebuild is needed.
     const bias = checkBias(value);
     if (bias !== this.#zBias) {
       this.#zBias = bias;
@@ -231,22 +231,22 @@ export class Node {
     }
   }
 
-  /** Слой для режима `layer`. */
+  /** Layer for `layer` mode. */
   get layer(): number {
     return this.#layer;
   }
   set layer(value: number) {
     if (checkLayer(value) !== this.#layer) {
       this.#layer = value;
-      // Слой хранится в структуре сортировщика, но учитывается только в режиме layer.
+      // The layer is stored in the sorter's structure but only matters in layer mode.
       if (this.#sortMode === 'layer') sortSettingsVersion++;
       this.#changed();
     }
   }
 
   /**
-   * Точка в локальных координатах, по глубине которой узел сортируется. По умолчанию —
-   * начало координат; фигуры и составные фигуры уточняют её.
+   * The point in local coordinates whose depth the node is sorted by. Defaults to
+   * the origin; shapes and solids refine it.
    */
   getSortPoint(out: Vec3): Vec3 {
     out.x = 0;
@@ -255,7 +255,7 @@ export class Node {
     return out;
   }
 
-  // ----- внешний вид ----- //
+  // ----- appearance ----- //
 
   get visible(): boolean {
     return this.#visible;
@@ -268,7 +268,7 @@ export class Node {
     }
   }
 
-  /** Непрозрачность узла от 0 до 1, умножается на непрозрачность предков. NaN запрещён. */
+  /** Node opacity from 0 to 1, multiplied by the ancestors' opacity. NaN is forbidden. */
   get opacity(): number {
     return this.#opacity;
   }
@@ -281,27 +281,27 @@ export class Node {
     }
   }
 
-  /** Счётчик изменений внешнего вида самого узла (`visible`, `opacity` и стиль фигур), без учёта предков. */
+  /** Counter of changes to the node's own appearance (`visible`, `opacity` and shape style), ignoring ancestors. */
   get appearanceVersion(): number {
     return this.#appearanceVersion;
   }
 
-  // ----- иерархия ----- //
+  // ----- hierarchy ----- //
 
   get parent(): Node | null {
     return this.#parent;
   }
 
   /**
-   * Дети в порядке отрисовки. Это неизменяемый снимок: он пересоздаётся только при
-   * изменении состава детей, поэтому менять дерево во время цикла по нему безопасно.
+   * Children in drawing order. This is an immutable snapshot: it is recreated only when
+   * the set of children changes, so modifying the tree while iterating over it is safe.
    */
   get children(): readonly Node[] {
     this.#childrenView ??= Object.freeze(this.#children.slice());
     return this.#childrenView;
   }
 
-  /** Сцена, в которую входит узел, или `null`, если он не подключён к сцене. */
+  /** The scene the node belongs to, or `null` if it is not attached to a scene. */
   get scene(): Scene | null {
     return this.#scene;
   }
@@ -311,25 +311,25 @@ export class Node {
   }
 
   /**
-   * Добавляет `child` в дети на позицию `index` (по умолчанию в конец). Если у него был
-   * другой родитель, узел переносится; локальная трансформация сохраняется, поэтому
-   * положение в мире может измениться. Узел из другой сцены переносится вместе с id.
+   * Adds `child` to the children at position `index` (at the end by default). If it had
+   * another parent, the node is moved; the local transform is kept, so
+   * the world position may change. A node from another scene is moved together with its id.
    */
   add(child: Node, index = this.#children.length): this {
     this.#assertAlive();
     child.#assertAlive();
     if (child === this || child.isAncestorOf(this)) {
-      throw new Error(`Узел «${child.id}» нельзя добавить в собственного потомка.`);
+      throw new Error(`Node "${child.id}" cannot be added to its own descendant.`);
     }
     if (!child.#parent && child.#scene) {
-      throw new Error(`Узел «${child.id}» — корень сцены и не может стать дочерним.`);
+      throw new Error(`Node "${child.id}" is a scene root and cannot become a child.`);
     }
     if (!Number.isInteger(index) || index < 0 || index > this.#children.length) {
-      throw new RangeError(`Индекс ${index} вне диапазона 0..${this.#children.length}.`);
+      throw new RangeError(`Index ${index} is out of range 0..${this.#children.length}.`);
     }
     const scene = this.#scene;
     const sameScene = child.#scene === scene;
-    // Регистрация id в новой сцене проверяет конфликты до любых изменений иерархии.
+    // Registering ids in the new scene checks for conflicts before any hierarchy changes.
     if (scene && !sameScene) sceneInternals.attach(scene, child);
 
     const oldParent = child.#parent;
@@ -345,13 +345,13 @@ export class Node {
     this.#children.splice(Math.min(index, this.#children.length), 0, child);
     this.#childrenView = null;
     child.#parent = this;
-    // Перестановка внутри того же родителя не меняет мировую матрицу.
+    // Reordering within the same parent does not change the world matrix.
     if (oldParent !== this) child.#invalidateWorld();
     if (scene) sceneInternals.touch(scene);
     return this;
   }
 
-  /** Убирает `child` из детей. Ничего не делает, если это не ребёнок этого узла. */
+  /** Removes `child` from the children. Does nothing if it is not a child of this node. */
   remove(child: Node): this {
     if (child.#parent !== this) return this;
     this.#detachChild(child);
@@ -371,7 +371,7 @@ export class Node {
     return this;
   }
 
-  /** Является ли узел предком `node` (не считая самого узла). */
+  /** Whether the node is an ancestor of `node` (not counting the node itself). */
   isAncestorOf(node: Node): boolean {
     for (let current = node.#parent; current; current = current.#parent) {
       if (current === this) return true;
@@ -380,8 +380,8 @@ export class Node {
   }
 
   /**
-   * Обходит поддерево в глубину, начиная с самого узла. Если `visit` вернёт `false`,
-   * обход прекращается и возвращается узел, на котором он остановился; иначе `null`.
+   * Walks the subtree depth-first, starting with the node itself. If `visit` returns `false`,
+   * the walk stops and the node it stopped at is returned; otherwise `null`.
    */
   traverse(visit: (node: Node) => boolean | undefined): Node | null {
     if (visit(this) === false) return this;
@@ -392,26 +392,26 @@ export class Node {
     return null;
   }
 
-  /** Первый узел поддерева (включая сам узел) с указанным `id`. */
+  /** The first node of the subtree (including the node itself) with the given `id`. */
   findById(id: string): Node | null {
     return this.traverse((node) => node.id !== id);
   }
 
-  // ----- трансформация ----- //
+  // ----- transform ----- //
 
   setRotationFromEuler(angles: Readonly<Euler>): this {
-    // Кватернион считается в обычный объект и копируется одним вызовом set.
+    // The quaternion is computed into a plain object and copied with a single set call.
     quat.fromEuler(rotationScratch, angles);
     this.rotation.copy(rotationScratch);
     return this;
   }
 
-  /** Текущий поворот в виде углов Эйлера в заданном порядке. */
+  /** The current rotation as Euler angles in the given order. */
   getRotationEuler(out: Euler = euler.create(), order: EulerOrder = out.order): Euler {
     return quat.toEuler(out, this.rotation, order);
   }
 
-  /** Матрица `T(position) · T(pivot) · R · S · T(−pivot)` относительно родителя. */
+  /** Matrix `T(position) · T(pivot) · R · S · T(−pivot)` relative to the parent. */
   get localMatrix(): Readonly<Mat3x4> {
     if (this.#localDirty) {
       mat3x4.compose(this.#local, this.position, this.rotation, this.scale, this.pivot);
@@ -420,7 +420,7 @@ export class Node {
     return this.#local;
   }
 
-  /** Мировая матрица: произведение локальных матриц от корня до узла. */
+  /** World matrix: the product of local matrices from the root to the node. */
   get worldMatrix(): Readonly<Mat3x4> {
     if (this.#worldDirty) {
       const parent = this.#parent;
@@ -433,9 +433,9 @@ export class Node {
   }
 
   /**
-   * Счётчик пересчётов мировой матрицы. Растёт при каждом пересчёте, поэтому кэши
-   * геометрии могут сравнивать его, чтобы не проецировать вершины повторно.
-   * Чтение счётчика сначала пересчитывает устаревшую матрицу.
+   * World matrix recomputation counter. Grows on every recomputation, so geometry
+   * caches can compare it to avoid projecting vertices again.
+   * Reading the counter first recomputes a stale matrix.
    */
   get worldVersion(): number {
     this.worldMatrix;
@@ -446,21 +446,21 @@ export class Node {
     return mat3x4.getTranslation(out, this.worldMatrix);
   }
 
-  /** Переводит точку из локальных координат узла в мировые. */
+  /** Converts a point from the node's local coordinates to world coordinates. */
   localToWorld(out: Vec3, point: Readonly<Vec3>): Vec3 {
     return mat3x4.transformPoint(out, this.worldMatrix, point);
   }
 
   /**
-   * Переводит точку из мировых координат в локальные. Возвращает `null`, если мировая
-   * матрица вырождена (например, масштаб 0 у узла или предка).
+   * Converts a point from world coordinates to local ones. Returns `null` if the world
+   * matrix is degenerate (for example, scale 0 on the node or an ancestor).
    */
   worldToLocal(out: Vec3, point: Readonly<Vec3>): Vec3 | null {
     if (!mat3x4.invert(inverseScratch, this.worldMatrix)) return null;
     return mat3x4.transformPoint(out, inverseScratch, point);
   }
 
-  /** Видим ли узел с учётом предков. */
+  /** Whether the node is visible, including ancestors. */
   get visibleInTree(): boolean {
     for (let node: Node | null = this; node; node = node.#parent) {
       if (!node.#visible) return false;
@@ -468,37 +468,37 @@ export class Node {
     return true;
   }
 
-  /** Непрозрачность с учётом предков. */
+  /** Opacity including ancestors. */
   get worldOpacity(): number {
     let opacity = 1;
     for (let node: Node | null = this; node; node = node.#parent) opacity *= node.#opacity;
     return opacity;
   }
 
-  // ----- для подклассов ----- //
+  // ----- for subclasses ----- //
 
-  /** Вызывается, когда мировая матрица узла становится устаревшей. */
+  /** Called when the node's world matrix becomes stale. */
   protected onWorldInvalidated(): void {}
 
-  /** Для подклассов со своими параметрами внешнего вида (цвет, обводка): увеличивает `appearanceVersion`. */
+  /** For subclasses with their own appearance parameters (color, stroke): bumps `appearanceVersion`. */
   protected markAppearanceChanged(): void {
     this.#appearanceVersion++;
     this.#changed();
   }
 
   /**
-   * Для подклассов с собственным состоянием, которое меняет кадр, но не внешний вид в
-   * смысле `appearanceVersion` (например, геометрия пути): увеличивает `Scene.changeVersion`.
+   * For subclasses with their own state that changes the frame but not the appearance in
+   * the sense of `appearanceVersion` (for example, path geometry): bumps `Scene.changeVersion`.
    */
   protected markChanged(): void {
     this.#changed();
   }
 
-  // ----- жизненный цикл ----- //
+  // ----- lifecycle ----- //
 
   /**
-   * Отключает узел от родителя и уничтожает всё поддерево. Для корня сцены уничтожает
-   * всю сцену. Повторный вызов ничего не делает.
+   * Detaches the node from its parent and destroys the whole subtree. For the scene root, destroys
+   * the whole scene. A repeated call does nothing.
    */
   destroy(): void {
     if (this.#destroyed) return;
@@ -517,7 +517,7 @@ export class Node {
     this.#destroyed = true;
   }
 
-  // ----- внутреннее ----- //
+  // ----- internal ----- //
 
   #detachChild(child: Node): void {
     this.#children.splice(this.#children.indexOf(child), 1);
@@ -530,7 +530,7 @@ export class Node {
     this.#changed();
   }
 
-  /** Сообщает сцене, что в ней что-то изменилось (`Scene.changeVersion`). */
+  /** Tells the scene that something in it has changed (`Scene.changeVersion`). */
   #changed(): void {
     const scene = this.#scene;
     if (scene) sceneInternals.changed(scene);
@@ -549,7 +549,7 @@ export class Node {
   }
 
   #assertAlive(): void {
-    if (this.#destroyed) throw new Error(`Узел «${this.id}» уничтожен.`);
+    if (this.#destroyed) throw new Error(`Node "${this.id}" is destroyed.`);
   }
 
   static {
@@ -557,7 +557,9 @@ export class Node {
       attachRoot(root, scene) {
         root.#assertAlive();
         if (root.#parent || root.#scene) {
-          throw new Error(`Узел «${root.id}» уже входит в иерархию и не может быть корнем сцены.`);
+          throw new Error(
+            `Node "${root.id}" is already part of a hierarchy and cannot be a scene root.`,
+          );
         }
         sceneInternals.attach(scene, root);
         root.#setSceneRecursive(scene);

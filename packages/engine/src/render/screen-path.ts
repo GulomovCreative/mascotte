@@ -1,22 +1,22 @@
-/** Код операции экранного пути. */
+/** Screen path operation code. */
 export const ScreenOp = {
   /** x, y */
   move: 0,
   /** x, y */
   line: 1,
-  /** две опорные точки и конечная: 6 чисел */
+  /** two control points and an end point: 6 numbers */
   cubic: 2,
-  /** центр, радиус, начальный и конечный угол, направление (1 — против часовой): 6 чисел */
+  /** center, radius, start and end angle, direction (1 means counterclockwise): 6 numbers */
   arc: 3,
 } as const;
 export type ScreenOp = (typeof ScreenOp)[keyof typeof ScreenOp];
 
-/** Сколько чисел у каждой операции, по коду. */
+/** How many numbers each operation has, by code. */
 const SIZE = [2, 2, 6, 6] as const;
 
 /**
- * Путь в экранных координатах (относительно центра кадра) в переиспользуемых буферах.
- * Команды повторяют Canvas 2D, поэтому бэкенд рисует его без преобразований.
+ * A path in screen coordinates (relative to the frame center) in reusable buffers.
+ * The commands follow Canvas 2D, so the backend draws it without conversion.
  */
 export class ScreenPath {
   #ops = new Uint8Array(8);
@@ -30,7 +30,7 @@ export class ScreenPath {
   get ops(): Uint8Array {
     return this.#ops;
   }
-  /** Числа команд подряд; сколько чисел у команды — см. `ScreenOp`. */
+  /** Command numbers in sequence; how many numbers a command has, see `ScreenOp`. */
   get data(): Float64Array {
     return this.#data;
   }
@@ -44,13 +44,13 @@ export class ScreenPath {
     return this.#closed;
   }
   /**
-   * Глубина каждой точки `move`, `line` и `cubic` в пространстве камеры, по порядку
-   * (у кривой — три точки). По ней путь режется плоскостью перекрывателя. У дуг глубины нет.
+   * Camera-space depth of each `move`, `line` and `cubic` point, in order
+   * (a curve has three points). The path is cut by the occluder plane using it. Arcs have no depth.
    */
   get depths(): Float64Array {
     return this.#depths;
   }
-  /** Число точек с глубиной. */
+  /** Number of points with depth. */
   get pointCount(): number {
     return this.#pointCount;
   }
@@ -104,7 +104,7 @@ export class ScreenPath {
     return this;
   }
 
-  /** Дуга окружности, как `CanvasRenderingContext2D.arc`. */
+  /** A circular arc, like `CanvasRenderingContext2D.arc`. */
   arc(
     cx: number,
     cy: number,
@@ -138,7 +138,7 @@ export class ScreenPath {
     this.#depths[this.#pointCount++] = z;
   }
 
-  /** Добавляет операцию и возвращает индекс, с которого писать её числа. */
+  /** Adds an operation and returns the index from which to write its numbers. */
   #reserve(op: ScreenOp): number {
     if (this.#opCount === this.#ops.length) {
       const ops = new Uint8Array(this.#ops.length * 2);

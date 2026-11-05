@@ -12,11 +12,11 @@ import { describe, expect, it } from 'vitest';
 import { commands } from 'vitest/browser';
 import { engineScenes, referenceScenes } from '../src/index.ts';
 
-/* Кадры WebGLRenderer в браузере: снимки сцен и точечные проверки пикселей. */
+/* WebGLRenderer frames in the browser: scene snapshots and spot pixel checks. */
 
 const expectedStatuses = ['match', 'written'];
 
-/** Рисует сцену на новом холсте и возвращает холст; рендерер освобождается. */
+/** Draws a scene on a new canvas and returns the canvas; the renderer is disposed. */
 function draw(scene: Scene, camera: Camera, viewport: Viewport): HTMLCanvasElement {
   const ratio = viewport.pixelRatio ?? 1;
   const canvas = document.createElement('canvas');
@@ -25,12 +25,12 @@ function draw(scene: Scene, camera: Camera, viewport: Viewport): HTMLCanvasEleme
   const renderer = new WebGLRenderer(canvas);
   try {
     renderer.render(scene, camera, viewport);
-    // Копия в 2D сразу после кадра: буфер WebGL после показа не сохраняется.
+    // Copy to 2D right after the frame: the WebGL buffer is not preserved after presenting.
     const copy = document.createElement('canvas');
     copy.width = canvas.width;
     copy.height = canvas.height;
     const ctx = copy.getContext('2d');
-    if (!ctx) throw new Error('Нет 2D-контекста.');
+    if (!ctx) throw new Error('No 2D context.');
     ctx.drawImage(canvas, 0, 0);
     return copy;
   } finally {
@@ -43,10 +43,10 @@ async function expectSnapshot(name: string, canvas: HTMLCanvasElement): Promise<
   expect(expectedStatuses, JSON.stringify(result)).toContain(result.status);
 }
 
-/** RGBA пикселя (x, y) холста. */
+/** RGBA of canvas pixel (x, y). */
 function pixel(canvas: HTMLCanvasElement, x: number, y: number): number[] {
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Нет 2D-контекста.');
+  if (!ctx) throw new Error('No 2D context.');
   return Array.from(ctx.getImageData(x, y, 1, 1).data);
 }
 
@@ -59,9 +59,9 @@ function sceneWith(...nodes: Node[]): Scene {
 const camera = new Camera();
 const small = { width: 100, height: 100 } as const;
 
-describe('снимки WebGL', () => {
+describe('WebGL snapshots', () => {
   for (const scene of referenceScenes) {
-    it(`эталонная сцена ${scene.id}`, async () => {
+    it(`reference scene ${scene.id}`, async () => {
       const root = scene.engine.build();
       scene.engine.pose(root, 0);
       const canvas = draw(new Scene(root), new Camera({ zoom: scene.zoom }), {
@@ -77,7 +77,7 @@ describe('снимки WebGL', () => {
   for (const scene of engineScenes) {
     for (const [i, time] of [0, ...(scene.snapshotTimes ?? [])].entries()) {
       const name = i === 0 ? scene.id : `${scene.id}-${i}`;
-      it(`сцена ${name}`, async () => {
+      it(`scene ${name}`, async () => {
         const { root, camera } = scene.build();
         scene.pose(root, camera, time);
         const canvas = draw(new Scene(root), camera, {
@@ -92,8 +92,8 @@ describe('снимки WebGL', () => {
   }
 });
 
-describe('пиксели WebGL', () => {
-  it('без фона альфа равна покрытию: непрозрачное 255, полупрозрачное ~128, пусто 0', () => {
+describe('WebGL pixels', () => {
+  it('without a background alpha equals coverage: opaque 255, translucent ~128, empty 0', () => {
     const canvas = draw(
       sceneWith(
         new Sphere({ diameter: 30, position: { x: -20, y: 0, z: 0 }, style: { color: '#f00' } }),
@@ -112,13 +112,13 @@ describe('пиксели WebGL', () => {
     expect(half.slice(0, 3)).toEqual([0, 0, 255]);
     expect(Math.abs((half[3] ?? 0) - 128)).toBeLessThanOrEqual(1);
     expect(pixel(canvas, 5, 5)).toEqual([0, 0, 0, 0]);
-    // Край шара — частичное покрытие.
+    // The ball edge has partial coverage.
     const edge = pixel(canvas, 14, 50)[3] ?? 0;
     expect(edge).toBeGreaterThan(0);
     expect(edge).toBeLessThan(255);
   });
 
-  it('полупрозрачная обводка одного тона по всей длине: стыки капсул не темнее', () => {
+  it('a translucent stroke has one tone along its length: capsule joints are not darker', () => {
     const canvas = draw(
       sceneWith(new Ellipse({ diameter: 120, opacity: 0.5, style: { stroke: 12, color: '#000' } })),
       camera,
@@ -132,11 +132,11 @@ describe('пиксели WebGL', () => {
           0,
       );
     }
-    // Один тон на всём кольце; на стыках с двойным смешиванием он упал бы примерно до 64.
+    // One tone on the whole ring; at joints with double blending it would drop to about 64.
     for (const tone of tones) expect(Math.abs(tone - 128)).toBeLessThanOrEqual(1);
   });
 
-  it('пересечение по пикселям: каждая из двух сфер ближе на своей половине', () => {
+  it('per-pixel intersection: each of two spheres is closer on its own half', () => {
     const canvas = draw(
       sceneWith(
         new Sphere({ diameter: 40, position: { x: -6, y: 0, z: 0 }, style: { color: '#f00' } }),
@@ -149,7 +149,7 @@ describe('пиксели WebGL', () => {
     expect(pixel(canvas, 54, 50).slice(0, 3)).toEqual([0, 0, 255]);
   });
 
-  it('слой −1 под содержимым, даже если ближе; слой +1 над ним, даже если дальше', () => {
+  it('layer −1 is below the content even if closer; layer +1 is above it even if farther', () => {
     const canvas = draw(
       sceneWith(
         new Sphere({ diameter: 40, style: { color: '#f00' } }),
@@ -173,9 +173,9 @@ describe('пиксели WebGL', () => {
     expect(pixel(canvas, 60, 50).slice(0, 3)).toEqual([0, 0, 255]);
   });
 
-  it('декаль видна только внутри силуэта опоры и не скрыта ею, хотя чуть глубже', () => {
+  it('a decal is visible only inside the anchor silhouette and is not hidden by it, though slightly deeper', () => {
     const head = new Sphere({ diameter: 40, style: { color: '#f00', stroke: 0 } });
-    // Точка на краю головы и чуть внутри неё: снаружи силуэта не видна.
+    // A point at the head edge and slightly inside it: not visible outside the silhouette.
     head.add(
       new PathShape({
         sortMode: 'attached',
@@ -188,7 +188,7 @@ describe('пиксели WebGL', () => {
     expect(pixel(canvas, 73, 50).slice(0, 3)).toEqual([255, 255, 255]);
   });
 
-  it('полупрозрачное перед декалью смешивается с ней, а не с опорой', () => {
+  it('a translucent shape in front of a decal blends with the decal, not with the anchor', () => {
     const head = new Sphere({ diameter: 60, style: { color: '#f00', stroke: 0 } });
     head.add(
       new PathShape({
@@ -208,7 +208,7 @@ describe('пиксели WebGL', () => {
     expect(Math.abs(g - 128)).toBeLessThanOrEqual(1);
     expect(b).toBe(255);
   });
-  it('полупрозрачная декаль на непрозрачной опоре смешивается с ней', () => {
+  it('a translucent decal on an opaque anchor blends with it', () => {
     const head = new Sphere({ diameter: 60, style: { color: '#f00', stroke: 0 } });
     head.add(
       new PathShape({
@@ -219,8 +219,8 @@ describe('пиксели WebGL', () => {
       }),
     );
     const canvas = draw(sceneWith(head), camera, { ...small, background: '#000' });
-    // Смешивание: 0,7 красного и 0,3 синего. Без него alpha-to-coverage закрыла бы лишь
-    // часть выборок, кратную четверти, — около (192, 0, 64).
+    // Blending: 0.7 red and 0.3 blue. Without it alpha-to-coverage would cover only a
+    // multiple of a quarter of the samples, about (192, 0, 64).
     const [r = 0, g = 0, b = 0, a = 0] = pixel(canvas, 50, 50);
     expect(Math.abs(r - 178.5)).toBeLessThanOrEqual(1);
     expect(g).toBe(0);
@@ -228,9 +228,9 @@ describe('пиксели WebGL', () => {
     expect(a).toBe(255);
   });
 
-  it('номера опор не переходят в следующий слой', () => {
-    // Обе опоры получают номер 1 в своих слоях. Декаль правой опоры заходит на левую:
-    // там её быть не должно, иначе номер левой опоры остался в трафарете.
+  it('anchor numbers do not carry over to the next layer', () => {
+    // Both anchors get number 1 in their layers. The right anchor's decal extends over the left
+    // one: it must not appear there, otherwise the left anchor's number stayed in the stencil.
     const left = new Sphere({
       diameter: 30,
       position: { x: -15, y: 0, z: 0 },
@@ -255,8 +255,8 @@ describe('пиксели WebGL', () => {
     expect(pixel(canvas, 35, 50).slice(0, 3)).toEqual([255, 0, 0]);
   });
 
-  it('после 127 полупрозрачных фигур номера в трафарете начинаются заново без пропусков', () => {
-    // 128 точек не перекрываются; 129-я — поверх первой и должна смешаться с ней.
+  it('after 127 translucent shapes stencil numbers restart without gaps', () => {
+    // 128 points do not overlap; the 129th lies over the first and must blend with it.
     const dots: Node[] = [];
     const dot = (x: number, y: number) =>
       new PathShape({
@@ -269,14 +269,14 @@ describe('пиксели WebGL', () => {
     }
     dots.push(dot(-45, -21));
     const canvas = draw(sceneWith(...dots), camera, { width: 100, height: 60, background: '#fff' });
-    // Одна точка — 128, две друг на друге — 64.
+    // One point gives 128, two on top of each other give 64.
     expect(Math.abs((pixel(canvas, 5, 9)[0] ?? 0) - 64)).toBeLessThanOrEqual(1);
     expect(Math.abs((pixel(canvas, 11, 9)[0] ?? 0) - 128)).toBeLessThanOrEqual(1);
   });
 });
 
-describe('жизненный цикл WebGLRenderer', () => {
-  it('пропускает кадры при потере контекста и восстанавливается', async () => {
+describe('WebGLRenderer lifecycle', () => {
+  it('skips frames on context loss and recovers', async () => {
     const canvas = document.createElement('canvas');
     canvas.width = 50;
     canvas.height = 50;
@@ -292,8 +292,8 @@ describe('жизненный цикл WebGLRenderer', () => {
     lose?.loseContext();
     expect(renderer.contextLost).toBe(true);
     expect(() => renderer.render(scene, camera, viewport)).not.toThrow();
-    // Событие потери приходит асинхронно. Восстанавливать можно только после него и не в той
-    // же задаче, что и обработчик: такой вызов restoreContext Chrome пропускает.
+    // The loss event arrives asynchronously. Restoring is possible only after it and not in the
+    // same task as the handler: Chrome ignores such a restoreContext call.
     await lost;
     await new Promise((resolve) => setTimeout(resolve, 0));
     const restored = event('webglcontextrestored');
@@ -303,10 +303,10 @@ describe('жизненный цикл WebGLRenderer', () => {
     renderer.render(scene, camera, viewport);
     expect(renderer.gl.getError()).toBe(renderer.gl.NO_ERROR);
     renderer.destroy();
-    expect(() => renderer.render(scene, camera, viewport)).toThrow('уничтожен');
+    expect(() => renderer.render(scene, camera, viewport)).toThrow('destroyed');
   });
 
-  it('множитель суперсэмплинга по умолчанию 2, на маленьком холсте не снижается', () => {
+  it('the supersampling factor defaults to 2 and is not reduced on a small canvas', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 64;
     canvas.height = 64;
@@ -316,7 +316,7 @@ describe('жизненный цикл WebGLRenderer', () => {
     renderer.destroy();
   });
 
-  it('у узла без рисования в режиме attached декали тоже на опоре', () => {
+  it('a non-drawing node in attached mode also anchors its decals', () => {
     const head = new Sphere({ diameter: 40, style: { color: '#f00', stroke: 0 } });
     const eye = new Node({ sortMode: 'attached', position: { x: 0, y: 0, z: 19 } });
     eye.add(new PathShape({ style: { stroke: 10, color: '#00f' } }));
@@ -326,8 +326,8 @@ describe('жизненный цикл WebGLRenderer', () => {
   });
 });
 
-describe('пропуск неизменного кадра', () => {
-  it('каждое изменение входов рисует кадр заново, и на холсте новое состояние', () => {
+describe('skipping an unchanged frame', () => {
+  it('every input change redraws the frame, and the canvas shows the new state', () => {
     const canvas = document.createElement('canvas');
     canvas.width = 100;
     canvas.height = 100;
@@ -344,34 +344,34 @@ describe('пропуск неизменного кадра', () => {
       expect(render(), name).toBe(true);
       expect(render(), name).toBe(false);
     };
-    redraws('зум камеры', () => {
+    redraws('camera zoom', () => {
       view.zoom = 2;
     });
-    redraws('положение камеры', () => {
+    redraws('camera position', () => {
       view.position.x = 3;
     });
-    redraws('фон', () => {
+    redraws('background', () => {
       viewport = { ...viewport, background: '#000' };
     });
-    redraws('плотность пикселей', () => {
+    redraws('pixel ratio', () => {
       viewport = { ...viewport, pixelRatio: 2 };
     });
-    redraws('ширина кадра', () => {
+    redraws('frame width', () => {
       viewport = { ...viewport, width: 90 };
     });
-    redraws('размер холста', () => {
+    redraws('canvas size', () => {
       canvas.width = 120;
     });
-    redraws('другая сцена', () => {
+    redraws('another scene', () => {
       scene.root.add(new Sphere({ diameter: 4, position: { x: 30, y: 30, z: 0 } }));
     });
-    // Присвоение холсту того же размера очищает его, но входы те же: нужен invalidate().
+    // Assigning the same size to the canvas clears it, but the inputs are the same: invalidate() is needed.
     canvas.width = 120;
     expect(render()).toBe(false);
     renderer.invalidate();
     expect(render()).toBe(true);
 
-    // Перерисованный кадр показывает новое состояние, а не прошлое.
+    // The redrawn frame shows the new state, not the previous one.
     view.zoom = 1;
     view.position.x = 0;
     canvas.width = 100;
@@ -382,7 +382,7 @@ describe('пропуск неизменного кадра', () => {
     copy.width = 100;
     copy.height = 100;
     const ctx = copy.getContext('2d');
-    if (!ctx) throw new Error('Нет 2D-контекста.');
+    if (!ctx) throw new Error('No 2D context.');
     ctx.drawImage(canvas, 0, 0);
     expect(Array.from(ctx.getImageData(50, 50, 1, 1).data).slice(0, 3)).toEqual([0, 0, 255]);
     renderer.destroy();

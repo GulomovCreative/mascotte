@@ -11,26 +11,26 @@ import {
 import { Styled, type StyledOptions } from './styled.ts';
 
 export interface ShapeOptions extends StyledOptions {
-  /** Замыкать ли контур. По умолчанию — `defaultClosed` класса фигуры. */
+  /** Whether to close the contour. Defaults to the shape class's `defaultClosed`. */
   closed?: boolean;
-  /** Направление лицевой стороны в локальных координатах. */
+  /** Front face direction in local coordinates. */
   front?: Readonly<Vec3>;
 }
 
 /**
- * Фигура: узел с одним путём и одним стилем. Геометрия строится лениво, в локальных
- * координатах, и пересобирается только после изменения параметров. Изменение
- * трансформации её не трогает: проекция использует мировую матрицу.
+ * Shape: a node with one path and one style. The geometry is built lazily, in local
+ * coordinates, and rebuilt only after parameters change. Transform changes
+ * do not touch it: projection uses the world matrix.
  *
- * Числовые параметры примитивов описаны статической схемой `params`: подклассы
- * объявляют схему, переопределяют `buildPath` и читают и пишут параметры через
- * `getParam` и `setParam`, имена которых проверяет компилятор.
+ * Numeric parameters of primitives are described by the static `params` schema: subclasses
+ * declare the schema, override `buildPath` and read and write parameters through
+ * `getParam` and `setParam`, whose names the compiler checks.
  */
 export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<S> {
-  /** Замкнут ли контур по умолчанию. */
+  /** Whether the contour is closed by default. */
   static readonly defaultClosed: boolean = true;
 
-  /** Направление лицевой стороны. Его изменение меняет только внешний вид. */
+  /** Front face direction. Changing it changes only the appearance. */
   readonly front: ObservedVec3;
 
   #closed: boolean;
@@ -54,7 +54,7 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
     this.#closed = options.closed ?? (this.constructor as typeof Shape).defaultClosed;
   }
 
-  /** Замыкать ли контур. Влияет на геометрию. */
+  /** Whether to close the contour. Affects the geometry. */
   get closed(): boolean {
     return this.#closed;
   }
@@ -66,8 +66,8 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
   }
 
   /**
-   * Геометрия пути в локальных координатах. Пересобирается лениво; объект всегда
-   * один и тот же, а его поля обновляются при пересборке.
+   * Path geometry in local coordinates. Rebuilt lazily; the object is always
+   * the same one, and its fields are updated on rebuild.
    */
   get geometry(): PathGeometry {
     if (this.#geometryDirty) {
@@ -86,15 +86,15 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
     return this.#view;
   }
 
-  /** Счётчик пересборок геометрии. Чтение сначала пересобирает устаревшую геометрию. */
+  /** Geometry rebuild counter. Reading it first rebuilds stale geometry. */
   get geometryVersion(): number {
     this.geometry;
     return this.#geometryVersion;
   }
 
   /**
-   * Точка сортировки — среднее концов команд пути, как в Zdog. Если путь возвращается
-   * в начальную точку, повтор не учитывается.
+   * The sort point is the mean of the path command end points, as in Zdog. If the path returns
+   * to its start point, the repeat is not counted.
    */
   override getSortPoint(out: Vec3): Vec3 {
     const version = this.geometryVersion;
@@ -144,10 +144,10 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
     return out;
   }
 
-  /** Строит путь в локальных координатах. */
+  /** Builds the path in local coordinates. */
   protected abstract buildPath(builder: PathBuilder): void;
 
-  /** Помечает геометрию устаревшей; кадр с этой фигурой тоже устарел. */
+  /** Marks the geometry stale; the frame with this shape is stale too. */
   protected invalidateGeometry(): void {
     this.#geometryDirty = true;
     this.markChanged();
@@ -159,13 +159,13 @@ export abstract class Shape<S extends ParamSchema = ParamSchema> extends Styled<
 }
 
 export interface PathShapeOptions extends ShapeOptions {
-  /** Команды пути. По умолчанию — одна точка в начале координат, то есть круглая точка. */
+  /** Path commands. By default a single point at the origin, that is, a round dot. */
   path?: readonly PathCommand[];
 }
 
 /**
- * Фигура с произвольным путём. Без пути это круглая точка размером с обводку,
- * путь из двух точек — отрезок.
+ * A shape with an arbitrary path. Without a path it is a round dot the size of the stroke;
+ * a path of two points is a segment.
  */
 export class PathShape extends Shape {
   static override readonly typeName: string = 'PathShape';
@@ -180,8 +180,8 @@ export class PathShape extends Shape {
     return this.#path;
   }
   /**
-   * Новый путь. Команды и точки копируются и замораживаются, поэтому изменение
-   * исходных объектов на фигуру не влияет: менять путь можно только присваиванием.
+   * The new path. Commands and points are copied and frozen, so changing
+   * the source objects does not affect the shape: the path can only be changed by assignment.
    */
   set path(value: readonly PathCommand[]) {
     this.#path = freezePath(value);
@@ -219,7 +219,7 @@ function freezeCommand(command: PathCommand): PathCommand {
 }
 
 function freezePath(path: readonly PathCommand[]): readonly PathCommand[] {
-  if (path.length === 0) throw new RangeError('Путь не может быть пустым.');
+  if (path.length === 0) throw new RangeError('Path cannot be empty.');
   return Object.freeze(path.map(freezeCommand));
 }
 

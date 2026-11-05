@@ -1,23 +1,23 @@
 import { checkLength, type StyleParamSpec } from './params.ts';
 
-/** Значения стиля фигуры. */
+/** Shape style values. */
 export interface ShapeStyleValues {
-  /** Толщина обводки в единицах сцены; 0 — без обводки. */
+  /** Stroke width in scene units; 0 means no stroke. */
   stroke: number;
   fill: boolean;
-  /** Цвет CSS. */
+  /** CSS color. */
   color: string;
-  /** Рисовать ли обратную сторону. */
+  /** Whether to draw the back face. */
   backfaceVisible: boolean;
-  /** Цвет обратной стороны; `null` — тот же, что у лицевой. */
+  /** Back face color; `null` means the same as the front. */
   backfaceColor: string | null;
 }
 
 /**
- * Стиль фигуры одним объектом: так его проще сохранять в документ и позже заменить
- * цвет материалом. Каждое изменение увеличивает `appearanceVersion` фигуры.
- * Поля обратной стороны имеют смысл только для фигур с путём; для экранных
- * поверхностей они не используются (разделение стиля — вместе с материалами).
+ * Shape style as a single object: this makes it easier to save into a document and later
+ * to replace color with a material. Every change bumps the shape's `appearanceVersion`.
+ * Back face fields only make sense for shapes with a path; screen surfaces
+ * do not use them (the style split comes together with materials).
  */
 export class ShapeStyle implements ShapeStyleValues {
   static readonly params = {

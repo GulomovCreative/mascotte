@@ -2,12 +2,12 @@ import { mascotEngine } from '../engine/mascot.ts';
 import type { ReferenceScene } from '../scene.ts';
 
 /**
- * Простой маскот: голова-сфера с глазами, ушами и ртом. Проверяет порядок отрисовки
- * мелких деталей на поверхности при повороте, где сортировка Zdog по средней глубине ошибается.
+ * A simple mascot: a sphere head with eyes, ears and a mouth. Checks the draw order of small
+ * surface details under rotation, where Zdog's mean-depth sorting gets it wrong.
  */
 export const mascot: ReferenceScene = {
   id: 'mascot',
-  title: 'Маскот',
+  title: 'Mascot',
   width: 240,
   height: 240,
   background: '#e8f1f2',

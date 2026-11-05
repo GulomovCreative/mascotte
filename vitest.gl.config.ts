@@ -3,8 +3,8 @@ import { defineConfig } from 'vitest/config';
 import { glCommands } from './reference/src/gl-snapshot.ts';
 
 /*
- * Тесты WebGL2 в настоящем браузере: Chromium без интерфейса с программным рендером
- * SwiftShader, чтобы кадры не зависели от видеокарты. Запуск — `pnpm test:gl`.
+ * WebGL2 tests in a real browser: headless Chromium with the SwiftShader software renderer,
+ * so frames do not depend on the GPU. Run with `pnpm test:gl`.
  */
 export default defineConfig({
   test: {

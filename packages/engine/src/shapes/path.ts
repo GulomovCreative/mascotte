@@ -1,14 +1,14 @@
 import type { Vec3 } from '@mascotte/math';
 
-/** Точка пути. Пропущенные координаты равны 0. */
+/** A path point. Omitted coordinates are 0. */
 export type PathPoint = Readonly<Partial<Vec3>>;
 
 /**
- * Команда пути в локальных координатах фигуры.
- * - `move` — начать новый контур;
- * - `line` — отрезок до точки;
- * - `bezier` — кубическая кривая Безье;
- * - `arc` — четверть дуги: из текущей точки к `point` через угол `corner`, как в Zdog.
+ * A path command in the shape's local coordinates.
+ * - `move` starts a new contour;
+ * - `line` is a segment to a point;
+ * - `bezier` is a cubic Bezier curve;
+ * - `arc` is a quarter arc: from the current point to `point` through the corner `corner`, as in Zdog.
  */
 export type PathCommand =
   | { readonly type: 'move'; readonly point: PathPoint }
@@ -21,44 +21,44 @@ export type PathCommand =
     }
   | { readonly type: 'arc'; readonly corner: PathPoint; readonly point: PathPoint };
 
-/** Код операции в собранной геометрии. */
+/** Operation code in the built geometry. */
 export const PathOp = {
-  /** Одна точка. */
+  /** One point. */
   move: 0,
-  /** Одна точка. */
+  /** One point. */
   line: 1,
-  /** Три точки: две опорные и конечная. */
+  /** Three points: two control points and an end point. */
   cubic: 2,
 } as const;
 export type PathOp = (typeof PathOp)[keyof typeof PathOp];
 
 /**
- * Длина ручек кривой Безье, заменяющей четверть дуги, в долях от расстояния до угла.
- * Значение из Zdog (`arcHandleLength = 9/16`), чтобы геометрия совпадала. Точная
- * аппроксимация окружности — 4/3·tan(π/8) ≈ 0,5523.
+ * Handle length of the Bezier curve that replaces a quarter arc, as a fraction of the distance to the corner.
+ * The value is from Zdog (`arcHandleLength = 9/16`) so the geometry matches. The exact
+ * circle approximation is 4/3·tan(π/8) ≈ 0.5523.
  */
 export const ARC_HANDLE = 9 / 16;
 
 /**
- * Собранная геометрия пути: только `move`, `line` и кубические кривые, дуги уже
- * заменены кривыми. Читать нужно только первые `opCount` операций и `pointCount`
- * точек. Массивы переиспользуются между пересборками и заменяются новыми только при
- * росте, поэтому хранить ссылки на `ops` и `points` дольше одной `geometryVersion` нельзя.
+ * Built path geometry: only `move`, `line` and cubic curves, arcs already
+ * replaced by curves. Only the first `opCount` operations and `pointCount`
+ * points should be read. The arrays are reused between rebuilds and replaced with new ones only when
+ * they grow, so references to `ops` and `points` must not be kept longer than one `geometryVersion`.
  */
 export interface PathGeometry {
   readonly ops: Uint8Array;
-  /** Координаты точек подряд: x, y, z. */
+  /** Point coordinates in sequence: x, y, z. */
   readonly points: Float64Array;
   readonly opCount: number;
   readonly pointCount: number;
-  /** Замыкать ли контур. Путь из одного отрезка (`move` и `line`) не замыкается никогда. */
+  /** Whether to close the contour. A path of a single segment (`move` and `line`) is never closed. */
   readonly closed: boolean;
 }
 
 /**
- * Сборщик пути в переиспользуемые буферы. Первая команда всегда становится `move`:
- * если путь начинается с другой команды, он начинается в её конечной точке. Zdog
- * в этом случае начинает с первой точки команды (опорной точки или угла дуги).
+ * Path builder into reusable buffers. The first command always becomes `move`:
+ * if the path starts with another command, it starts at that command's end point. Zdog
+ * in this case starts at the command's first point (a control point or the arc corner).
  */
 export class PathBuilder implements PathGeometry {
   #ops = new Uint8Array(8);
@@ -125,7 +125,7 @@ export class PathBuilder implements PathGeometry {
     return this;
   }
 
-  /** Четверть дуги из текущей точки к `(x, y, z)` через угол `(cx, cy, cz)`. */
+  /** A quarter arc from the current point to `(x, y, z)` through the corner `(cx, cy, cz)`. */
   arcTo(cx: number, cy: number, cz: number, x: number, y: number, z: number): this {
     if (this.#opCount === 0) return this.moveTo(x, y, z);
     const px = this.#x;
@@ -144,7 +144,7 @@ export class PathBuilder implements PathGeometry {
     );
   }
 
-  /** Добавляет команды пути. */
+  /** Adds path commands. */
   addCommands(commands: readonly PathCommand[]): this {
     for (const command of commands) {
       const p = command.point;
@@ -180,7 +180,7 @@ export class PathBuilder implements PathGeometry {
     return this;
   }
 
-  /** Задаёт замыкание с учётом правила Zdog: путь из одного отрезка не замыкается. */
+  /** Sets closing according to the Zdog rule: a path of a single segment is not closed. */
   finish(closed: boolean): this {
     const isSegment = this.#opCount === 2 && this.#ops[1] === PathOp.line;
     this.#closed = closed && !isSegment;

@@ -4,8 +4,8 @@ import { DisplayList, type DisplayListOptions } from './display-list.ts';
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 
 /**
- * Методы двумерного контекста, которые использует отрисовка. Подходят браузерный
- * `CanvasRenderingContext2D`, контекст `OffscreenCanvas` и canvas в Node.
+ * 2D context methods used by drawing. The browser
+ * `CanvasRenderingContext2D`, the `OffscreenCanvas` context and canvas in Node all fit.
  */
 export type CanvasTarget = Pick<
   CanvasRenderingContext2D,
@@ -32,20 +32,20 @@ export type CanvasTarget = Pick<
 >;
 
 export interface Viewport {
-  /** Ширина кадра в CSS-пикселях. */
+  /** Frame width in CSS pixels. */
   width: number;
-  /** Высота кадра в CSS-пикселях. */
+  /** Frame height in CSS pixels. */
   height: number;
-  /** Сколько пикселей холста в одном CSS-пикселе. По умолчанию 1. */
+  /** How many canvas pixels are in one CSS pixel. Defaults to 1. */
   pixelRatio?: number;
-  /** Цвет фона; без него кадр очищается до прозрачного. */
+  /** Background color; without it the frame is cleared to transparent. */
   background?: string;
 }
 
 /**
- * Отрисовка сцены в Canvas 2D. Строит список отрисовки и рисует его: центр кадра —
- * начало координат камеры. В пределах кадра состояние контекста (цвета, толщина,
- * концы линий, прозрачность) переключается только при изменении.
+ * Scene rendering in Canvas 2D. Builds the display list and draws it: the frame center
+ * is the camera origin. Within a frame the context state (colors, width,
+ * line caps, opacity) is switched only when it changes.
  */
 export class CanvasRenderer {
   readonly list: DisplayList;
@@ -59,7 +59,7 @@ export class CanvasRenderer {
     const width = viewport.width * ratio;
     const height = viewport.height * ratio;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    // Очистка обязательна и при фоне: полупрозрачный фон иначе копился бы поверх прошлых кадров.
+    // Clearing is required even with a background: otherwise a translucent background would accumulate over previous frames.
     ctx.clearRect(0, 0, width, height);
     if (viewport.background) {
       ctx.fillStyle = viewport.background;
@@ -69,7 +69,7 @@ export class CanvasRenderer {
     ctx.lineJoin = 'round';
 
     const list = this.list.build(scene, camera);
-    // Начальные значения, которые точно отличаются от первых настоящих.
+    // Initial values that are certain to differ from the first real ones.
     let alpha = Number.NaN;
     let lineCap = '';
     let lineWidth = Number.NaN;
@@ -79,7 +79,7 @@ export class CanvasRenderer {
       const item = list.item(i);
       const clipped = item.clip === 'circle';
       if (clipped) {
-        // После restore контекст возвращается к состоянию до save: кэш тоже сбрасывается.
+        // After restore the context returns to its state before save: the cache is reset too.
         ctx.save();
         ctx.beginPath();
         ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
@@ -125,24 +125,22 @@ export class CanvasRenderer {
   }
 }
 
-/** Проверяет размеры кадра и возвращает devicePixelRatio. */
+/** Validates the frame size and returns devicePixelRatio. */
 function checkViewport(viewport: Viewport): number {
   const ratio = viewport.pixelRatio ?? 1;
   const ok = (value: number) => value >= 0 && Number.isFinite(value);
   if (!ok(viewport.width) || !ok(viewport.height)) {
     throw new RangeError(
-      `Размеры кадра должны быть конечными и неотрицательными: ${viewport.width}×${viewport.height}.`,
+      `Frame size must be finite and non-negative: ${viewport.width}×${viewport.height}.`,
     );
   }
   if (!(ratio > 0 && Number.isFinite(ratio))) {
-    throw new RangeError(
-      `pixelRatio должен быть положительным конечным числом, получено ${ratio}.`,
-    );
+    throw new RangeError(`pixelRatio must be a positive finite number, got ${ratio}.`);
   }
   return ratio;
 }
 
-/** Повторяет экранный путь в контексте. */
+/** Replays a screen path in the context. */
 function trace(ctx: CanvasTarget, path: ScreenPath): void {
   const { ops, data, opCount } = path;
   ctx.beginPath();

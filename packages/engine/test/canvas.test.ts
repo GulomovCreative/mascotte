@@ -28,7 +28,7 @@ function items(list: DisplayList) {
 }
 
 describe('DisplayList', () => {
-  it('фигура проецируется в пиксели с учётом zoom, точка — круг из обводки', () => {
+  it('a shape projects to pixels with zoom, a point is a circle from the stroke', () => {
     const rect = new Rect({
       width: 10,
       height: 4,
@@ -41,7 +41,7 @@ describe('DisplayList', () => {
     });
     const list = new DisplayList().build(sceneWith(rect, dot), new Camera({ zoom: 2 }));
     const [a, b] = items(list);
-    if (!a || !b) throw new Error('должно быть два элемента');
+    if (!a || !b) throw new Error('there must be two elements');
     expect(Array.from(a.path.data.subarray(0, a.path.dataCount))).toEqual([
       0, -4, 20, -4, 20, 4, 0, 4,
     ]);
@@ -51,7 +51,7 @@ describe('DisplayList', () => {
     expect([b.hasStroke, b.hasFill, b.color]).toEqual([false, true, '#f00']);
   });
 
-  it('обратная сторона: скрыта, своего цвета или того же', () => {
+  it('back side: hidden, its own color, or the same color', () => {
     const turned = euler.create(0, Math.PI, 0);
     const hidden = new Rect({ id: 'hidden', rotation: turned, style: { backfaceVisible: false } });
     const colored = new Rect({
@@ -69,7 +69,7 @@ describe('DisplayList', () => {
     ]);
   });
 
-  it('прозрачность с учётом предков; полностью прозрачное и скрытое не попадает', () => {
+  it('opacity includes ancestors; fully transparent and hidden items are skipped', () => {
     const parent = new Node({ opacity: 0.5 });
     parent.add(new Rect({ id: 'half', opacity: 0.5 }));
     const list = new DisplayList().build(
@@ -83,7 +83,7 @@ describe('DisplayList', () => {
     expect(items(list).map((item) => [item.node?.id, item.opacity])).toEqual([['half', 0.25]]);
   });
 
-  it('без обводки и заливки элемент не попадает, точка без обводки — тоже', () => {
+  it('an element without stroke and fill is skipped, so is a point without stroke', () => {
     const list = new DisplayList().build(
       sceneWith(
         new Rect({ style: { stroke: 0, fill: false } }),
@@ -94,7 +94,7 @@ describe('DisplayList', () => {
     expect(list.count).toBe(0);
   });
 
-  it('обводка масштабируется вместе с узлом', () => {
+  it('stroke scales with the node', () => {
     const list = new DisplayList().build(
       sceneWith(new Rect({ scale: 3, style: { stroke: 2 } })),
       camera,
@@ -102,7 +102,7 @@ describe('DisplayList', () => {
     expect(list.item(0).lineWidth).toBeCloseTo(6, 12);
   });
 
-  it('части составной фигуры в перспективе берут глубину владельца', () => {
+  it('solid parts in perspective use the owner depth', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
     const cylinder = new Cylinder({
       length: 40,
@@ -116,7 +116,7 @@ describe('DisplayList', () => {
     for (const item of items(list)) {
       if (item.node === cylinder.body) continue;
       checked++;
-      // Основание в плоскости, перпендикулярной взгляду: радиус = 5 · масштаб глубины цилиндра.
+      // The base is in a plane perpendicular to the view: radius = 5 · cylinder depth scale.
       const data = Array.from(item.path.data.subarray(0, item.path.dataCount));
       const ys = data.filter((_, i) => i % 2 === 1);
       expect(Math.max(...ys)).toBeCloseTo(5 * scale, 9);
@@ -124,9 +124,9 @@ describe('DisplayList', () => {
     expect(checked).toBe(2);
   });
 
-  it('в перспективе точки фигуры масштабируются по глубине её начала', () => {
+  it('in perspective shape points are scaled by the depth of its origin', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
-    // Прямоугольник повёрнут: его углы на разной глубине, но масштаб — по глубине начала (20).
+    // The rect is rotated: its corners are at different depths, but scale uses the origin depth (20).
     const rect = new Rect({
       width: 20,
       height: 10,
@@ -143,7 +143,7 @@ describe('DisplayList', () => {
     expect(Math.min(...xs)).toBeCloseTo(-half * s, 9);
   });
 
-  it('кривая проецируется всеми тремя точками', () => {
+  it('a curve projects all three points', () => {
     const curve = new PathShape({
       path: [
         { type: 'move', point: { x: 0 } },
@@ -160,7 +160,7 @@ describe('DisplayList', () => {
     expect(Array.from(item.path.data.subarray(2, 8))).toEqual([2, 4, 6, 8, 10, 12]);
   });
 
-  it('обратная сторона считается от камеры, ребром к камере — лицевая', () => {
+  it('the back side is relative to the camera, edge-on counts as front', () => {
     const behind = new Camera({ rotation: euler.create(0, Math.PI, 0) });
     expect(
       new DisplayList().build(sceneWith(new Rect({ style: { backfaceVisible: false } })), behind)
@@ -174,7 +174,7 @@ describe('DisplayList', () => {
     expect(item.color).toBe('#123');
   });
 
-  it('пропущенная фигура в середине списка не оставляет следов', () => {
+  it('a skipped shape in the middle of the list leaves no trace', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
     const a = new Rect({ id: 'a', position: { x: 0, y: 0, z: -10 }, style: { color: '#a00' } });
     const b = new Rect({
@@ -201,11 +201,11 @@ describe('DisplayList', () => {
     ]);
   });
 
-  it('прозрачность поверхности и нулевая толщина обводки', () => {
+  it('surface opacity and zero stroke width', () => {
     const parent = new Node({ opacity: 0.5 });
     parent.add(new Sphere({ id: 'sphere' }));
     expect(new DisplayList().build(sceneWith(parent), camera).item(0).opacity).toBe(0.5);
-    // Капсула, сжатая по ширине до нуля: обводки нет, а не толщина предыдущего элемента.
+    // A capsule squashed to zero width: no stroke, not the width of the previous element.
     const flat = new Capsule({
       length: 40,
       scale: { x: 0, y: 1, z: 1 },
@@ -227,7 +227,7 @@ describe('DisplayList', () => {
     expect(items(list).some((item) => item.node === flat)).toBe(false);
   });
 
-  it('за глазом камеры фигура не рисуется', () => {
+  it('a shape behind the camera eye is not drawn', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
     const list = new DisplayList().build(
       sceneWith(new Rect({ position: { x: 0, y: 0, z: 150 } })),
@@ -236,7 +236,7 @@ describe('DisplayList', () => {
     expect(list.count).toBe(0);
   });
 
-  it('элементы и буферы переиспользуются между кадрами', () => {
+  it('elements and buffers are reused between frames', () => {
     const scene = sceneWith(new Rect(), new Sphere(), new Cylinder());
     const list = new DisplayList();
     list.build(scene, camera);
@@ -252,7 +252,7 @@ describe('DisplayList', () => {
   });
 });
 
-/** Контекст, который записывает вызовы и присваивания. */
+/** A context that records calls and assignments. */
 function recordingContext() {
   const calls: string[] = [];
   const target = {
@@ -289,7 +289,7 @@ function recordingContext() {
 }
 
 describe('CanvasRenderer', () => {
-  it('центр кадра и devicePixelRatio, фон или очистка', () => {
+  it('frame center and devicePixelRatio, background or clear', () => {
     const { ctx, calls } = recordingContext();
     new CanvasRenderer().render(ctx, sceneWith(), camera, {
       width: 100,
@@ -297,7 +297,7 @@ describe('CanvasRenderer', () => {
       pixelRatio: 2,
       background: '#fff',
     });
-    // Кадр очищается и при фоне: иначе полупрозрачный фон копился бы поверх прошлых кадров.
+    // The frame is cleared even with a background: otherwise a translucent background would pile up over past frames.
     expect(calls).toEqual([
       'setTransform 1 0 0 1 0 0',
       'clearRect',
@@ -314,7 +314,7 @@ describe('CanvasRenderer', () => {
     expect(clear.calls).toContain('setTransform 1 0 0 1 50 25');
   });
 
-  it('неверные размеры кадра — ошибка', () => {
+  it('invalid frame size is an error', () => {
     const { ctx } = recordingContext();
     const renderer = new CanvasRenderer();
     for (const viewport of [
@@ -330,7 +330,7 @@ describe('CanvasRenderer', () => {
     }
   });
 
-  it('состояние контекста переключается только при изменении', () => {
+  it('context state is switched only on change', () => {
     const { ctx, calls } = recordingContext();
     const shapes = [0, 1, 2].map(
       (i) =>
@@ -349,11 +349,11 @@ describe('CanvasRenderer', () => {
     expect(exactly('stroke')).toBe(3);
     expect(exactly('fill')).toBe(3);
     expect(exactly('closePath')).toBe(3);
-    // Внутри элемента — сначала обводка, потом заливка, как в Zdog.
+    // Within an element: stroke first, then fill, as in Zdog.
     expect(calls.indexOf('stroke')).toBeLessThan(calls.indexOf('fill'));
   });
 
-  it('globalAlpha переключается при смене прозрачности и сбрасывается в конце', () => {
+  it('globalAlpha switches when opacity changes and is reset at the end', () => {
     const { ctx, calls } = recordingContext();
     const shapes = [0.5, 0.5, 1].map(
       (opacity, i) => new Rect({ opacity, position: { x: 0, y: 0, z: i } }),
@@ -367,7 +367,7 @@ describe('CanvasRenderer', () => {
     expect(calls.at(-1)).toBe('globalAlpha=1');
   });
 
-  it('аргументы дуги и кривой передаются полностью', () => {
+  it('arc and curve arguments are passed in full', () => {
     const { ctx, calls } = recordingContext();
     const curve = new PathShape({
       path: [
@@ -395,7 +395,7 @@ describe('CanvasRenderer', () => {
     expect(calls).toContain('bezierCurveTo 1 2 3 4 5 6');
   });
 
-  it('бок цилиндра рисуется с плоскими концами, потом снова круглые', () => {
+  it('the cylinder side is drawn with butt caps, then round caps again', () => {
     const { ctx, calls } = recordingContext();
     new CanvasRenderer().render(
       ctx,
@@ -416,7 +416,7 @@ describe('CanvasRenderer', () => {
     expect(caps).toEqual(['lineCap=butt', 'lineCap=round']);
   });
 
-  it('обрезка декали: save, круг, clip, restore, после него состояние задаётся заново', () => {
+  it('decal clipping: save, circle, clip, restore, then state is set again', () => {
     const { ctx, calls } = recordingContext();
     const head = new PathShape({ id: 'head', style: { stroke: 80, color: '#f60' } });
     const eye = new Rect({
@@ -446,7 +446,7 @@ describe('CanvasRenderer', () => {
     ]);
     const restore = calls.indexOf('restore');
     expect(restore).toBeGreaterThan(save);
-    // После restore цвет обводки той же фигуры задаётся заново: кэш сброшен.
+    // After restore the stroke color of the same shape is set again: the cache is reset.
     expect(calls.slice(restore).filter((c) => c === 'strokeStyle=#f60')).toHaveLength(1);
   });
 });

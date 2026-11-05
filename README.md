@@ -1,46 +1,46 @@
 # Mascotte
 
-Библиотека для анимированных стилизованных 3D-маскотов. Строит фигуры из простых примитивов и рисует их через WebGL2 (или Canvas 2D как запасной вариант) в плоском стиле с толстыми скруглёнными обводками.
+A library for animated stylized 3D mascots. It builds shapes from simple primitives and draws them with WebGL2 (or Canvas 2D as a fallback) in a flat style with thick rounded strokes.
 
-Стиль и геометрия примитивов взяты у [Zdog](https://github.com/metafizzy/zdog) от Metafizzy (MIT). Ядро написано заново; копия Zdog, по которой сверялась картинка, удалена, а её кадры и числа остались эталонами для тестов. Подробности в [NOTICE](NOTICE).
+The style and primitive geometry come from [Zdog](https://github.com/metafizzy/zdog) by Metafizzy (MIT). The core is written from scratch. The Zdog copy used to compare images has been removed; its frames and numbers remain as test references. See [NOTICE](NOTICE) for details.
 
-## Статус
+## Status
 
-Ранняя стадия. Новое ядро рисует эталонные сцены так же, как Zdog; совместимость с API Zdog не планируется.
+Early stage. The new core draws the reference scenes the same way Zdog does. Compatibility with the Zdog API is not planned.
 
-## План
+## Plan
 
-Цели, архитектура и этапы работы описаны в [docs/PLAN.md](docs/PLAN.md). Коротко:
+Goals, architecture and stages of work are described in [docs/PLAN.md](docs/PLAN.md). In short:
 
-- основной бэкенд — WebGL2 с глубиной на каждый пиксель, Canvas 2D — запасной и для экспорта;
-- маскоты собираются в визуальном редакторе и хранятся как JSON-документы;
-- архетипы, слоты рига и общая библиотека анимаций позволяют делать разных маскотов без нового кода.
+- the main backend is WebGL2 with per-pixel depth; Canvas 2D is the fallback and is used for export;
+- mascots are assembled in a visual editor and stored as JSON documents;
+- archetypes, rig slots and a shared animation library make it possible to build different mascots without new code.
 
-## Разработка
+## Development
 
-Нужны Node.js 24+ и pnpm 12.
+Requires Node.js 24+ and pnpm 12.
 
 ```sh
 pnpm install
-pnpm dev               # playground на http://localhost:5173
-pnpm test              # тесты, включая сравнение снимков кадров
-pnpm test:gl           # тесты WebGL2 в Chromium без интерфейса (SwiftShader)
-pnpm typecheck         # проверка типов
-pnpm lint              # линтер и форматирование (Biome)
-pnpm format            # исправить форматирование
-pnpm build             # сборка playground
+pnpm dev               # playground at http://localhost:5173
+pnpm test              # tests, including frame snapshot comparison
+pnpm test:gl           # WebGL2 tests in headless Chromium (SwiftShader)
+pnpm typecheck         # type checking
+pnpm lint              # linter and formatting (Biome)
+pnpm format            # fix formatting
+pnpm build             # build the playground
 ```
 
-Структура:
+Structure:
 
-- `packages/` — пакеты движка: `math`, `engine`, `format`, `player`;
-- `apps/playground` — примеры и отладка: сцены на WebGL2 и Canvas 2D и бенчмарк;
-- `reference/` — эталонные сцены на новом ядре, сцены только для нового ядра и бенчмарк; снимки кадров в `reference/snapshots/`: Canvas 2D, WebGL (`gl/`) и замороженные кадры Zdog (`zdog/`), с которыми сверяются эталонные сцены.
+- `packages/`: engine packages `math`, `engine`, `format`, `player`;
+- `apps/playground`: examples and debugging, WebGL2 and Canvas 2D scenes and a benchmark;
+- `reference/`: reference scenes on the new core, scenes for the new core only, and the benchmark; frame snapshots are in `reference/snapshots/`: Canvas 2D, WebGL (`gl/`) and frozen Zdog frames (`zdog/`) that the reference scenes are compared against.
 
-Если тест снимка упал, фактический кадр и карта отличий лежат в `reference/test/__diff__/` (для WebGL — в `reference/test/__diff__/gl/`). Снимки создаются и обновляются только командами `pnpm snapshots:update` и `pnpm snapshots:update:gl`, обычный прогон тестов их не пишет. В CI обновление запрещено. Кадры Zdog в `reference/snapshots/zdog/` не пересоздаются никогда: копии Zdog больше нет.
+If a snapshot test fails, the actual frame and the diff map are in `reference/test/__diff__/` (for WebGL, in `reference/test/__diff__/gl/`). Snapshots are created and updated only by `pnpm snapshots:update` and `pnpm snapshots:update:gl`; a regular test run does not write them. Updating is disabled in CI. The Zdog frames in `reference/snapshots/zdog/` are never regenerated, since the Zdog copy no longer exists.
 
-Тестам WebGL нужен Chromium для Playwright: один раз выполните `pnpm exec playwright install --only-shell chromium` (в Linux можно добавить `--with-deps`, чтобы поставить системные библиотеки). Снимки WebGL лежат в `reference/snapshots/gl/` и привязаны к версии Chromium, которую задаёт `playwright` в `pnpm-lock.yaml`: после её обновления снимки может понадобиться пересоздать.
+WebGL tests need Chromium for Playwright: run `pnpm exec playwright install --only-shell chromium` once (on Linux you can add `--with-deps` to install system libraries). WebGL snapshots are in `reference/snapshots/gl/` and are tied to the Chromium version set by `playwright` in `pnpm-lock.yaml`. After it is updated, the snapshots may need to be regenerated.
 
-## Лицензия
+## License
 
-MIT, см. [LICENSE](LICENSE).
+MIT, see [LICENSE](LICENSE).

@@ -1,6 +1,6 @@
 import { expect } from 'vitest';
 
-/** Детерминированный генератор псевдослучайных чисел (mulberry32). */
+/** Deterministic pseudo-random number generator (mulberry32). */
 export function random(seed: number): () => number {
   let state = seed >>> 0;
   return () => {
@@ -12,14 +12,14 @@ export function random(seed: number): () => number {
   };
 }
 
-/** Случайное число из диапазона [min, max). */
+/** Random number in the range [min, max). */
 export function range(next: () => number, min: number, max: number): number {
   return min + (max - min) * next();
 }
 
 /**
- * Проверяет, что у объектов одинаковый набор полей, а числовые поля совпадают
- * с точностью до `digits` знаков после запятой.
+ * Checks that the objects have the same set of fields and that numeric fields match
+ * to `digits` decimal places.
  */
 export function expectClose<T extends object>(actual: T, expected: T, digits = 9): void {
   expect(Object.keys(actual).sort()).toEqual(Object.keys(expected).sort());

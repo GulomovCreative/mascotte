@@ -16,20 +16,20 @@ function rotate(q: Quat, v: vec3.Vec3): vec3.Vec3 {
 }
 
 describe('quat', () => {
-  it('положительный угол поворачивает по правилу правой руки', () => {
+  it('a positive angle rotates by the right-hand rule', () => {
     expectClose(rotate(axisAngle(Z, Math.PI / 2), X), { x: 0, y: 1, z: 0 });
     expectClose(rotate(axisAngle(X, Math.PI / 2), Y), { x: 0, y: 0, z: 1 });
     expectClose(rotate(axisAngle(Y, Math.PI / 2), Z), { x: 1, y: 0, z: 0 });
   });
 
-  it('multiply(a, b) применяет сначала b, потом a', () => {
+  it('multiply(a, b) applies b first, then a', () => {
     const a = axisAngle(X, 0.7);
     const b = axisAngle(Z, 1.3);
     const v = vec3.create(0.3, -1.2, 2);
     expectClose(rotate(quat.multiply(quat.create(), a, b), v), rotate(a, rotate(b, v)));
   });
 
-  it('multiply корректен при out = a и out = b', () => {
+  it('multiply is correct with out = a and out = b', () => {
     const a = axisAngle(X, 0.7);
     const b = axisAngle(Y, -0.4);
     const expected = quat.multiply(quat.create(), a, b);
@@ -38,7 +38,7 @@ describe('quat', () => {
     expect(quat.multiply(bb, a, bb)).toEqual(expected);
   });
 
-  it('conjugate и invert дают обратный поворот', () => {
+  it('conjugate and invert give the inverse rotation', () => {
     const q = axisAngle(vec3.normalize(vec3.create(), vec3.create(1, 2, 3)), 1.1);
     const id = quat.create();
     expect(quat.equals(quat.multiply(quat.create(), q, quat.conjugate(quat.create(), q)), id)).toBe(
@@ -49,12 +49,12 @@ describe('quat', () => {
     expect(quat.equals(product, id)).toBe(true);
   });
 
-  it('normalize делает кватернион единичным, нулевой становится единичным', () => {
+  it('normalize makes a quaternion unit, a zero one becomes the identity', () => {
     expect(quat.length(quat.normalize(quat.create(), { x: 1, y: 2, z: 3, w: 4 }))).toBeCloseTo(1);
     expect(quat.normalize(quat.create(), { x: 0, y: 0, z: 0, w: 0 })).toEqual(quat.create());
   });
 
-  it('slerp: концы, середина, кратчайший путь', () => {
+  it('slerp: ends, midpoint, shortest path', () => {
     const a = quat.create();
     const b = axisAngle(Z, Math.PI / 2);
     expect(quat.equalsRotation(quat.slerp(quat.create(), a, b, 0), a)).toBe(true);
@@ -62,14 +62,14 @@ describe('quat', () => {
     expect(
       quat.equalsRotation(quat.slerp(quat.create(), a, b, 0.5), axisAngle(Z, Math.PI / 4)),
     ).toBe(true);
-    // -b задаёт тот же поворот: путь всё равно должен быть коротким.
+    // -b is the same rotation: the path must still be the short one.
     const negB = quat.set(quat.create(), -b.x, -b.y, -b.z, -b.w);
     expect(
       quat.equalsRotation(quat.slerp(quat.create(), a, negB, 0.5), axisAngle(Z, Math.PI / 4)),
     ).toBe(true);
   });
 
-  it('slerp почти одинаковых поворотов не даёт NaN', () => {
+  it('slerp of nearly identical rotations does not give NaN', () => {
     const a = axisAngle(X, 0.5);
     const b = axisAngle(X, 0.5 + 1e-9);
     const result = quat.slerp(quat.create(), a, b, 0.5);
@@ -77,7 +77,7 @@ describe('quat', () => {
     expect(quat.equalsRotation(result, a)).toBe(true);
   });
 
-  it('equalsRotation считает q и -q одним поворотом', () => {
+  it('equalsRotation treats q and -q as the same rotation', () => {
     const q = axisAngle(Y, 1);
     const neg = quat.set(quat.create(), -q.x, -q.y, -q.z, -q.w);
     expect(quat.equalsRotation(q, neg)).toBe(true);
@@ -85,8 +85,8 @@ describe('quat', () => {
   });
 });
 
-describe('углы Эйлера', () => {
-  it("'XYZ' означает Rx · Ry · Rz", () => {
+describe('Euler angles', () => {
+  it("'XYZ' means Rx · Ry · Rz", () => {
     const e = euler.create(0.4, -0.9, 1.7, 'XYZ');
     const expected = quat.multiply(
       quat.create(),
@@ -96,7 +96,7 @@ describe('углы Эйлера', () => {
     expect(quat.equalsRotation(quat.fromEuler(quat.create(), e), expected)).toBe(true);
   });
 
-  it('каждый порядок даёт произведение поворотов в порядке записи', () => {
+  it('each order gives the product of rotations in the written order', () => {
     const axes = { X, Y, Z };
     const e = { x: 0.3, y: 1.1, z: -0.8 };
     for (const order of EULER_ORDERS) {
@@ -110,7 +110,7 @@ describe('углы Эйлера', () => {
     }
   });
 
-  it('toEuler обращает fromEuler для всех порядков', () => {
+  it('toEuler inverts fromEuler for all orders', () => {
     const next = random(42);
     for (const order of EULER_ORDERS) {
       const middle = order[1]?.toLowerCase() as 'x' | 'y' | 'z';
@@ -121,7 +121,7 @@ describe('углы Эйлера', () => {
           range(next, -Math.PI, Math.PI),
           order,
         );
-        // Средний угол однозначен только в диапазоне (-π/2, π/2).
+        // The middle angle is unique only in the range (-π/2, π/2).
         e[middle] = range(next, -1.5, 1.5);
         const q = quat.fromEuler(quat.create(), e);
         const back = quat.toEuler(euler.create(), q, order);
@@ -131,7 +131,7 @@ describe('углы Эйлера', () => {
     }
   });
 
-  it('toEuler в блокировке осей даёт тот же поворот', () => {
+  it('toEuler in gimbal lock gives the same rotation', () => {
     for (const order of EULER_ORDERS) {
       const middle = order[1]?.toLowerCase() as 'x' | 'y' | 'z';
       const e = euler.create(0.3, 0.6, 0.9, order);
@@ -143,8 +143,8 @@ describe('углы Эйлера', () => {
   });
 });
 
-describe('quat: сравнение поворотов', () => {
-  it('angleBetween точен для малых и больших углов', () => {
+describe('quat: rotation comparison', () => {
+  it('angleBetween is accurate for small and large angles', () => {
     const id = quat.create();
     for (const angle of [1e-8, 2.5e-3, 0.5, Math.PI / 2, Math.PI]) {
       expect(quat.angleBetween(id, axisAngle(X, angle)), String(angle)).toBeCloseTo(angle, 12);
@@ -154,7 +154,7 @@ describe('quat: сравнение поворотов', () => {
     expect(quat.angleBetween(q, neg)).toBeCloseTo(0, 12);
   });
 
-  it('equalsRotation сравнивает угол, а не скалярное произведение', () => {
+  it('equalsRotation compares the angle, not the dot product', () => {
     const id = quat.create();
     const near = axisAngle(Z, 2.5e-3);
     expect(quat.equalsRotation(id, near)).toBe(false);
@@ -163,8 +163,8 @@ describe('quat: сравнение поворотов', () => {
   });
 });
 
-describe('quat: остальные операции', () => {
-  it('dot, copy, identity, invert нулевого', () => {
+describe('quat: other operations', () => {
+  it('dot, copy, identity, invert of zero', () => {
     const q = quat.set(quat.create(), 1, 2, 3, 4);
     expect(quat.dot(q, q)).toBe(30);
     expect(quat.copy(quat.create(), q)).toEqual(q);
@@ -172,7 +172,7 @@ describe('quat: остальные операции', () => {
     expect(quat.invert(quat.create(), { x: 0, y: 0, z: 0, w: 0 })).toEqual(quat.create());
   });
 
-  it('slerp за пределами [0, 1] продолжает вращение', () => {
+  it('slerp outside [0, 1] continues the rotation', () => {
     const a = quat.create();
     const b = axisAngle(Z, Math.PI / 4);
     expect(quat.equalsRotation(quat.slerp(quat.create(), a, b, 2), axisAngle(Z, Math.PI / 2))).toBe(
@@ -183,7 +183,7 @@ describe('quat: остальные операции', () => {
     expect(quat.equalsRotation(back, axisAngle(Z, -Math.PI / 4))).toBe(true);
   });
 
-  it('все операции допускают out = аргумент', () => {
+  it('all operations allow out = argument', () => {
     const b = axisAngle(vec3.normalize(vec3.create(), vec3.create(1, -2, 0.5)), 2.1);
     const make = () => axisAngle(vec3.normalize(vec3.create(), vec3.create(0.3, 1, -1)), 0.8);
     const cases: [string, (out: Quat, a: Quat) => Quat][] = [
@@ -202,7 +202,7 @@ describe('quat: остальные операции', () => {
     }
   });
 
-  it('transformVec3 допускает out = v', () => {
+  it('transformVec3 allows out = v', () => {
     const q = axisAngle(vec3.normalize(vec3.create(), vec3.create(1, 1, 1)), 1.3);
     const v = vec3.create(2, -1, 0.5);
     const expected = quat.transformVec3(vec3.create(), q, v);
@@ -210,8 +210,8 @@ describe('quat: остальные операции', () => {
   });
 });
 
-describe('углы Эйлера: границы', () => {
-  it('euler.create, isEulerOrder и порядок по умолчанию в toEuler', () => {
+describe('Euler angles: edge cases', () => {
+  it('euler.create, isEulerOrder and the default order in toEuler', () => {
     expect(euler.create()).toEqual({ x: 0, y: 0, z: 0, order: 'XYZ' });
     expect(isEulerOrder('ZYX')).toBe(true);
     expect(isEulerOrder('xyz')).toBe(false);
@@ -220,7 +220,7 @@ describe('углы Эйлера: границы', () => {
     expectClose(quat.toEuler(euler.create(0, 0, 0, 'YZX'), q), euler.create(0.1, 0.2, 0.3, 'YZX'));
   });
 
-  it('в блокировке осей ±π/2 последний угол обнуляется, поворот сохраняется', () => {
+  it('in gimbal lock at ±π/2 the last angle is zeroed and the rotation is preserved', () => {
     for (const order of EULER_ORDERS) {
       const middle = order[1]?.toLowerCase() as 'x' | 'y' | 'z';
       const last = order[2]?.toLowerCase() as 'x' | 'y' | 'z';
@@ -236,7 +236,7 @@ describe('углы Эйлера: границы', () => {
     }
   });
 
-  it('около блокировки осей углы восстанавливаются точно', () => {
+  it('angles are recovered accurately near gimbal lock', () => {
     for (const order of EULER_ORDERS) {
       const middle = order[1]?.toLowerCase() as 'x' | 'y' | 'z';
       for (const offset of [1e-3, 4e-4, 1e-5, 1e-7]) {
@@ -247,7 +247,7 @@ describe('углы Эйлера: границы', () => {
           const back = quat.toEuler(euler.create(), q, order);
           const label = `${order} ${sign} ${offset}`;
           expect(back[middle], label).toBeCloseTo(e[middle], 9);
-          // Ошибка ограничена точностью double: около 1e-16 / cos(среднего угла).
+          // The error is bounded by double precision: about 1e-16 / cos(middle angle).
           expect(quat.angleBetween(quat.fromEuler(quat.create(), back), q), label).toBeLessThan(
             1e-8,
           );

@@ -1,43 +1,43 @@
 /*
- * Ticker — общий цикл кадров. Ядро не знает про DOM: кадры просит подставляемый
- * планировщик, а видимость вкладки, `prefers-reduced-motion` и видимость элементов
- * сообщает внешний код (в браузере — `@mascotte/player`) через паузы с причинами.
+ * Ticker is the shared frame loop. The core knows nothing about the DOM: frames are requested by a pluggable
+ * scheduler, and tab visibility, `prefers-reduced-motion` and element visibility
+ * are reported by outside code (in the browser, `@mascotte/player`) through pauses with reasons.
  */
 
 /**
- * Обработчик кадра: `dt` — секунды с прошлого кадра тикера (не больше `maxDelta`),
- * `time` — время подписки: сумма полученных ею `dt`.
+ * Frame handler: `dt` is seconds since the ticker's previous frame (at most `maxDelta`),
+ * `time` is the subscription time: the sum of the `dt` values it received.
  */
 export type TickCallback = (dt: number, time: number) => void;
 
-/** Кто просит следующий кадр. В браузере — `requestAnimationFrame`. */
+/** What requests the next frame. In the browser, `requestAnimationFrame`. */
 export interface FrameScheduler {
-  /** Просит вызвать `callback` в следующем кадре с текущим временем в миллисекундах. */
+  /** Asks to call `callback` on the next frame with the current time in milliseconds. */
   request(callback: (now: number) => void): unknown;
-  /** Отменяет запрос, который вернул `request`. */
+  /** Cancels the request returned by `request`. */
   cancel(handle: unknown): void;
 }
 
 export interface TickerOptions {
-  /** Наибольший `dt` в секундах: после подвисания время не прыгает. По умолчанию 0,1. */
+  /** Largest `dt` in seconds: time does not jump after a stall. Defaults to 0.1. */
   maxDelta?: number;
-  /** Планировщик кадров. По умолчанию `requestAnimationFrame`, а без него — таймер на 60 Гц. */
+  /** Frame scheduler. Defaults to `requestAnimationFrame`, or a 60 Hz timer without it. */
   scheduler?: FrameScheduler;
 }
 
-/** Подписка на кадры: свои паузы (например, «вне экрана») и своё время. */
+/** Frame subscription: its own pauses (for example, "offscreen") and its own time. */
 export interface TickSubscription {
-  /** Время подписки в секундах: сумма всех `dt`, которые она получила. */
+  /** Subscription time in seconds: the sum of all `dt` values it received. */
   readonly time: number;
-  /** Стоит ли подписка на паузе по какой-нибудь причине. */
+  /** Whether the subscription is paused for any reason. */
   readonly paused: boolean;
   pause(reason: string): void;
   resume(reason: string): void;
-  /** Отписывает. Повторный вызов ничего не делает. */
+  /** Unsubscribes. A repeated call does nothing. */
   remove(): void;
 }
 
-/** Планировщик по умолчанию: `requestAnimationFrame`, а где его нет — таймер на 60 Гц. */
+/** Default scheduler: `requestAnimationFrame`, or a 60 Hz timer where it is missing. */
 export function defaultScheduler(): FrameScheduler {
   const raf = globalThis.requestAnimationFrame;
   if (typeof raf === 'function') {
@@ -95,15 +95,15 @@ let tickerInternals!: {
 let shared: Ticker | null = null;
 
 /**
- * Общий цикл кадров. Подписки получают `dt` в секундах, ограниченный `maxDelta`.
- * Кадры просятся только пока есть активная подписка и тикер не на паузе: в покое цикл
- * не крутится. После паузы первый кадр не получает время, проведённое на паузе.
+ * Shared frame loop. Subscriptions receive `dt` in seconds, capped at `maxDelta`.
+ * Frames are requested only while there is an active subscription and the ticker is not paused: when idle the loop
+ * does not spin. After a pause the first frame does not receive the time spent paused.
  *
- * Паузы задаются причинами, чтобы разные источники не мешали друг другу: например,
- * `'hidden'` (вкладка скрыта) и `'reduced-motion'`. Тикер идёт, когда причин нет.
+ * Pauses are set by reasons so that different sources do not interfere: for example,
+ * `'hidden'` (the tab is hidden) and `'reduced-motion'`. The ticker runs when there are no reasons.
  */
 export class Ticker {
-  /** Общий тикер на страницу: один цикл кадров для всех маскотов. */
+  /** Shared ticker per page: one frame loop for all mascots. */
   static get shared(): Ticker {
     shared ??= new Ticker();
     return shared;
@@ -122,23 +122,23 @@ export class Ticker {
   constructor(options: TickerOptions = {}) {
     const maxDelta = options.maxDelta ?? 0.1;
     if (!(maxDelta > 0 && Number.isFinite(maxDelta))) {
-      throw new RangeError(`maxDelta должен быть положительным, получено ${maxDelta}.`);
+      throw new RangeError(`maxDelta must be positive, got ${maxDelta}.`);
     }
     this.maxDelta = maxDelta;
     this.#scheduler = options.scheduler ?? defaultScheduler();
   }
 
-  /** Стоит ли тикер на паузе по какой-нибудь причине. */
+  /** Whether the ticker is paused for any reason. */
   get paused(): boolean {
     return this.#reasons.size > 0;
   }
 
-  /** Просит ли тикер кадры сейчас. */
+  /** Whether the ticker is requesting frames now. */
   get running(): boolean {
     return this.#handle !== null;
   }
 
-  /** Подписывает `callback` на кадры. */
+  /** Subscribes `callback` to frames. */
   add(callback: TickCallback): TickSubscription {
     const subscription = new Subscription(this, callback);
     this.#subscriptions.push(subscription);
@@ -158,18 +158,18 @@ export class Ticker {
   }
 
   /**
-   * Кадр в момент `now` (миллисекунды). Обычно его вызывает планировщик, но можно
-   * и вручную — в тестах или со своим циклом. Первый кадр после запуска или паузы
-   * задаёт отсчёт и даёт `dt = 0`. Пауза одной подписки, пока другие идут, отсчёт не
-   * сбрасывает: её первый кадр после паузы и первый кадр новой подписки получают
-   * обычный `dt` кадра, а время паузы в него не попадает. Вызов из обработчика кадра
-   * ничего не делает. Если обработчики бросили ошибки, остальные всё равно получают
-   * кадр, а первая ошибка выбрасывается после него.
+   * A frame at time `now` (milliseconds). Usually the scheduler calls it, but it can also
+   * be called manually, in tests or with a custom loop. The first frame after start or pause
+   * sets the reference point and gives `dt = 0`. Pausing one subscription while others run does not reset
+   * the reference: its first frame after the pause and the first frame of a new subscription receive
+   * the regular frame `dt`, and the paused time does not get into it. A call from a frame handler
+   * does nothing. If handlers throw, the rest still receive the
+   * frame, and the first error is rethrown after it.
    */
   tick(now: number): void {
-    // Кадр из обработчика кадра ничего не делает: иначе внешний кадр шёл бы без защиты.
+    // A frame from inside a frame handler does nothing: otherwise the outer frame would run unprotected.
     if (this.#ticking) return;
-    // Вызов вручную при ждущем запросе: иначе запросов стало бы два.
+    // A manual call while a request is pending: otherwise there would be two requests.
     if (this.#handle !== null) this.#scheduler.cancel(this.#handle);
     this.#handle = null;
     if (!this.#active()) {
@@ -179,11 +179,11 @@ export class Ticker {
     const last = this.#last;
     this.#last = now;
     const dt = last === null ? 0 : Math.min(Math.max(0, (now - last) / 1000), this.maxDelta);
-    // Подписки, добавленные во время кадра, получат кадры со следующего; удалённые
-    // во время кадра уже не получат. Список не копируется: удалённые вычищаются после.
+    // Subscriptions added during a frame receive frames from the next one; ones removed
+    // during a frame no longer receive them. The list is not copied: removed ones are purged afterwards.
     const list = this.#subscriptions;
     const count = list.length;
-    // Ошибка одного обработчика не мешает остальным: первая выбрасывается после кадра.
+    // An error in one handler does not affect the others: the first is rethrown after the frame.
     let failed = false;
     let error: unknown;
     this.#ticking = true;
@@ -217,7 +217,7 @@ export class Ticker {
     this.#hasRemoved = false;
   }
 
-  /** Есть ли кому отдавать кадры. */
+  /** Whether there is anyone to deliver frames to. */
   #active(): boolean {
     if (this.paused) return false;
     const list = this.#subscriptions;
@@ -228,7 +228,7 @@ export class Ticker {
     return false;
   }
 
-  /** Просит кадр, если он нужен, или отменяет запрос, если нет. */
+  /** Requests a frame if one is needed, or cancels the request if not. */
   #update(): void {
     const active = this.#active();
     if (active && this.#handle === null) {
@@ -236,7 +236,7 @@ export class Ticker {
     } else if (!active) {
       if (this.#handle !== null) this.#scheduler.cancel(this.#handle);
       this.#handle = null;
-      // Отсчёт с нуля после паузы: время паузы не попадёт в dt.
+      // Reference from zero after a pause: the paused time will not get into dt.
       this.#last = null;
     }
   }
@@ -247,14 +247,14 @@ export class Ticker {
         if (!ticker.#ticking) ticker.#update();
       },
       remove: (ticker, subscription) => {
-        // Во время кадра список не трогается: подписка уже помечена удалённой.
+        // The list is not touched during a frame: the subscription is already marked removed.
         if (ticker.#ticking) ticker.#hasRemoved = true;
         else {
           const list = ticker.#subscriptions;
           const index = list.indexOf(subscription);
           if (index >= 0) list.splice(index, 1);
         }
-        // Внутри кадра запрос следующего решится в конце кадра.
+        // Inside a frame, requesting the next one is decided at the end of the frame.
         if (!ticker.#ticking) ticker.#update();
       },
     };

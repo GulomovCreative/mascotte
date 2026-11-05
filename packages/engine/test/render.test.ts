@@ -3,7 +3,7 @@ import { ScreenOp, ScreenPath } from '../src/index.ts';
 import { ParamStore } from '../src/shapes/params.ts';
 
 describe('ScreenPath', () => {
-  it('раскладка чисел у каждой операции', () => {
+  it('number layout of each operation', () => {
     const path = new ScreenPath()
       .moveTo(1, 2)
       .lineTo(3, 4)
@@ -22,7 +22,7 @@ describe('ScreenPath', () => {
     expect(path.close().closed).toBe(true);
   });
 
-  it('рост буферов сохраняет данные, reset не пересоздаёт их', () => {
+  it('buffer growth keeps data, reset does not reallocate them', () => {
     const path = new ScreenPath();
     for (let i = 0; i < 100; i++) path.lineTo(i, -i);
     expect(path.opCount).toBe(100);
@@ -42,7 +42,7 @@ describe('ParamStore', () => {
     count: { kind: 'integer', default: 3, min: 1, max: 5 },
   } as const;
 
-  it('значения по умолчанию, ввод из options, изменение и отказ', () => {
+  it('defaults, input from options, change and rejection', () => {
     let changes = 0;
     const store = new ParamStore(schema, { size: 4 }, () => changes++);
     expect([store.get('size'), store.get('count')]).toEqual([4, 3]);

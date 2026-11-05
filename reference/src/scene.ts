@@ -1,25 +1,25 @@
 import type { Node } from '@mascotte/engine';
 
-/** Версия эталонной сцены на новом ядре. Повороты Zdog {x, y, z} переводятся в {x, -y, z}. */
+/** The new-engine version of a reference scene. Zdog rotations {x, y, z} map to {x, -y, z}. */
 export interface EngineVersion {
-  /** Строит корень сцены. */
+  /** Builds the scene root. */
   build(): Node;
-  /** Положение сцены в момент `time` (секунды). */
+  /** The scene pose at `time` (seconds). */
   pose(root: Node, time: number): void;
 }
 
 /**
- * Эталонная сцена: перенос сцены Zdog на новое ядро. Её кадры сравниваются со снимками,
- * которые нарисовала копия Zdog, пока она была в репозитории (`reference/snapshots/zdog/`).
+ * A reference scene: a Zdog scene ported to the new engine. Its frames are compared with the
+ * snapshots drawn by the Zdog copy while it was in the repository (`reference/snapshots/zdog/`).
  */
 export interface ReferenceScene {
   readonly id: string;
   readonly title: string;
   readonly width: number;
   readonly height: number;
-  /** Цвет фона кадра. */
+  /** Frame background color. */
   readonly background: string;
-  /** Масштаб сцены, как `zoom` в Zdog. */
+  /** Scene scale, like `zoom` in Zdog. */
   readonly zoom: number;
   readonly engine: EngineVersion;
 }

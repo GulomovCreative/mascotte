@@ -4,7 +4,7 @@ import { bindTickerToPage, pauseWhenOffscreen } from '../src/index.ts';
 
 const idle: FrameScheduler = { request: () => 0, cancel: () => {} };
 
-/** Источник событий, который можно запустить вручную. */
+/** Event source that can be fired manually. */
 function emitter() {
   const listeners = new Set<() => void>();
   return {
@@ -35,7 +35,7 @@ function fakePage(hidden: boolean, reduced: boolean) {
 }
 
 describe('bindTickerToPage', () => {
-  it('скрытая вкладка ставит тикер на паузу, видимая снимает', () => {
+  it('a hidden tab pauses the ticker, a visible one resumes it', () => {
     const ticker = new Ticker({ scheduler: idle });
     const page = fakePage(false, false);
     const dispose = bindTickerToPage(ticker, {}, page.env);
@@ -48,13 +48,13 @@ describe('bindTickerToPage', () => {
     expect(ticker.paused).toBe(false);
     dispose();
     expect(page.doc.size).toBe(0);
-    // После отвязки события страницы тикер не трогают.
+    // After unbinding, page events do not touch the ticker.
     page.doc.visibilityState = 'hidden';
     page.doc.emit();
     expect(ticker.paused).toBe(false);
   });
 
-  it('вкладка скрыта и меньше движения уже при привязке — пауза сразу', () => {
+  it('tab already hidden and reduced motion at bind time pause immediately', () => {
     const ticker = new Ticker({ scheduler: idle });
     const page = fakePage(true, false);
     const dispose = bindTickerToPage(ticker, {}, page.env);
@@ -63,7 +63,7 @@ describe('bindTickerToPage', () => {
     expect(ticker.paused).toBe(false);
   });
 
-  it('prefers-reduced-motion ставит на паузу, если не попросили его не учитывать', () => {
+  it('prefers-reduced-motion pauses unless told to ignore it', () => {
     const page = fakePage(false, true);
     const ticker = new Ticker({ scheduler: idle });
     const dispose = bindTickerToPage(ticker, {}, page.env);
@@ -82,7 +82,7 @@ describe('bindTickerToPage', () => {
     expect(ignoring.paused).toBe(false);
   });
 
-  it('отвязка снимает свои паузы и не трогает чужие', () => {
+  it('unbinding removes its own pauses and leaves others alone', () => {
     const ticker = new Ticker({ scheduler: idle });
     ticker.pause('user');
     const dispose = bindTickerToPage(ticker, {}, fakePage(true, true).env);
@@ -91,7 +91,7 @@ describe('bindTickerToPage', () => {
     expect(ticker.paused).toBe(false);
   });
 
-  it('без документа и matchMedia (Node, воркер) ничего не делает', () => {
+  it('without document and matchMedia (Node, worker) does nothing', () => {
     const ticker = new Ticker({ scheduler: idle });
     bindTickerToPage(ticker, {}, {})();
     expect(ticker.paused).toBe(false);
@@ -99,7 +99,7 @@ describe('bindTickerToPage', () => {
 });
 
 describe('pauseWhenOffscreen', () => {
-  it('подписка стоит, пока элемент вне экрана', () => {
+  it('the subscription stays paused while the element is off screen', () => {
     const ticker = new Ticker({ scheduler: idle });
     const subscription = ticker.add(() => {});
     let report = null as ((entries: { isIntersecting: boolean }[]) => void) | null;
@@ -122,7 +122,7 @@ describe('pauseWhenOffscreen', () => {
     expect([disconnected, subscription.paused]).toEqual([true, false]);
   });
 
-  it('без IntersectionObserver подписка не трогается', () => {
+  it('without IntersectionObserver the subscription is untouched', () => {
     const ticker = new Ticker({ scheduler: idle });
     const subscription = ticker.add(() => {});
     pauseWhenOffscreen(subscription, {} as Element, undefined)();

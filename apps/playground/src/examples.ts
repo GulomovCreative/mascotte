@@ -8,7 +8,7 @@ import {
   referenceScenes,
 } from '@mascotte/reference';
 
-/** Пример в playground: монтируется в контейнер и возвращает функцию очистки. */
+/** A playground example: mounts into a container and returns a cleanup function. */
 export interface Example {
   id: string;
   title: string;
@@ -17,20 +17,20 @@ export interface Example {
 }
 
 export interface ExampleControls {
-  /** Включена ли анимация. Пример читает значение в каждом кадре. */
+  /** Whether animation is on. The example reads the value every frame. */
   readonly animate: boolean;
-  /** Сообщает о прошедшем кадре для счётчика fps. */
+  /** Reports a finished frame for the fps counter. */
   frame(): void;
-  /** Сообщает об ошибке в цикле кадра. После неё пример останавливается. */
+  /** Reports an error in the frame loop. The example stops after it. */
   error(error: unknown): void;
 }
 
-/** Сцена показывается в двукратном размере. */
+/** The scene is shown at twice its size. */
 const displayScale = 2;
 
 /**
- * Вызывает `callback` при каждой смене devicePixelRatio: перенос окна на другой монитор
- * или изменение масштаба страницы. Возвращает функцию отписки.
+ * Calls `callback` on every devicePixelRatio change: moving the window to another monitor
+ * or changing the page zoom. Returns an unsubscribe function.
  */
 function watchPixelRatio(callback: () => void): () => void {
   let query: MediaQueryList | undefined;
@@ -47,8 +47,8 @@ function watchPixelRatio(callback: () => void): () => void {
 }
 
 /**
- * Цикл кадров примера на общем тикере страницы: время идёт, пока включена анимация,
- * холст вне экрана не получает кадров. После ошибки пример останавливается.
+ * The example's frame loop on the shared page ticker: time runs while animation is on, and an
+ * offscreen canvas gets no frames. The example stops after an error.
  */
 function runLoop(
   canvas: HTMLCanvasElement,
@@ -75,7 +75,7 @@ function runLoop(
 
 type Draw = (ctx: CanvasRenderingContext2D, pixelRatio: number, time: number) => void;
 
-/** Холст с циклом кадров и учётом devicePixelRatio. */
+/** A canvas with a frame loop that respects devicePixelRatio. */
 function mountCanvas(
   container: HTMLElement,
   controls: ExampleControls,
@@ -85,7 +85,7 @@ function mountCanvas(
 ): () => void {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  if (!ctx) throw new Error('Canvas 2D недоступен в этом браузере.');
+  if (!ctx) throw new Error('Canvas 2D is not available in this browser.');
   canvas.style.width = `${scene.width * scale}px`;
   canvas.style.maxWidth = '100%';
 
@@ -109,30 +109,30 @@ function mountCanvas(
 
 type DrawGL = (renderer: WebGLRenderer, pixelRatio: number, time: number) => void;
 
-/** Тип узла и его id, если id задан, а не создан автоматически. */
+/** The node type and its id, if the id was set rather than generated. */
 function nodeLabel(node: { id: string; typeName: string }): string {
-  return node.id.startsWith('~') ? node.typeName : `${node.typeName} «${node.id}»`;
+  return node.id.startsWith('~') ? node.typeName : `${node.typeName} "${node.id}"`;
 }
 
-/** Что показывать под холстом при наведении: сцена и камера примера. */
+/** What to show under the canvas on hover: the example's scene and camera. */
 interface HitSource {
   scene: Scene;
   camera: Camera;
 }
 
-/** Подпись под холстом с узлом под указателем. */
+/** A caption under the canvas with the node under the pointer. */
 interface HitLabel {
-  /** Пересчитать попадание: вызывается после каждого кадра, ведь фигуры двигаются. */
+  /** Recompute the hit: called after every frame, since shapes move. */
   update(): void;
-  /** Убрать подпись и обработчики. */
+  /** Remove the caption and the handlers. */
   dispose(): void;
 }
 
 /**
- * Подпись под холстом с узлом под указателем: проверка попадания по текущему кадру.
- * Движение указателя только запоминает точку, а попадание считается один раз после
- * каждого кадра — так фигура, уехавшая из-под неподвижного указателя, не числится под
- * ним, и сцена не обходится дважды за кадр.
+ * A caption under the canvas with the node under the pointer: a hit test against the current
+ * frame. Pointer movement only stores the point, and the hit is computed once after each
+ * frame. This way a shape that moved away from a still pointer is not reported under it, and
+ * the scene is not traversed twice per frame.
  */
 function showHits(
   container: HTMLElement,
@@ -142,11 +142,11 @@ function showHits(
 ): HitLabel {
   const label = document.createElement('p');
   label.className = 'hit';
-  const idle = 'Наведите указатель на фигуру.';
+  const idle = 'Hover over a shape.';
   label.textContent = idle;
   container.append(label);
   const tester = new HitTester();
-  // Указатель в пикселях кадра или null, если он вне холста.
+  // The pointer in frame pixels, or null when it is outside the canvas.
   let pointer: { x: number; y: number } | null = null;
   const update = () => {
     if (!pointer) return;
@@ -154,13 +154,13 @@ function showHits(
     canvas.style.cursor = hit ? 'pointer' : '';
     const text = hit
       ? hit.node === hit.drawable
-        ? `Под указателем: ${nodeLabel(hit.node)}`
-        : `Под указателем: ${nodeLabel(hit.node)}, часть ${nodeLabel(hit.drawable)}`
-      : 'Под указателем ничего нет.';
+        ? `Under the pointer: ${nodeLabel(hit.node)}`
+        : `Under the pointer: ${nodeLabel(hit.node)}, part ${nodeLabel(hit.drawable)}`
+      : 'Nothing under the pointer.';
     if (label.textContent !== text) label.textContent = text;
   };
   const move = (event: PointerEvent) => {
-    // Холст может быть ужат по ширине: переводим в пиксели кадра.
+    // The canvas may be shrunk in width: convert to frame pixels.
     const scale = size.width / canvas.clientWidth;
     pointer = { x: event.offsetX * scale, y: event.offsetY * scale };
   };
@@ -181,7 +181,7 @@ function showHits(
   };
 }
 
-/** Холст WebGL2 с циклом кадров. */
+/** A WebGL2 canvas with a frame loop. */
 function mountGL(
   container: HTMLElement,
   controls: ExampleControls,
@@ -324,9 +324,9 @@ function fromEngineOnlyScene(scene: EngineScene): Example {
 }
 
 /**
- * Строка под холстом бенчмарка: число фигур и среднее время кадра на процессоре —
- * поза, сортировка, сборка и команды отрисовки; для WebGL2 без работы видеокарты,
- * для Canvas 2D вместе с растеризацией.
+ * The line under the benchmark canvas: the shape count and the average CPU frame time
+ * (pose, sort, build and draw commands); for WebGL2 without GPU work, for Canvas 2D
+ * including rasterization.
  */
 function frameStats(container: HTMLElement, drawables: number) {
   const label = document.createElement('p');
@@ -336,9 +336,9 @@ function frameStats(container: HTMLElement, drawables: number) {
   let frames = 0;
   let shown = performance.now();
   const show = (text: string) => {
-    label.textContent = `${drawables} фигур · ${text}`;
+    label.textContent = `${drawables} shapes · ${text}`;
   };
-  show('кадр ещё не нарисован');
+  show('no frame drawn yet');
   return {
     measure(ms: number) {
       total += ms;
@@ -346,9 +346,7 @@ function frameStats(container: HTMLElement, drawables: number) {
       const now = performance.now();
       if (now - shown < 500) return;
       const average = total / frames;
-      show(
-        `кадр ${average.toFixed(1)} мс на процессоре (до ${Math.floor(1000 / average)} кадров в секунду)`,
-      );
+      show(`frame ${average.toFixed(1)} ms on CPU (up to ${Math.floor(1000 / average)} fps)`);
       total = 0;
       frames = 0;
       shown = now;
@@ -359,7 +357,7 @@ function frameStats(container: HTMLElement, drawables: number) {
   };
 }
 
-const BENCHMARK_TITLE = 'Бенчмарк: 20 маскотов';
+const BENCHMARK_TITLE = 'Benchmark: 20 mascots';
 
 function benchmarkGL(): Example {
   return {
@@ -382,7 +380,7 @@ function benchmarkGL(): Example {
             pixelRatio,
             background: bench.background,
           });
-          // В покое кадр не рисуется, и мерить нечего.
+          // At rest no frame is drawn, so there is nothing to measure.
           if (drawn) stats.measure(performance.now() - start);
         },
         { scene: world, camera: bench.camera },

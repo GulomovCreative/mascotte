@@ -29,7 +29,7 @@ function fromGeometry(geometry: PathGeometry): Recorded {
   };
 }
 
-/** Что задаёт фигуру: тип, размеры, путь. Записано вместе с ответом Zdog. */
+/** What defines a shape: type, sizes, path. Recorded together with the Zdog output. */
 function shapeInput(shape: Shape): Record<string, unknown> {
   const input: Record<string, unknown> = { type: shape.typeName, closed: shape.closed };
   for (const name of ['width', 'height', 'quarters', 'cornerRadius', 'radius', 'sides', 'path']) {
@@ -38,7 +38,7 @@ function shapeInput(shape: Shape): Record<string, unknown> {
   return input;
 }
 
-/** Путь нашей фигуры против пути, который построил Zdog для той же фигуры (тест `key`). */
+/** Our shape path against the path Zdog built for the same shape (test `key`). */
 function expectSamePath(ours: Shape, key: string): void {
   const a = fromGeometry(ours.geometry);
   const b = zdog.next<Recorded>(key, shapeInput(ours));
@@ -46,29 +46,29 @@ function expectSamePath(ours: Shape, key: string): void {
   expect(a.closed).toBe(b.closed);
   expect(a.points).toHaveLength(b.points.length);
   a.points.forEach((value, i) => {
-    expect(value, `точка ${i}`).toBeCloseTo(b.points[i] ?? Number.NaN, 12);
+    expect(value, `point ${i}`).toBeCloseTo(b.points[i] ?? Number.NaN, 12);
   });
 }
 
-describe('геометрия совпадает с Zdog', () => {
-  it('эллипс, все варианты четвертей', () => {
+describe('geometry matches Zdog', () => {
+  it('ellipse, every quarters variant', () => {
     for (const quarters of [1, 2, 3, 4]) {
       expectSamePath(
         new Ellipse({ width: 30, height: 18, quarters }),
-        'эллипс, все варианты четвертей',
+        'ellipse, every quarters variant',
       );
     }
-    expectSamePath(new Ellipse({ diameter: 12 }), 'эллипс, все варианты четвертей');
-    expectSamePath(new Ellipse({ width: 30 }), 'эллипс, все варианты четвертей');
-    expectSamePath(new Ellipse({ height: 18 }), 'эллипс, все варианты четвертей');
-    expectSamePath(new Ellipse({ diameter: 10, height: 4 }), 'эллипс, все варианты четвертей');
+    expectSamePath(new Ellipse({ diameter: 12 }), 'ellipse, every quarters variant');
+    expectSamePath(new Ellipse({ width: 30 }), 'ellipse, every quarters variant');
+    expectSamePath(new Ellipse({ height: 18 }), 'ellipse, every quarters variant');
+    expectSamePath(new Ellipse({ diameter: 10, height: 4 }), 'ellipse, every quarters variant');
   });
 
-  it('прямоугольник', () => {
-    expectSamePath(new Rect({ width: 40, height: 20 }), 'прямоугольник');
+  it('rect', () => {
+    expectSamePath(new Rect({ width: 40, height: 20 }), 'rect');
   });
 
-  it('скруглённый прямоугольник, включая радиус больше половины стороны и квадрат', () => {
+  it('rounded rect, including a radius over half the side and a square', () => {
     const cases = [
       { width: 60, height: 40, cornerRadius: 10 },
       { width: 60, height: 40, cornerRadius: 50 },
@@ -78,18 +78,18 @@ describe('геометрия совпадает с Zdog', () => {
     for (const options of cases) {
       expectSamePath(
         new RoundedRect(options),
-        'скруглённый прямоугольник, включая радиус больше половины стороны и квадрат',
+        'rounded rect, including a radius over half the side and a square',
       );
     }
   });
 
-  it('многоугольник', () => {
+  it('polygon', () => {
     for (const sides of [3, 5, 8, 64]) {
-      expectSamePath(new Polygon({ radius: 25, sides }), 'многоугольник');
+      expectSamePath(new Polygon({ radius: 25, sides }), 'polygon');
     }
   });
 
-  it('путь с отрезками, дугой и кривой Безье, открытый и замкнутый', () => {
+  it('path with lines, an arc and a Bezier curve, open and closed', () => {
     for (const closed of [false, true]) {
       const ours = new PathShape({
         closed,
@@ -105,17 +105,17 @@ describe('геометрия совпадает с Zdog', () => {
           { type: 'line', point: { x: -25, y: 0, z: -3 } },
         ],
       });
-      expectSamePath(ours, 'путь с отрезками, дугой и кривой Безье, открытый и замкнутый');
+      expectSamePath(ours, 'path with lines, an arc and a Bezier curve, open and closed');
     }
   });
 
-  it('точка и отрезок: отрезок не замыкается', () => {
-    expectSamePath(new PathShape(), 'точка и отрезок: отрезок не замыкается');
+  it('point and line: a line does not close', () => {
+    expectSamePath(new PathShape(), 'point and line: a line does not close');
     const segment = [
       { type: 'move', point: { x: -30 } },
       { type: 'line', point: { x: 30 } },
     ] as const;
-    expectSamePath(new PathShape({ path: segment }), 'точка и отрезок: отрезок не замыкается');
+    expectSamePath(new PathShape({ path: segment }), 'point and line: a line does not close');
     expect(new PathShape({ path: segment }).geometry.closed).toBe(false);
   });
 });
@@ -126,10 +126,10 @@ function valuesOf(style: Shape['style']) {
 }
 
 describe('PathBuilder', () => {
-  it('рост буфера ровно на границе ёмкости сохраняет все точки', () => {
+  it('buffer growth exactly at the capacity boundary keeps all points', () => {
     const builder = new PathBuilder().moveTo(0, 0, 0);
     for (let i = 1; i <= 4; i++) builder.lineTo(i, 0, 0);
-    // 5 точек из 8 помещающихся: кривая добавляет 3 и заполняет буфер ровно до конца.
+    // 5 points out of 8 that fit: a curve adds 3 and fills the buffer exactly.
     builder.bezierTo(5, 1, 0, 6, 1, 0, 7, 0, 0);
     expect(builder.pointCount).toBe(8);
     expect(builder.points.length).toBe(24);
@@ -154,7 +154,7 @@ describe('PathBuilder', () => {
     ]);
   });
 
-  it('arcTo после роста буфера берёт правильную последнюю точку', () => {
+  it('arcTo after buffer growth takes the correct last point', () => {
     const builder = new PathBuilder();
     for (let i = 0; i < 30; i++) builder.lineTo(i, 0, 0);
     builder.arcTo(29, 16, 0, 45, 16, 0);
@@ -162,7 +162,7 @@ describe('PathBuilder', () => {
     expect(Array.from(builder.points.subarray(i, i + 3))).toEqual([29, 16 * ARC_HANDLE, 0]);
   });
 
-  it('addCommands: путь с первой командой bezier или arc и точки с пропущенными координатами', () => {
+  it('addCommands: a path starting with bezier or arc, and points with missing coordinates', () => {
     const bezier = new PathBuilder().addCommands([
       { type: 'bezier', control1: { x: 9 }, control2: { y: 9 }, point: { z: 4 } },
     ]);
@@ -177,7 +177,7 @@ describe('PathBuilder', () => {
     expect(recorded.points.slice(0, 3)).toEqual([0, 2, 0]);
   });
 
-  it('первая команда становится move в её конечной точке', () => {
+  it('the first command becomes a move to its end point', () => {
     for (const build of [
       (b: PathBuilder) => b.lineTo(1, 2, 3),
       (b: PathBuilder) => b.arcTo(9, 9, 9, 1, 2, 3),
@@ -189,7 +189,7 @@ describe('PathBuilder', () => {
     }
   });
 
-  it('дуга — кривая с ручками 9/16 к углу', () => {
+  it('an arc is a curve with 9/16 handles toward the corner', () => {
     const geometry = fromGeometry(new PathBuilder().moveTo(0, 0, 0).arcTo(16, 0, 0, 16, 16, 0));
     expect(geometry.ops).toEqual([PathOp.move, PathOp.cubic]);
     expect(geometry.points).toEqual([
@@ -208,7 +208,7 @@ describe('PathBuilder', () => {
     ]);
   });
 
-  it('буферы растут и переиспользуются после reset', () => {
+  it('buffers grow and are reused after reset', () => {
     const builder = new PathBuilder();
     for (let i = 0; i < 100; i++) builder.lineTo(i, 0, 0);
     expect(builder.opCount).toBe(100);
@@ -220,7 +220,7 @@ describe('PathBuilder', () => {
     expect(fromGeometry(builder).points).toEqual([5, 5, 5]);
   });
 
-  it('finish: два отрезка замыкаются, один — нет', () => {
+  it('finish: two lines close, one does not', () => {
     const one = new PathBuilder().moveTo(0, 0, 0).lineTo(1, 0, 0).finish(true);
     expect(one.closed).toBe(false);
     const curve = new PathBuilder()
@@ -233,8 +233,8 @@ describe('PathBuilder', () => {
   });
 });
 
-describe('ленивая геометрия', () => {
-  it('пересобирается только после изменения параметра', () => {
+describe('lazy geometry', () => {
+  it('rebuilds only after a parameter change', () => {
     const ellipse = new Ellipse({ diameter: 10 });
     const version = ellipse.geometryVersion;
     ellipse.geometry;
@@ -248,7 +248,7 @@ describe('ленивая геометрия', () => {
     expect(fromGeometry(ellipse.geometry).points.slice(3, 6)).toEqual([10 * ARC_HANDLE, -5, 0]);
   });
 
-  it('буферы геометрии переиспользуются при анимации параметра', () => {
+  it('geometry buffers are reused when a parameter animates', () => {
     const rect = new RoundedRect({ width: 40, height: 20, cornerRadius: 5 });
     const { ops, points } = rect.geometry;
     for (let i = 1; i <= 30; i++) {
@@ -259,7 +259,7 @@ describe('ленивая геометрия', () => {
     expect(rect.geometry.points).toBe(points);
   });
 
-  it('closed меняет геометрию, стиль — только внешний вид', () => {
+  it('closed changes geometry, style changes only appearance', () => {
     const rect = new Rect();
     expect(rect.geometry.closed).toBe(true);
     const geometry = rect.geometryVersion;
@@ -271,7 +271,7 @@ describe('ленивая геометрия', () => {
     expect(rect.geometryVersion).toBe(geometry + 1);
   });
 
-  it('каждое поле стиля и front меняют appearanceVersion на 1, то же значение — на 0', () => {
+  it('each style field and front change appearanceVersion by 1, the same value by 0', () => {
     const changes: [string, (shape: PathShape) => void, (shape: PathShape) => void][] = [
       ['stroke', (s) => (s.style.stroke = 4), (s) => (s.style.stroke = 1)],
       ['fill', (s) => (s.style.fill = true), (s) => (s.style.fill = false)],
@@ -292,13 +292,13 @@ describe('ленивая геометрия', () => {
       const shape = new PathShape();
       const version = shape.appearanceVersion;
       same(shape);
-      expect(shape.appearanceVersion, `${name}: то же значение`).toBe(version);
+      expect(shape.appearanceVersion, `${name}: same value`).toBe(version);
       change(shape);
       expect(shape.appearanceVersion, name).toBe(version + 1);
     }
   });
 
-  it('каждый числовой параметр: то же значение — без пересборки, новое — пересборка, неверное — отказ', () => {
+  it('each numeric parameter: same value no rebuild, new value rebuild, invalid value rejected', () => {
     type Case = [string, () => Ellipse | Rect | RoundedRect | Polygon, string, number, number];
     const cases: Case[] = [
       ['Ellipse.width', () => new Ellipse(), 'width', 5, -1],
@@ -318,19 +318,19 @@ describe('ленивая геометрия', () => {
       const version = shape.geometryVersion;
       const current = shape[key] as number;
       shape[key] = current;
-      expect(shape.geometryVersion, `${label}: то же значение`).toBe(version);
+      expect(shape.geometryVersion, `${label}: same value`).toBe(version);
       expect(() => {
         shape[key] = bad;
       }, label).toThrow(RangeError);
-      expect(shape[key], `${label}: значение после отказа`).toBe(current);
-      expect(shape.geometryVersion, `${label}: версия после отказа`).toBe(version);
+      expect(shape[key], `${label}: value after rejection`).toBe(current);
+      expect(shape.geometryVersion, `${label}: version after rejection`).toBe(version);
       shape[key] = next;
       expect(shape.geometryVersion, label).toBe(version + 1);
       expect(fromGeometry(shape.geometry).points, label).not.toEqual(before);
     }
   });
 
-  it('diameter с неверным значением не меняет ширину и высоту', () => {
+  it('diameter with an invalid value does not change width and height', () => {
     const ellipse = new Ellipse({ width: 4, height: 8 });
     expect(() => {
       ellipse.diameter = -1;
@@ -338,7 +338,7 @@ describe('ленивая геометрия', () => {
     expect([ellipse.width, ellipse.height]).toEqual([4, 8]);
   });
 
-  it('geometry всегда один и тот же объект', () => {
+  it('geometry is always the same object', () => {
     const ellipse = new Ellipse();
     const geometry = ellipse.geometry;
     ellipse.width = 9;
@@ -346,13 +346,13 @@ describe('ленивая геометрия', () => {
     expect(geometry.points[3]).toBeCloseTo((9 / 2) * ARC_HANDLE, 12);
   });
 
-  it('diameter задаёт ширину и высоту', () => {
+  it('diameter sets width and height', () => {
     const ellipse = new Ellipse({ width: 4, height: 8 });
     ellipse.diameter = 6;
     expect([ellipse.width, ellipse.height, ellipse.diameter]).toEqual([6, 6, 6]);
   });
 
-  it('PathShape.path копирует и замораживает путь целиком', () => {
+  it('PathShape.path copies and freezes the whole path', () => {
     const point = { x: 2, y: 0, z: 0 };
     const path = [
       { type: 'move' as const, point: { x: 1 } },
@@ -376,8 +376,8 @@ describe('ленивая геометрия', () => {
   });
 });
 
-describe('проверка параметров', () => {
-  it('размеры, обводка, четверти и стороны', () => {
+describe('parameter validation', () => {
+  it('sizes, stroke, quarters and sides', () => {
     const bad = [-1, Number.NaN, Number.POSITIVE_INFINITY];
     for (const value of bad) {
       expect(() => new Rect({ width: value })).toThrow(RangeError);
@@ -399,7 +399,7 @@ describe('проверка параметров', () => {
     expect(ellipse.quarters).toBe(4);
   });
 
-  it('значения по умолчанию как в Zdog', () => {
+  it('defaults as in Zdog', () => {
     const shape = new PathShape();
     expect({ ...valuesOf(shape.style), closed: shape.closed }).toEqual({
       stroke: 1,

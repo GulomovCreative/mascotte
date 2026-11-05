@@ -4,9 +4,9 @@ import { cdp } from 'vitest/browser';
 import { buildBenchmark } from '../src/index.ts';
 
 /*
- * Выделения памяти в цикле кадра WebGL2 в настоящем браузере: профилировщик кучи Chrome
- * через CDP, с учётом уже собранных объектов. Обмен с профилировщиком сам выделяет
- * память, поэтому из замера вычитается такой же замер пустой функции.
+ * Allocations in the WebGL2 frame loop in a real browser: the Chrome heap profiler over CDP,
+ * counting already collected objects. Talking to the profiler allocates memory itself, so the
+ * same measurement of an empty function is subtracted.
  */
 
 interface SamplingNode {
@@ -35,7 +35,7 @@ async function sampledBytes(fn: () => void, runs: number): Promise<number> {
   return total;
 }
 
-/** Сколько байт в среднем выделяет вызов `fn` сверх пустого вызова. */
+/** Average bytes allocated by a call of `fn` beyond an empty call. */
 async function bytesPerCall(fn: () => void, warmup: number, runs: number): Promise<number> {
   for (let i = 0; i < warmup; i++) fn();
   const empty = await sampledBytes(() => {}, runs);
@@ -55,14 +55,14 @@ function renderer(): { renderer: WebGLRenderer; draw: () => boolean } {
   return { renderer: instance, draw: () => instance.render(scene, bench.camera, viewport) };
 }
 
-describe('выделения памяти WebGL2', () => {
-  it('в покое кадр не пересобирается и не выделяет памяти', async () => {
+describe('WebGL2 allocations', () => {
+  it('at rest the frame is not rebuilt and allocates nothing', async () => {
     const { renderer: instance, draw } = renderer();
     expect(draw()).toBe(true);
     expect(draw()).toBe(false);
     const bytes = await bytesPerCall(draw, 200, 500);
-    expect(bytes, `${bytes} байт на вызов`).toBeLessThan(8);
-    // После изменения сцены кадр рисуется снова, после invalidate — тоже.
+    expect(bytes, `${bytes} bytes per call`).toBeLessThan(8);
+    // After a scene change the frame is drawn again, and after invalidate too.
     bench.pose(1);
     expect(draw()).toBe(true);
     expect(draw()).toBe(false);
@@ -71,7 +71,7 @@ describe('выделения памяти WebGL2', () => {
     instance.destroy();
   }, 60_000);
 
-  it('анимированный кадр бенчмарка — не больше 8 КБ', async () => {
+  it('an animated benchmark frame allocates at most 8 KB', async () => {
     const { renderer: instance, draw } = renderer();
     let time = 0;
     const frame = () => {
@@ -79,11 +79,11 @@ describe('выделения памяти WebGL2', () => {
       bench.pose(time);
       draw();
     };
-    // Сейчас 3–7 КБ на кадр из 6000 фигур: пересчёт мировых матриц и вызовы WebGL самого
-    // браузера. Порог ловит рост: подмассив на каждый вызов отрисовки давал ~10 КБ, а до
-    // переделки одна сборка кадра — ~50 КБ.
+    // Currently 3–7 KB per frame of 6000 shapes: recomputing world matrices and the browser's
+    // own WebGL calls. The threshold catches growth: a subarray per draw call gave ~10 KB, and
+    // before the rework one frame build took ~50 KB.
     const bytes = await bytesPerCall(frame, 60, 30);
-    expect(bytes, `${Math.round(bytes)} байт на кадр`).toBeLessThan(8192);
+    expect(bytes, `${Math.round(bytes)} bytes per frame`).toBeLessThan(8192);
     instance.destroy();
   }, 120_000);
 });

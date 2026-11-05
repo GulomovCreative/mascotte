@@ -2,38 +2,38 @@ import { type Mat3x4, mat3x4, type Vec3 } from '@mascotte/math';
 import { Node, type NodeOptions } from './node.ts';
 
 /**
- * Проекция камеры.
- * - `orthographic` — без перспективы: размер не зависит от глубины, как в Zdog.
- * - `perspective` — слабая перспектива: всё, что ближе к камере, крупнее. Масштаб
- *   зависит от глубины опорной точки, поэтому фигуру можно масштабировать целиком
- *   по глубине её центра, и круги остаются кругами.
+ * Camera projection.
+ * - `orthographic`: no perspective, size does not depend on depth, as in Zdog.
+ * - `perspective`: weak perspective, everything closer to the camera is larger. The scale
+ *   depends on the depth of a reference point, so a shape can be scaled as a whole
+ *   by the depth of its center, and circles stay circles.
  */
 export type Projection = 'orthographic' | 'perspective';
 
 export interface CameraOptions extends NodeOptions {
   projection?: Projection;
-  /** Увеличение: сколько пикселей занимает единица сцены. */
+  /** Zoom: how many pixels one scene unit takes. */
   zoom?: number;
   /**
-   * Расстояние от глаза до узла камеры в перспективе. Узел — плоскость картинки, где
-   * перспектива не меняет размер; глаз стоит на `distance` позади него, в локальной
-   * точке `(0, 0, distance)`. Чем меньше расстояние, тем сильнее перспектива.
+   * Distance from the eye to the camera node in perspective. The node is the picture plane, where
+   * perspective does not change size; the eye stands `distance` behind it, at the local
+   * point `(0, 0, distance)`. The smaller the distance, the stronger the perspective.
    */
   distance?: number;
 }
 
 /**
- * Точка после проекции: экранные координаты относительно центра кадра, в пикселях
- * (если `zoom` задан в пикселях на единицу сцены) до учёта devicePixelRatio.
+ * A point after projection: screen coordinates relative to the frame center, in pixels
+ * (if `zoom` is given in pixels per scene unit), before devicePixelRatio is applied.
  */
 export interface ProjectedPoint {
-  /** Вправо. */
+  /** Rightward. */
   x: number;
-  /** Вниз. */
+  /** Downward. */
   y: number;
-  /** Глубина в пространстве камеры: больше — ближе к зрителю. */
+  /** Depth in camera space: larger is closer to the viewer. */
   depth: number;
-  /** Во сколько раз размеры в этой точке увеличены (зум и перспектива). Для толщины обводок. */
+  /** How many times sizes at this point are enlarged (zoom and perspective). For stroke widths. */
   scale: number;
 }
 
@@ -43,25 +43,25 @@ export function createProjectedPoint(): ProjectedPoint {
 
 function checkPositive(name: string, value: number): number {
   if (!(value > 0 && Number.isFinite(value))) {
-    throw new RangeError(`${name} должно быть положительным конечным числом, получено ${value}.`);
+    throw new RangeError(`${name} must be a positive finite number, got ${value}.`);
   }
   return value;
 }
 
 /**
- * Камера — узел сцены. Положение и поворот узла задают взгляд, поэтому камеру можно
- * двигать, вращать вокруг маскота или прикреплять к узлам рига.
+ * The camera is a scene node. The node's position and rotation define the view, so the camera can
+ * be moved, rotated around the mascot or attached to rig nodes.
  *
- * Система координат как в Zdog: x вправо, y вниз, z к зрителю. Камера смотрит вдоль −z
- * своей локальной системы. Узел камеры — это плоскость картинки и центр вращения:
- * точка в нём попадает в центр кадра с масштабом `zoom`. В перспективе глаз стоит на
- * `distance` позади узла (`getEyePosition`), как если бы Zdog-иллюстрацию снимали издали.
+ * The coordinate system is as in Zdog: x right, y down, z toward the viewer. The camera looks along −z
+ * of its local frame. The camera node is the picture plane and the center of rotation:
+ * a point at it lands in the frame center with scale `zoom`. In perspective the eye stands
+ * `distance` behind the node (`getEyePosition`), as if a Zdog illustration were shot from afar.
  *
- * Масштаб узла камеры и её предков в кадр не попадает: пространство камеры строится
- * только из положения и поворота. Поэтому камеру можно вешать на любой узел рига,
- * а увеличение задаётся только `zoom`.
+ * The scale of the camera node and its ancestors does not reach the frame: camera space is built
+ * only from position and rotation. So the camera can be hung on any rig node,
+ * and magnification is set only by `zoom`.
  *
- * Камера входит в `Scene.nodes` как обычный узел; отрисовка её пропускает.
+ * The camera is part of `Scene.nodes` like a regular node; drawing skips it.
  */
 export class Camera extends Node {
   static override readonly typeName: string = 'Camera';
@@ -110,15 +110,15 @@ export class Camera extends Node {
     }
   }
 
-  /** Счётчик изменений проекции (`projection`, `zoom`, `distance`). */
+  /** Projection change counter (`projection`, `zoom`, `distance`). */
   get projectionVersion(): number {
     return this.#projectionVersion;
   }
 
   /**
-   * Матрица из мировых координат в пространство камеры: обратная к положению и повороту
-   * узла, без масштаба и сдвига. Пересчитывается только после изменения положения камеры
-   * или её предков. Бросает ошибку, если ось камеры вырождена (масштаб 0 по оси).
+   * Matrix from world coordinates to camera space: the inverse of the node's position and rotation,
+   * without scale and shear. Recomputed only after the position of the camera
+   * or its ancestors changes. Throws if a camera axis is degenerate (scale 0 along an axis).
    */
   get viewMatrix(): Readonly<Mat3x4> {
     const version = this.worldVersion;
@@ -130,13 +130,13 @@ export class Camera extends Node {
   }
 
   /**
-   * Положение глаза в мировых координатах: точка `(0, 0, distance)` узла без учёта
-   * масштаба. В ортографии глаза нет, возвращается `null`.
+   * Eye position in world coordinates: the node's point `(0, 0, distance)` ignoring
+   * scale. In orthographic projection there is no eye, `null` is returned.
    */
   getEyePosition(out: Vec3): Vec3 | null {
     if (this.#projection === 'orthographic') return null;
     const view = this.viewMatrix;
-    // Ось z камеры в мире — третья строка обратной матрицы поворота.
+    // The camera's z axis in the world is the third row of the inverse rotation matrix.
     const zx = view[2]!;
     const zy = view[5]!;
     const zz = view[8]!;
@@ -148,25 +148,25 @@ export class Camera extends Node {
   }
 
   /**
-   * Увеличение для точки на глубине `depth` пространства камеры. В ортографии равно
-   * `zoom`. В перспективе растёт к глазу и стремится к бесконечности у плоскости глаза
-   * (глубина `distance`). Для `depth ≥ distance` результат бессмыслен (бесконечный или
-   * отрицательный): сначала проверяйте `isInFront`.
+   * Magnification for a point at depth `depth` in camera space. In orthographic projection it equals
+   * `zoom`. In perspective it grows toward the eye and tends to infinity at the eye plane
+   * (depth `distance`). For `depth ≥ distance` the result is meaningless (infinite or
+   * negative): check `isInFront` first.
    */
   scaleAt(depth: number): number {
     if (this.#projection === 'orthographic') return this.#zoom;
     return (this.#zoom * this.#distance) / (this.#distance - depth);
   }
 
-  /** Видна ли точка на глубине `depth`: в перспективе не видно всё, что на плоскости глаза или позади неё. */
+  /** Whether a point at depth `depth` is visible: in perspective, nothing on the eye plane or behind it is visible. */
   isInFront(depth: number): boolean {
     return this.#projection === 'orthographic' || depth < this.#distance;
   }
 
   /**
-   * Проецирует точку пространства камеры. Если задана `referenceDepth`, масштаб берётся
-   * по ней, а не по глубине самой точки: так вся фигура масштабируется одинаково (слабая
-   * перспектива). Возвращает `false` и не трогает `out`, если опорная точка не видна.
+   * Projects a camera-space point. If `referenceDepth` is given, the scale is taken
+   * from it rather than from the point's own depth: this way the whole shape scales the same (weak
+   * perspective). Returns `false` and leaves `out` untouched if the reference point is not visible.
    */
   projectView(out: ProjectedPoint, view: Readonly<Vec3>, referenceDepth = view.z): boolean {
     if (!this.isInFront(referenceDepth)) return false;
@@ -178,13 +178,13 @@ export class Camera extends Node {
     return true;
   }
 
-  /** Проецирует мировую точку. Смысл `referenceDepth` и результата — как у `projectView`. */
+  /** Projects a world point. `referenceDepth` and the result mean the same as in `projectView`. */
   project(out: ProjectedPoint, world: Readonly<Vec3>, referenceDepth?: number): boolean {
     mat3x4.transformPoint(viewScratch, this.viewMatrix, world);
     return this.projectView(out, viewScratch, referenceDepth ?? viewScratch.z);
   }
 
-  /** Переводит мировую точку в пространство камеры. */
+  /** Converts a world point into camera space. */
   toView(out: Vec3, world: Readonly<Vec3>): Vec3 {
     return mat3x4.transformPoint(out, this.viewMatrix, world);
   }
@@ -193,9 +193,9 @@ export class Camera extends Node {
 const viewScratch: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Обратная к жёсткой части матрицы `m`: столбцы линейной части ортонормируются
- * (Грам — Шмидт, третья ось как векторное произведение), масштаб, сдвиг и отражение
- * отбрасываются. Обратная к повороту — транспонированная.
+ * Inverse of the rigid part of matrix `m`: the columns of the linear part are orthonormalized
+ * (Gram–Schmidt, the third axis as a cross product); scale, translation and reflection
+ * are discarded. The inverse of a rotation is its transpose.
  */
 function rigidInverse(out: Mat3x4, m: Readonly<Mat3x4>, id: string): void {
   let xx = m[0]!;
@@ -205,7 +205,7 @@ function rigidInverse(out: Mat3x4, m: Readonly<Mat3x4>, id: string): void {
   let yx = m[3]!;
   let yy = m[4]!;
   let yz = m[5]!;
-  if (xLength < 1e-12) throw new Error(`Ось x камеры «${id}» вырождена.`);
+  if (xLength < 1e-12) throw new Error(`The x axis of camera "${id}" is degenerate.`);
   xx /= xLength;
   xy /= xLength;
   xz /= xLength;
@@ -214,7 +214,7 @@ function rigidInverse(out: Mat3x4, m: Readonly<Mat3x4>, id: string): void {
   yy -= along * xy;
   yz -= along * xz;
   const yLength = Math.sqrt(yx * yx + yy * yy + yz * yz);
-  if (yLength < 1e-12) throw new Error(`Ось y камеры «${id}» вырождена.`);
+  if (yLength < 1e-12) throw new Error(`The y axis of camera "${id}" is degenerate.`);
   yx /= yLength;
   yy /= yLength;
   yz /= yLength;
@@ -224,7 +224,7 @@ function rigidInverse(out: Mat3x4, m: Readonly<Mat3x4>, id: string): void {
   const tx = m[9]!;
   const ty = m[10]!;
   const tz = m[11]!;
-  // Строки обратной матрицы — оси камеры в мире.
+  // The rows of the inverse matrix are the camera axes in the world.
   out[0] = xx;
   out[3] = xy;
   out[6] = xz;

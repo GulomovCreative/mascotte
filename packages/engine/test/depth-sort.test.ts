@@ -39,12 +39,12 @@ function dot(id: string, z: number, options: ConstructorParameters<typeof PathSh
 }
 
 describe('auto', () => {
-  it('от дальних к ближним, при равной глубине — порядок дерева', () => {
+  it('far to near, tree order at equal depth', () => {
     const scene = sceneWith(dot('near', 10), dot('far', -10), dot('a', 0), dot('b', 0));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['far', 'a', 'b', 'near']);
   });
 
-  it('узел без рисования прозрачен: его дети сортируются вместе с соседями', () => {
+  it('a non-drawable node is transparent: its children sort together with its siblings', () => {
     const holder = new Node({ id: 'holder' });
     holder.add(dot('inner-far', -20)).add(dot('inner-near', 20));
     const scene = sceneWith(holder, dot('middle', 0));
@@ -55,7 +55,7 @@ describe('auto', () => {
     ]);
   });
 
-  it('zBias сдвигает глубину, -Infinity — всегда первым', () => {
+  it('zBias shifts depth, -Infinity is always first', () => {
     const scene = sceneWith(
       dot('a', 0, { zBias: 5 }),
       dot('b', 3),
@@ -64,7 +64,7 @@ describe('auto', () => {
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['c', 'b', 'a']);
   });
 
-  it('порядок меняется вместе с поворотом камеры', () => {
+  it('order changes with camera rotation', () => {
     const scene = sceneWith(
       dot('left', 0, { position: { x: -10, y: 0, z: 0 } }),
       dot('right', 0, { position: { x: 10, y: 0, z: 0 } }),
@@ -78,9 +78,9 @@ describe('auto', () => {
 });
 
 describe('group', () => {
-  it('поддерево сортируется как одно целое, посторонний узел не вклинивается', () => {
+  it('a subtree sorts as one unit, an outside node does not get in between', () => {
     const group = new Node({ id: 'group', sortMode: 'group', position: { x: 0, y: 0, z: -5 } });
-    // Глубины членов: -25 и +15, но вся группа на глубине -5.
+    // Member depths are -25 and +15, but the whole group is at depth -5.
     group.add(dot('back', -20)).add(dot('front', 20));
     const scene = sceneWith(group, dot('between', 0), dot('behind', -50));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual([
@@ -91,7 +91,7 @@ describe('group', () => {
     ]);
   });
 
-  it('рисуемый узел-группа рисуется среди своих членов по своей глубине', () => {
+  it('a drawable group node is drawn among its members by its own depth', () => {
     const head = new Sphere({ id: 'head', sortMode: 'group' });
     head.add(dot('behind-head', -1)).add(dot('in-front', 1));
     const scene = sceneWith(head);
@@ -113,7 +113,7 @@ describe('attached', () => {
       sortMode: 'attached',
       position: { x: 0, y: 0, z: 1 },
     });
-    // Глаз (z = 19) ближе уха (z = 5), но декаль рисуется сразу после головы, а не среди соседей.
+    // The eye (z = 19) is closer than the ear (z = 5), but a decal is drawn right after the head, not among siblings.
     eye.add(pupil);
     head.add(eye);
     return {
@@ -124,25 +124,25 @@ describe('attached', () => {
     };
   }
 
-  it('декаль рисуется сразу после предка, даже если по глубине ближе соседа', () => {
+  it('a decal is drawn right after its ancestor even if it is closer than a sibling', () => {
     const { scene } = mascot();
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['head', 'eye', 'pupil', 'ear']);
   });
 
-  it('декаль, отвёрнутая от камеры, не рисуется вместе со своими декалями', () => {
+  it('a decal facing away from the camera is not drawn, nor are its decals', () => {
     const { head, scene } = mascot();
     head.setRotationFromEuler(euler.create(0, Math.PI, 0));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['head', 'ear']);
   });
 
-  it('без рисуемого предка декаль сортируется как обычный узел', () => {
+  it('without a drawable ancestor a decal sorts as a regular node', () => {
     const holder = new Node();
     holder.add(dot('decal', 5, { sortMode: 'attached' }));
     const scene = sceneWith(holder, dot('x', 0));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['x', 'decal']);
   });
 
-  it('несколько декалей одного предка — по глубине', () => {
+  it('several decals of one ancestor sort by depth', () => {
     const head = new Sphere({ id: 'head' });
     head.add(dot('near', 3, { sortMode: 'attached' })).add(dot('far', 1, { sortMode: 'attached' }));
     expect(ids(new DepthSorter().sort(sceneWith(head), camera))).toEqual(['head', 'far', 'near']);
@@ -150,7 +150,7 @@ describe('attached', () => {
 });
 
 describe('layer', () => {
-  it('слой под и над основным содержимым независимо от глубины', () => {
+  it('layers below and above the main content regardless of depth', () => {
     const scene = sceneWith(
       dot('shadow', 100, { sortMode: 'layer', layer: -1 }),
       dot('body', 0),
@@ -166,8 +166,8 @@ describe('layer', () => {
   });
 });
 
-describe('видимость и пересборка', () => {
-  it('скрытый узел пропускается вместе с поддеревом, без пересборки структуры', () => {
+describe('visibility and rebuild', () => {
+  it('a hidden node is skipped with its subtree, without a structure rebuild', () => {
     const group = new Node({ sortMode: 'group' });
     group.add(dot('g1', 0));
     const hidden = dot('hidden', 1);
@@ -183,7 +183,7 @@ describe('видимость и пересборка', () => {
     expect(ids(sorter.sort(scene, camera))).toEqual(['hidden', 'hidden-child', 'shown']);
   });
 
-  it('изменение структуры и настроек сортировки учитывается', () => {
+  it('structure and sort setting changes are picked up', () => {
     const a = dot('a', 0);
     const scene = sceneWith(a);
     const sorter = new DepthSorter();
@@ -195,19 +195,19 @@ describe('видимость и пересборка', () => {
     expect(ids(sorter.sort(scene, camera))).toEqual(['a', 'b']);
   });
 
-  it('камеры и узлы без рисования в результат не попадают', () => {
+  it('cameras and non-drawable nodes are not in the result', () => {
     const scene = sceneWith(new Camera({ id: 'cam' }), new Node({ id: 'empty' }), dot('x', 0));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['x']);
   });
 
-  it('проверка настроек', () => {
+  it('settings validation', () => {
     expect(() => new Node({ zBias: Number.NaN })).toThrow(RangeError);
     expect(() => new Node({ layer: 1.5 })).toThrow(RangeError);
   });
 });
 
-describe('составные фигуры', () => {
-  it('полусфера: купол, потом основание', () => {
+describe('solids', () => {
+  it('hemisphere: dome, then base', () => {
     for (const y of [0, Math.PI]) {
       const hemisphere = new Hemisphere({ id: 'h', rotation: euler.create(0, y, 0) });
       expect(ids(new DepthSorter().sort(sceneWith(hemisphere), camera))).toEqual([
@@ -217,7 +217,7 @@ describe('составные фигуры', () => {
     }
   });
 
-  it('цилиндр: бок, потом основания по глубине', () => {
+  it('cylinder: side, then bases by depth', () => {
     const toward = new Cylinder({ id: 'c' });
     expect(ids(new DepthSorter().sort(sceneWith(toward), camera))).toEqual([
       'c/body',
@@ -232,7 +232,7 @@ describe('составные фигуры', () => {
     ]);
   });
 
-  it('коробка — группа: грани по глубине, соседний узел не вклинивается', () => {
+  it('a box is a group: faces by depth, a sibling node does not get in between', () => {
     const box = new Box({
       id: 'b',
       width: 10,
@@ -244,13 +244,13 @@ describe('составные фигуры', () => {
     const order = ids(new DepthSorter().sort(scene, camera));
     expect(order.at(-1)).toBe('inside');
     expect(order.slice(0, 6).every((id) => id.startsWith('b/'))).toBe(true);
-    // Видимые с камеры грани (передняя, правая, верхняя при таком повороте) — последними.
+    // Faces visible from the camera (front, right, top at this rotation) come last.
     expect(order.indexOf('b/front')).toBeGreaterThan(order.indexOf('b/rear'));
   });
 });
 
-describe('совместимость с Zdog в режиме auto', () => {
-  it('порядок плоских фигур совпадает с сортировкой Zdog', () => {
+describe('Zdog compatibility in auto mode', () => {
+  it('flat shape order matches the Zdog sort', () => {
     const rotate = { x: -0.35, y: 0.9, z: 0.2 };
     const specs = [
       { translate: { x: -40, y: 0, z: 10 } },
@@ -259,7 +259,7 @@ describe('совместимость с Zdog в режиме auto', () => {
       { translate: { x: 5, y: 25, z: 40 } },
       { translate: { x: -15, y: -25, z: -12 } },
     ];
-    const zdogOrder = zdog.next<number[]>('плоские фигуры', { rotate, specs });
+    const zdogOrder = zdog.next<number[]>('flat shapes', { rotate, specs });
 
     const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
     const at = (i: number) => {
@@ -286,8 +286,8 @@ describe('совместимость с Zdog в режиме auto', () => {
   });
 });
 
-describe('пересортировка в следующих кадрах', () => {
-  it('после движения узла порядок обновляется без пересборки, массив тот же', () => {
+describe('re-sorting in later frames', () => {
+  it('after a node moves the order updates without a rebuild, same array', () => {
     const a = dot('a', -1);
     const b = dot('b', 1);
     const scene = sceneWith(a, b);
@@ -303,7 +303,7 @@ describe('пересортировка в следующих кадрах', () =
     expect(sorter.sort(scene, camera)).toBe(result);
   });
 
-  it('анимация zBias не пересобирает структуру', () => {
+  it('animating zBias does not rebuild the structure', () => {
     const a = dot('a', 0);
     const b = dot('b', 1);
     const scene = sceneWith(a, b);
@@ -317,15 +317,15 @@ describe('пересортировка в следующих кадрах', () =
     expect(getSortSettingsVersion()).toBe(version);
   });
 
-  it('тот же сортировщик с другой сценой пересобирается даже при равных версиях', () => {
+  it('the same sorter with another scene rebuilds even with equal versions', () => {
     const sorter = new DepthSorter();
     expect(ids(sorter.sort(sceneWith(dot('x', 0)), camera))).toEqual(['x']);
     expect(ids(sorter.sort(sceneWith(dot('y', 0)), camera))).toEqual(['y']);
   });
 });
 
-describe('счётчик настроек сортировки', () => {
-  it('sortMode и layer в режиме layer увеличивают его на 1, то же значение — нет', () => {
+describe('sort settings counter', () => {
+  it('sortMode and layer in layer mode increase it by 1, the same value does not', () => {
     const node = new Node();
     const step = (change: () => void) => {
       const before = getSortSettingsVersion();
@@ -346,12 +346,12 @@ describe('счётчик настроек сортировки', () => {
   });
 });
 
-describe('точка сортировки', () => {
-  it('фигура с путём: среднее концов команд без повтора начальной точки', () => {
+describe('sort point', () => {
+  it('path shape: mean of command end points without the repeated start point', () => {
     const point = { x: 0, y: 0, z: 0 };
     const rect = new Rect({ width: 10, height: 4 });
     expect(rect.getSortPoint(point)).toEqual({ x: 0, y: 0, z: 0 });
-    // Скруглённый прямоугольник возвращается в начало: повтор не учитывается.
+    // A rounded rect returns to its start: the repeat is not counted.
     expect(new RoundedRect({ width: 10, height: 4 }).getSortPoint(point).x).toBeCloseTo(0, 12);
     const closedTriangle = new PathShape({
       path: [
@@ -362,7 +362,7 @@ describe('точка сортировки', () => {
       ],
     });
     expect(closedTriangle.getSortPoint(point)).toEqual({ x: 2, y: 1, z: 0 });
-    // Из двух точек повтор не убирается: Zdog так считает только для путей длиннее двух.
+    // With two points the repeat is kept: Zdog drops it only for paths longer than two.
     const twice = new PathShape({
       path: [
         { type: 'move', point: { z: 4 } },
@@ -372,24 +372,24 @@ describe('точка сортировки', () => {
     expect(twice.getSortPoint(point).z).toBe(4);
   });
 
-  it('кэш точки сбрасывается при изменении геометрии', () => {
+  it('the point cache resets on geometry change', () => {
     const point = { x: 0, y: 0, z: 0 };
     const ellipse = new Ellipse({ diameter: 10 });
     expect(ellipse.getSortPoint(point).x).toBeCloseTo(0, 12);
-    // Одна четверть: концы (0, −5) и (5, 0), среднее (2.5, −2.5).
+    // One quarter: ends (0, −5) and (5, 0), mean (2.5, −2.5).
     ellipse.quarters = 1;
     expect(ellipse.getSortPoint(point)).toEqual({ x: 2.5, y: -2.5, z: 0 });
   });
 
-  it('центроиды полусферы и конуса', () => {
+  it('hemisphere and cone centroids', () => {
     const point = { x: 0, y: 0, z: 0 };
     expect(new Hemisphere({ diameter: 16 }).getSortPoint(point).z).toBe(3);
     expect(new Cone({ length: 9 }).getSortPoint(point).z).toBe(3);
   });
 });
 
-describe('составные фигуры в любом режиме сортируются как группа', () => {
-  it('auto, layer и attached не уводят бок цилиндра за дальние объекты', () => {
+describe('solids sort as a group in any mode', () => {
+  it('auto, layer and attached do not push the cylinder side behind far objects', () => {
     for (const sortMode of ['auto', 'layer', 'attached'] as const) {
       const cylinder = new Cylinder({ id: 'cyl', sortMode, position: { x: 0, y: 0, z: 50 } });
       const scene = sceneWith(dot('far', -100), cylinder);
@@ -402,7 +402,7 @@ describe('составные фигуры в любом режиме сорти�
     }
   });
 
-  it('layer у составной фигуры и у пустого контейнера', () => {
+  it('layer on a solid and on an empty container', () => {
     const cylinder = new Cylinder({
       id: 'cyl',
       sortMode: 'layer',
@@ -422,11 +422,11 @@ describe('составные фигуры в любом режиме сорти�
     ]);
   });
 
-  it('декаль на составной фигуре рисуется после неё и скрывается, когда отвёрнута', () => {
+  it('a decal on a solid is drawn after it and hidden when facing away', () => {
     const head = new Hemisphere({ id: 'head', diameter: 40 });
     const eye = dot('eye', 0, { sortMode: 'attached', position: { x: 0, y: 0, z: 10 } });
     head.add(eye);
-    // Глубина полусферы — её центроид (z = 7.5), ухо на z = 10 ближе.
+    // The hemisphere depth is its centroid (z = 7.5), the ear at z = 10 is closer.
     const scene = sceneWith(head, dot('ear', 10));
     const sorter = new DepthSorter();
     expect(ids(sorter.sort(scene, camera))).toEqual(['head/dome', 'head/base', 'eye', 'ear']);
@@ -434,13 +434,13 @@ describe('составные фигуры в любом режиме сорти�
     expect(ids(sorter.sort(scene, camera))).toEqual(['head/dome', 'head/base', 'ear']);
   });
 
-  it('порядок частей конуса: поверхность, потом основание', () => {
+  it('cone part order: surface, then base', () => {
     const cone = new Cone({ id: 'k', rotation: euler.create(1.2, 0, 0) });
     expect(ids(new DepthSorter().sort(sceneWith(cone), camera))).toEqual(['k/surface', 'k/base']);
   });
 });
 
-describe('декали: тонкие случаи', () => {
+describe('decals: edge cases', () => {
   function face() {
     const head = new Sphere({ id: 'head', diameter: 40 });
     const eye = new Ellipse({
@@ -459,7 +459,7 @@ describe('декали: тонкие случаи', () => {
     return { head, eye, pupil, scene: sceneWith(head) };
   }
 
-  it('отвёрнутый глаз скрывает зрачок; отвёрнутый зрачок не трогает глаз', () => {
+  it('an eye facing away hides the pupil; a pupil facing away does not affect the eye', () => {
     const a = face();
     a.eye.setRotationFromEuler(euler.create(0, Math.PI, 0));
     expect(ids(new DepthSorter().sort(a.scene, camera))).toEqual(['head']);
@@ -468,7 +468,7 @@ describe('декали: тонкие случаи', () => {
     expect(ids(new DepthSorter().sort(b.scene, camera))).toEqual(['head', 'eye']);
   });
 
-  it('обращённость считается от камеры: повёрнутая и перспективная', () => {
+  it('facing is relative to the camera: rotated and perspective', () => {
     const { scene } = face();
     const behind = new Camera({ rotation: euler.create(0, Math.PI, 0) });
     expect(ids(new DepthSorter().sort(scene, behind))).toEqual(['head']);
@@ -476,24 +476,24 @@ describe('декали: тонкие случаи', () => {
     expect(ids(new DepthSorter().sort(scene, perspective))).toEqual(['head', 'eye', 'pupil']);
   });
 
-  it('декаль внутри группы прикрепляется к рисуемому узлу-группе', () => {
+  it('a decal inside a group attaches to the drawable group node', () => {
     const head = new Sphere({ id: 'head', sortMode: 'group' });
-    // Глаз глубже всех, но как декаль рисуется сразу после головы.
+    // The eye is deepest of all, but as a decal it is drawn right after the head.
     head.add(dot('eye', -5, { sortMode: 'attached' }));
     head.add(dot('behind', -1));
     expect(ids(new DepthSorter().sort(sceneWith(head), camera))).toEqual(['behind', 'head', 'eye']);
   });
 });
 
-describe('группы: вложенность и слои', () => {
-  it('слой внутри группы действует только в ней', () => {
+describe('groups: nesting and layers', () => {
+  it('a layer inside a group applies only within it', () => {
     const group = new Node({ id: 'g', sortMode: 'group', position: { x: 0, y: 0, z: 10 } });
     group.add(dot('top', -50, { sortMode: 'layer', layer: 1 })).add(dot('inner', 0));
     const scene = sceneWith(group, dot('outside', 100));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['inner', 'top', 'outside']);
   });
 
-  it('вложенные группы', () => {
+  it('nested groups', () => {
     const outer = new Node({ sortMode: 'group' });
     const inner = new Node({ sortMode: 'group', position: { x: 0, y: 0, z: 5 } });
     inner.add(dot('i1', -10)).add(dot('i2', 10));
@@ -501,7 +501,7 @@ describe('группы: вложенность и слои', () => {
     expect(ids(new DepthSorter().sort(sceneWith(outer), camera))).toEqual(['o1', 'i1', 'i2']);
   });
 
-  it('zBias +Infinity — всегда последним, скрытый корень — ничего', () => {
+  it('zBias +Infinity is always last, a hidden root gives nothing', () => {
     const scene = sceneWith(dot('a', 100), dot('b', 0, { zBias: Number.POSITIVE_INFINITY }));
     expect(ids(new DepthSorter().sort(scene, camera))).toEqual(['a', 'b']);
     scene.root.visible = false;
@@ -509,14 +509,14 @@ describe('группы: вложенность и слои', () => {
   });
 });
 
-describe('совместимость с Zdog: несколько поворотов, коробка', () => {
+describe('Zdog compatibility: several rotations, box', () => {
   const rotations = [
     { x: -0.35, y: 0.9, z: 0.2 },
     { x: 0.6, y: -2.1, z: 0 },
     { x: 1.3, y: 0.3, z: -0.5 },
   ];
 
-  it('порядок плоских фигур совпадает с Zdog в нескольких ракурсах', () => {
+  it('flat shape order matches Zdog from several view angles', () => {
     for (const rotate of rotations) {
       const translates = [
         { x: -40, y: 0, z: 10 },
@@ -525,7 +525,7 @@ describe('совместимость с Zdog: несколько поворот�
         { x: 5, y: 25, z: 40 },
       ];
       const at = (i: number) => translates[i] ?? { x: 0, y: 0, z: 0 };
-      const zdogOrder = zdog.next<number[]>('ракурсы', { rotate, translates });
+      const zdogOrder = zdog.next<number[]>('view angles', { rotate, translates });
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       const p = (i: number) => ({ id: `s${i}`, position: at(i) });
@@ -541,9 +541,9 @@ describe('совместимость с Zdog: несколько поворот�
     }
   });
 
-  it('грани отдельной коробки — в том же порядке, что у Zdog', () => {
+  it('faces of a standalone box are in the same order as in Zdog', () => {
     for (const rotate of rotations) {
-      const zdogOrder = zdog.next<string[]>('коробка', { rotate });
+      const zdogOrder = zdog.next<string[]>('box', { rotate });
 
       const root = new Node({ rotation: euler.create(rotate.x, -rotate.y, rotate.z) });
       root.add(new Box({ id: 'box', width: 20, height: 30, depth: 40 }));

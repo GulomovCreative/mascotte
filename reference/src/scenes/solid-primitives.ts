@@ -1,10 +1,10 @@
 import { solidPrimitivesEngine } from '../engine/solid-primitives.ts';
 import type { ReferenceScene } from '../scene.ts';
 
-/** Объёмные примитивы: полусфера, цилиндр, конус, коробка и сфера из точки. */
+/** Solid primitives: hemisphere, cylinder, cone, box and a sphere made from a point. */
 export const solidPrimitives: ReferenceScene = {
   id: 'solid-primitives',
-  title: 'Объёмные примитивы',
+  title: 'Solid primitives',
   width: 320,
   height: 240,
   background: '#1f2430',

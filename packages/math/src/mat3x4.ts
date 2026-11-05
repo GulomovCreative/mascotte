@@ -3,7 +3,7 @@ import type { Quat } from './quat.ts';
 import type { Vec3 } from './vec3.ts';
 
 /**
- * Аффинная матрица 3×4: линейная часть 3×3 и перенос. Хранится по столбцам:
+ * Affine 3×4 matrix: a 3×3 linear part and a translation. Stored column-major:
  *
  * ```
  * | m[0] m[3] m[6] m[9]  |
@@ -11,17 +11,17 @@ import type { Vec3 } from './vec3.ts';
  * | m[2] m[5] m[8] m[11] |
  * ```
  *
- * Нижняя строка подразумевается равной `0 0 0 1`. Матрицу создают только `create`,
- * `clone` и `fromArray`, поэтому в ней всегда ровно 12 элементов, и чтение по индексу
- * помечено `!` без проверки на `undefined`.
+ * The bottom row is implicitly `0 0 0 1`. Matrices are created only by `create`,
+ * `clone` and `fromArray`, so they always have exactly 12 elements, and indexed reads
+ * use `!` without an `undefined` check.
  */
 export type Mat3x4 = Float64Array & { readonly [brand]: 'Mat3x4' };
 
 declare const brand: unique symbol;
 
 /*
- * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
- * с любым из аргументов.
+ * All operations write the result to `out` and return it. `out` may be the same object
+ * as any of the arguments.
  */
 
 export function create(): Mat3x4 {
@@ -32,10 +32,10 @@ export function clone(a: Readonly<Mat3x4>): Mat3x4 {
   return new Float64Array(a) as Mat3x4;
 }
 
-/** Матрица из 12 чисел по столбцам. Бросает ошибку при другой длине. */
+/** Matrix from 12 numbers in column-major order. Throws on any other length. */
 export function fromArray(values: ArrayLike<number>): Mat3x4 {
   if (values.length !== 12) {
-    throw new RangeError(`Mat3x4 требует 12 элементов, получено ${values.length}.`);
+    throw new RangeError(`Mat3x4 requires 12 elements, got ${values.length}.`);
   }
   return Float64Array.from(values) as Mat3x4;
 }
@@ -53,7 +53,7 @@ export function identity(out: Mat3x4): Mat3x4 {
   return out;
 }
 
-/** `out = a · b`: сначала применяется `b`, потом `a`. */
+/** `out = a · b`: `b` is applied first, then `a`. */
 export function multiply(out: Mat3x4, a: Readonly<Mat3x4>, b: Readonly<Mat3x4>): Mat3x4 {
   const a0 = a[0]!;
   const a1 = a[1]!;
@@ -94,7 +94,7 @@ export function multiply(out: Mat3x4, a: Readonly<Mat3x4>, b: Readonly<Mat3x4>):
   return out;
 }
 
-/** Матрица поворота из единичного кватерниона. */
+/** Rotation matrix from a unit quaternion. */
 export function fromQuat(out: Mat3x4, q: Readonly<Quat>): Mat3x4 {
   return compose(out, ZERO, q, ONE);
 }
@@ -103,8 +103,8 @@ const ZERO: Readonly<Vec3> = { x: 0, y: 0, z: 0 };
 const ONE: Readonly<Vec3> = { x: 1, y: 1, z: 1 };
 
 /**
- * Собирает матрицу из переноса, поворота и масштаба: `T(translation) · R · S`.
- * Если задан `pivot`, поворот и масштаб выполняются вокруг этой точки:
+ * Builds a matrix from translation, rotation and scale: `T(translation) · R · S`.
+ * If `pivot` is given, rotation and scale happen about that point:
  * `T(translation) · T(pivot) · R · S · T(-pivot)`.
  */
 export function compose(
@@ -171,9 +171,9 @@ export function determinant(m: Readonly<Mat3x4>): number {
 }
 
 /**
- * Обратная матрица. Если матрица вырождена (например, масштаб 0 по одной из осей
- * или два столбца параллельны), возвращает `null` и не меняет `out`. Порог задан
- * относительно длин столбцов, поэтому очень маленький, но честный масштаб обращается.
+ * Inverse matrix. If the matrix is singular (for example, zero scale on one axis
+ * or two parallel columns), returns `null` and leaves `out` unchanged. The threshold is
+ * relative to the column lengths, so a very small but genuine scale is still inverted.
  */
 export function invert(out: Mat3x4, m: Readonly<Mat3x4>): Mat3x4 | null {
   const m0 = m[0]!;
@@ -192,8 +192,8 @@ export function invert(out: Mat3x4, m: Readonly<Mat3x4>): Mat3x4 | null {
   const c1 = m7 * m2 - m1 * m8;
   const c2 = m1 * m5 - m4 * m2;
   const det = m0 * c0 + m3 * c1 + m6 * c2;
-  // |det| не больше произведения длин столбцов (неравенство Адамара); их отношение
-  // показывает, насколько матрица близка к вырожденной, независимо от масштаба.
+  // |det| is at most the product of the column lengths (Hadamard's inequality); their ratio
+  // shows how close the matrix is to singular, independent of scale.
   const columns = Math.sqrt(
     (m0 * m0 + m1 * m1 + m2 * m2) * (m3 * m3 + m4 * m4 + m5 * m5) * (m6 * m6 + m7 * m7 + m8 * m8),
   );
@@ -223,7 +223,7 @@ export function invert(out: Mat3x4, m: Readonly<Mat3x4>): Mat3x4 | null {
   return out;
 }
 
-/** Преобразует точку: линейная часть и перенос. */
+/** Transforms a point: linear part and translation. */
 export function transformPoint(out: Vec3, m: Readonly<Mat3x4>, v: Readonly<Vec3>): Vec3 {
   const { x, y, z } = v;
   out.x = m[0]! * x + m[3]! * y + m[6]! * z + m[9]!;
@@ -232,7 +232,7 @@ export function transformPoint(out: Vec3, m: Readonly<Mat3x4>, v: Readonly<Vec3>
   return out;
 }
 
-/** Преобразует направление: только линейная часть, без переноса. */
+/** Transforms a direction: linear part only, no translation. */
 export function transformDirection(out: Vec3, m: Readonly<Mat3x4>, v: Readonly<Vec3>): Vec3 {
   const { x, y, z } = v;
   out.x = m[0]! * x + m[3]! * y + m[6]! * z;

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { easing } from '../src/index.ts';
 
-/** Кривые, которые выходят за [0, 1] посередине. */
+/** Curves that leave [0, 1] in the middle. */
 const overshooting = new Set([
   'backIn',
   'backOut',
@@ -10,19 +10,19 @@ const overshooting = new Set([
   'elasticOut',
   'elasticInOut',
 ]);
-/** Отскок по определению не монотонен, но остаётся в [0, 1]. */
+/** Bounce is not monotonic by definition but stays within [0, 1]. */
 const bouncing = new Set(['bounceIn', 'bounceOut', 'bounceInOut']);
 
-describe('easing: именованные кривые', () => {
+describe('easing: named curves', () => {
   for (const [name, curve] of Object.entries(easing.named)) {
-    it(`${name}: ровно 0 и 1 на концах`, () => {
+    it(`${name}: exactly 0 and 1 at the ends`, () => {
       expect(curve(0)).toBe(0);
       expect(curve(1)).toBe(1);
     });
 
     if (!overshooting.has(name)) {
       const monotonic = !bouncing.has(name);
-      it(`${name}: не выходит за [0, 1]${monotonic ? ' и монотонна' : ''}`, () => {
+      it(`${name}: stays within [0, 1]${monotonic ? ' and is monotonic' : ''}`, () => {
         let previous = curve(0);
         for (let i = 1; i <= 200; i++) {
           const value = curve(i / 200);
@@ -35,7 +35,7 @@ describe('easing: именованные кривые', () => {
     }
 
     if (name.endsWith('InOut')) {
-      it(`${name}: симметрична относительно середины`, () => {
+      it(`${name}: symmetric about the midpoint`, () => {
         for (const t of [0.1, 0.25, 0.4]) {
           expect(curve(1 - t)).toBeCloseTo(1 - curve(t), 9);
         }
@@ -44,8 +44,8 @@ describe('easing: именованные кривые', () => {
     }
   }
 
-  it('значения в опорных точках по стандартным формулам', () => {
-    // Посчитано вручную по формулам кривых, а не через реализацию.
+  it('values at reference points match the standard formulas', () => {
+    // Computed by hand from the curve formulas, not through the implementation.
     const expected: [easing.EasingName, number, number][] = [
       ['quadIn', 0.3, 0.09],
       ['quadOut', 0.3, 0.51],
@@ -70,7 +70,7 @@ describe('easing: именованные кривые', () => {
     }
   });
 
-  it('back и elastic выходят за пределы [0, 1]', () => {
+  it('back and elastic leave [0, 1]', () => {
     expect(easing.backIn(0.2)).toBeLessThan(0);
     expect(easing.backOut(0.8)).toBeGreaterThan(1);
     expect(easing.elasticOut(0.1)).toBeGreaterThan(1);
@@ -84,14 +84,14 @@ describe('easing: именованные кривые', () => {
 });
 
 describe('easing: cubicBezier', () => {
-  it('ease из CSS в опорных точках', () => {
-    // Посчитано независимо: делением пополам по x(s) = t на параметрической кривой.
+  it('CSS ease at reference points', () => {
+    // Computed independently: bisection on x(s) = t along the parametric curve.
     expect(easing.cssEase(0.25)).toBeCloseTo(0.408511, 5);
     expect(easing.cssEase(0.5)).toBeCloseTo(0.802403, 5);
     expect(easing.cssEase(0.75)).toBeCloseTo(0.960459, 5);
   });
 
-  it('совпадает с параметрической кривой', () => {
+  it('matches the parametric curve', () => {
     const [x1, y1, x2, y2] = [0.68, -0.55, 0.27, 1.55];
     const curve = easing.cubicBezier(x1, y1, x2, y2);
     for (let i = 1; i < 20; i++) {
@@ -102,11 +102,11 @@ describe('easing: cubicBezier', () => {
     }
   });
 
-  it('прямая линия — это linear', () => {
+  it('a straight line is linear', () => {
     expect(easing.cubicBezier(0.3, 0.3, 0.7, 0.7)).toBe(easing.linear);
   });
 
-  it('крутые участки решаются без расхождения', () => {
+  it('steep sections are solved without divergence', () => {
     const curve = easing.cubicBezier(1, 0, 0, 1);
     let previous = 0;
     for (let i = 0; i <= 1000; i++) {
@@ -117,12 +117,12 @@ describe('easing: cubicBezier', () => {
     }
   });
 
-  it('время вне [0, 1] обрезается', () => {
+  it('time outside [0, 1] is clamped', () => {
     expect(easing.cssEase(-1)).toBe(0);
     expect(easing.cssEase(2)).toBe(1);
   });
 
-  it('x вне [0, 1] и неконечные y — ошибка', () => {
+  it('x outside [0, 1] and non-finite y are errors', () => {
     expect(() => easing.cubicBezier(-0.1, 0, 0.5, 1)).toThrow(RangeError);
     expect(() => easing.cubicBezier(0.5, 0, 1.1, 1)).toThrow(RangeError);
     expect(() => easing.cubicBezier(Number.NaN, 0, 0.5, 1)).toThrow(RangeError);
@@ -130,7 +130,7 @@ describe('easing: cubicBezier', () => {
     expect(() => easing.cubicBezier(0.5, 0, 0.5, Number.POSITIVE_INFINITY)).toThrow(RangeError);
   });
 
-  it('y вне [0, 1] даёт недолёт и перелёт', () => {
+  it('y outside [0, 1] gives undershoot and overshoot', () => {
     const curve = easing.cubicBezier(0.5, -1, 0.5, 2);
     const values = Array.from({ length: 101 }, (_, i) => curve(i / 100));
     expect(Math.min(...values)).toBeLessThan(0);
@@ -141,7 +141,7 @@ describe('easing: cubicBezier', () => {
 });
 
 describe('easing: steps', () => {
-  it('end (по умолчанию)', () => {
+  it('end (default)', () => {
     const curve = easing.steps(4);
     expect([0, 0.24, 0.25, 0.5, 0.99, 1].map(curve)).toEqual([0, 0, 0.25, 0.5, 0.75, 1]);
   });
@@ -165,18 +165,18 @@ describe('easing: steps', () => {
     expect([0, 0.34, 0.67, 1].map(three)).toEqual([0, 0.5, 1, 1]);
   });
 
-  it('одна ступенька', () => {
+  it('a single step', () => {
     const curve = easing.steps(1);
     expect([0, 0.5, 0.999, 1].map(curve)).toEqual([0, 0, 0, 1]);
   });
 
-  it('время вне [0, 1] обрезается', () => {
+  it('time outside [0, 1] is clamped', () => {
     const curve = easing.steps(4);
     expect(curve(-1)).toBe(0);
     expect(curve(2)).toBe(1);
   });
 
-  it('недопустимое число ступенек — ошибка', () => {
+  it('an invalid step count is an error', () => {
     expect(() => easing.steps(0)).toThrow(RangeError);
     expect(() => easing.steps(2.5)).toThrow(RangeError);
     expect(() => easing.steps(1, 'none')).toThrow(RangeError);
@@ -184,19 +184,19 @@ describe('easing: steps', () => {
 });
 
 describe('easing: resolve', () => {
-  it('имя кривой', () => {
+  it('curve name', () => {
     expect(easing.resolve('backOut')).toBe(easing.backOut);
     expect(() => easing.resolve('wobble' as easing.EasingName)).toThrow(RangeError);
   });
 
-  it('cubicBezier и steps по параметрам', () => {
+  it('cubicBezier and steps from parameters', () => {
     const curve = easing.resolve({ type: 'cubicBezier', x1: 0.25, y1: 0.1, x2: 0.25, y2: 1 });
     expect(curve(0.5)).toBeCloseTo(easing.cssEase(0.5), 12);
     expect(easing.resolve({ type: 'steps', count: 4 })(0.5)).toBe(0.5);
     expect(easing.resolve({ type: 'steps', count: 4, position: 'start' })(0)).toBe(0.25);
   });
 
-  it('недопустимые параметры и тип — ошибка', () => {
+  it('invalid parameters and type are errors', () => {
     expect(() => easing.resolve({ type: 'cubicBezier', x1: 2, y1: 0, x2: 0, y2: 1 })).toThrow(
       RangeError,
     );

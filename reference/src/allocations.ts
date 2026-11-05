@@ -1,18 +1,18 @@
-// Измерение выделений памяти в Node через профилировщик кучи V8. Не импортировать в браузерный код.
+// Measures allocations in Node with the V8 heap profiler. Do not import into browser code.
 import { Session } from 'node:inspector/promises';
 
 export interface AllocationOptions {
-  /** Вызовов до измерения: V8 должен успеть оптимизировать горячий код. По умолчанию 5000. */
+  /** Calls before measuring, so V8 can optimize the hot code. Defaults to 5000. */
   warmup?: number;
-  /** Вызовов под измерением. По умолчанию 500. */
+  /** Calls while measuring. Defaults to 500. */
   runs?: number;
 }
 
 /**
- * Сколько байт в среднем выделяет один вызов `fn` в установившемся режиме. Считаются
- * и объекты, которые сборщик мусора уже убрал. Профилировщик выборочный, но с шагом
- * в 16 байт он видит почти каждое выделение; его собственные расходы, по опыту, —
- * десятки байт на всё измерение, то есть доли байта на вызов.
+ * Average bytes allocated by one call of `fn` in steady state. Objects already collected by
+ * the garbage collector are counted too. The profiler samples, but with a 16-byte interval it
+ * sees almost every allocation; its own overhead is, in practice, tens of bytes for the whole
+ * measurement, a fraction of a byte per call.
  */
 export async function allocatedBytesPerCall(
   fn: () => void,

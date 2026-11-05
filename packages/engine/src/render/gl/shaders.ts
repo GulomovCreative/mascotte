@@ -1,15 +1,15 @@
 /*
- * Шейдеры WebGL2. Координаты — экранное 3D (пиксели CSS относительно центра кадра,
- * y вниз, z к зрителю). Луч взгляда в пикселе p идёт из (p.x, p.y, uRayZ) вдоль −z.
+ * WebGL2 shaders. Coordinates are screen 3D (CSS pixels relative to the frame center,
+ * y down, z toward the viewer). The view ray at pixel p goes from (p.x, p.y, uRayZ) along −z.
  */
 
-/** Общие функции фрагментных шейдеров. */
+/** Shared fragment shader functions. */
 const common = /* glsl */ `#version 300 es
 precision highp float;
 uniform vec2 uDepth;   // zMin, zMax
-uniform float uPx;     // пикселей внутреннего кадра в пикселе CSS
+uniform float uPx;     // internal frame pixels per CSS pixel
 uniform float uRayZ;
-uniform float uSolid;  // 1 — рисовать только полностью покрытые пиксели (см. shade)
+uniform float uSolid;  // 1 means draw only fully covered pixels (see shade)
 in vec2 vPos;
 out vec4 outColor;
 
@@ -27,7 +27,7 @@ float segmentDistance(vec2 p, vec2 a, vec2 b) {
   return length(p - a - ab * t);
 }
 
-// Ближняя к зрителю точка пересечения луча со сферой или -1.
+// The ray-sphere intersection point nearest to the viewer, or -1.
 float sphereT(vec3 ro, vec3 rd, vec3 c, float r) {
   vec3 oc = ro - c;
   float b = dot(oc, rd);
@@ -36,13 +36,13 @@ float sphereT(vec3 ro, vec3 rd, vec3 c, float r) {
 }
 `;
 
-/** Общий вершинный шейдер заглушек: прямоугольник по экранным габаритам примитива. */
+/** Shared vertex shader for impostors: a rectangle over the primitive's screen bounds. */
 function impostorVertex(attributes: string, bounds: string, pass: string): string {
   return /* glsl */ `#version 300 es
 precision highp float;
-uniform vec2 uHalf;    // половина кадра в пикселях CSS
+uniform vec2 uHalf;    // half of the frame in CSS pixels
 uniform float uPx;
-in vec2 aCorner;       // углы прямоугольника, 0..1
+in vec2 aCorner;       // rectangle corners, 0..1
 ${attributes}
 in vec4 aColor;
 out vec2 vPos;
@@ -81,8 +81,8 @@ ${pass
   .filter(Boolean)
   .map((line) => `flat in ${line};`)
   .join('\n')}
-// Цвет пикселя с покрытием края. Полупрозрачная фигура рисуется в два прохода: сначала
-// только полностью покрытые пиксели, затем края; трафарет пускает каждый пиксель один раз.
+// Pixel color with edge coverage. A translucent shape is drawn in two passes: first
+// only fully covered pixels, then the edges; the stencil lets each pixel through once.
 vec4 shade(float cover) {
   if (uSolid > 0.5 && cover < 1.0) discard;
   return vec4(vColor.rgb, vColor.a * cover);
@@ -130,7 +130,7 @@ export const capsuleProgram = {
   float d = segmentDistance(vPos, vA.xy, vB.xy);
   float cover = coverage(vRadius - d);
   if (cover <= 0.0) discard;
-  // Глубина: ближайшая точка капсулы на луче; у края берётся радиус не меньше расстояния.
+  // Depth: the nearest capsule point on the ray; at the edge the radius taken is at least the distance.
   float r = max(vRadius, d + 1e-3);
   vec3 ba = vB - vA;
   vec3 oa = ro - vA;
@@ -151,7 +151,7 @@ export const capsuleProgram = {
       if (y <= 0.0 || y >= baba) t = sphereT(ro, rd, y <= 0.0 ? vA : vB, r);
     }
   } else {
-    // Отрезок вдоль луча: видна ближняя сфера-конец.
+    // Segment along the ray: the near end sphere is visible.
     t = sphereT(ro, rd, vA.z > vB.z ? vA : vB, r);
   }
   if (t < 0.0) discard;
@@ -170,7 +170,7 @@ export const cylinderProgram = {
   fragment: fragment(
     SEGMENT_PASS,
     /* glsl */ `
-  // Только боковая поверхность: основания рисуются заливками.
+  // Only the side surface: the bases are drawn as fills.
   vec3 ba = vB - vA;
   vec3 oc = ro - vA;
   float baba = dot(ba, ba);
@@ -179,7 +179,7 @@ export const cylinderProgram = {
   float k2 = baba - bard * bard;
   if (k2 < 1e-6 * max(baba, 1e-6)) discard;
   float d = segmentDistance(vPos, vA.xy, vB.xy);
-  // Радиус точно как у крышек: расширение ради сглаживания вылезло бы каймой за край крышки.
+  // Radius exactly as for the caps: widening it for antialiasing would leave a rim past the cap edge.
   float r = vRadius;
   float k1 = baba * dot(oc, rd) - baoc * bard;
   float k0 = baba * dot(oc, oc) - baoc * baoc - r * r * baba;
@@ -219,7 +219,7 @@ export const hemisphereProgram = {
   if (cover <= 0.0) discard;
   float r = max(vRadius, d);
   float s = sqrt(max(r * r - d * d, 0.0));
-  // Ближняя точка сферы, если она на стороне купола, иначе дальняя (вид внутрь).
+  // The near sphere point if it is on the dome side, otherwise the far one (view inside).
   vec3 near = vec3(vPos, vCenter.z + s);
   vec3 far = vec3(vPos, vCenter.z - s);
   float z;
@@ -246,8 +246,8 @@ export const coneProgram = {
   fragment: fragment(
     CONE_PASS,
     /* glsl */ `
-  // Боковая поверхность конуса от основания (радиус vRadius) к вершине.
-  // Радиус точно как у основания, иначе бок вылезет каймой за его край.
+  // Cone side surface from the base (radius vRadius) to the apex.
+  // Radius exactly as for the base, otherwise the side leaves a rim past its edge.
   float ra = vRadius;
   vec3 ba = vApex - vBase;
   vec3 oa = ro - vBase;
