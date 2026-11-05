@@ -1,4 +1,4 @@
-import { Camera, CanvasRenderer, Scene, WebGLRenderer } from '@mascotte/engine';
+import { Camera, CanvasRenderer, HitTester, Scene, WebGLRenderer } from '@mascotte/engine';
 import {
   type EngineScene,
   engineScenes,
@@ -95,12 +95,63 @@ function mountCanvas(
 
 type DrawGL = (renderer: WebGLRenderer, pixelRatio: number, time: number) => void;
 
+/** Тип узла и его id, если id задан, а не создан автоматически. */
+function describe(node: { id: string; constructor: { name: string } }): string {
+  return node.id.startsWith('~') ? node.constructor.name : `${node.constructor.name} «${node.id}»`;
+}
+
+/** Что показывать под холстом при наведении: сцена и камера примера. */
+interface HitSource {
+  scene: Scene;
+  camera: Camera;
+}
+
+/**
+ * Подпись под холстом с узлом под указателем: проверка попадания по текущему кадру.
+ * Возвращает функцию отписки.
+ */
+function showHits(
+  container: HTMLElement,
+  canvas: HTMLCanvasElement,
+  size: { width: number; height: number },
+  pick: HitSource,
+): () => void {
+  const label = document.createElement('p');
+  label.className = 'hit';
+  label.textContent = 'Наведите указатель на фигуру.';
+  container.append(label);
+  const tester = new HitTester();
+  const move = (event: PointerEvent) => {
+    // Холст может быть ужат по ширине: переводим в пиксели кадра.
+    const scale = size.width / canvas.clientWidth;
+    const hit = tester.hitTest(
+      pick.scene,
+      pick.camera,
+      size,
+      event.offsetX * scale,
+      event.offsetY * scale,
+    );
+    canvas.style.cursor = hit ? 'pointer' : '';
+    label.textContent = hit
+      ? hit.node === hit.drawable
+        ? `Под указателем: ${describe(hit.node)}`
+        : `Под указателем: ${describe(hit.node)}, часть ${describe(hit.drawable)}`
+      : 'Под указателем ничего нет.';
+  };
+  canvas.addEventListener('pointermove', move);
+  return () => {
+    canvas.removeEventListener('pointermove', move);
+    label.remove();
+  };
+}
+
 /** Холст WebGL2 с циклом кадров. */
 function mountGL(
   container: HTMLElement,
   controls: ExampleControls,
   scene: Pick<ReferenceScene, 'width' | 'height'>,
   draw: DrawGL,
+  pick?: HitSource,
 ): () => void {
   const canvas = document.createElement('canvas');
   canvas.style.width = `${scene.width * displayScale}px`;
@@ -121,6 +172,7 @@ function mountGL(
   resize();
   const unwatch = watchPixelRatio(resize);
   container.append(canvas);
+  const unpick = pick ? showHits(container, canvas, scene, pick) : () => {};
   let time = 0;
   let last = performance.now();
   let raf = 0;
@@ -140,6 +192,7 @@ function mountGL(
   return () => {
     cancelAnimationFrame(raf);
     unwatch();
+    unpick();
     renderer.destroy();
     canvas.remove();
   };
@@ -154,15 +207,21 @@ function fromReferenceSceneGL(scene: ReferenceScene): Example {
       const root = scene.engine.build();
       const world = new Scene(root);
       const camera = new Camera({ zoom: scene.zoom });
-      return mountGL(container, controls, scene, (renderer, pixelRatio, time) => {
-        scene.engine.pose(root, time);
-        renderer.render(world, camera, {
-          width: scene.width,
-          height: scene.height,
-          pixelRatio,
-          background: scene.background,
-        });
-      });
+      return mountGL(
+        container,
+        controls,
+        scene,
+        (renderer, pixelRatio, time) => {
+          scene.engine.pose(root, time);
+          renderer.render(world, camera, {
+            width: scene.width,
+            height: scene.height,
+            pixelRatio,
+            background: scene.background,
+          });
+        },
+        { scene: world, camera },
+      );
     },
   };
 }
@@ -175,15 +234,21 @@ function fromEngineOnlySceneGL(scene: EngineScene): Example {
     mount(container, controls) {
       const { root, camera } = scene.build();
       const world = new Scene(root);
-      return mountGL(container, controls, scene, (renderer, pixelRatio, time) => {
-        scene.pose(root, camera, time);
-        renderer.render(world, camera, {
-          width: scene.width,
-          height: scene.height,
-          pixelRatio,
-          background: scene.background,
-        });
-      });
+      return mountGL(
+        container,
+        controls,
+        scene,
+        (renderer, pixelRatio, time) => {
+          scene.pose(root, camera, time);
+          renderer.render(world, camera, {
+            width: scene.width,
+            height: scene.height,
+            pixelRatio,
+            background: scene.background,
+          });
+        },
+        { scene: world, camera },
+      );
     },
   };
 }

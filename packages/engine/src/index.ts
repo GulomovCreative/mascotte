@@ -21,6 +21,7 @@ export {
   WebGLRenderer,
   type WebGLRendererOptions,
 } from './render/gl/webgl.ts';
+export { type Hit, HitTester, type HitViewport } from './render/hit-test.ts';
 export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
 export {

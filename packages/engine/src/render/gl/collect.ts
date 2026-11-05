@@ -312,6 +312,14 @@ export class GLCollector {
     return Math.hypot(a.x - ox, a.y - oy, a.z - oz);
   }
 
+  /**
+   * Примитивы одной фигуры в `bucket` так же, как при сборке кадра: в экранном 3D,
+   * с учётом обратной стороны и перспективы. Нужны проверке попадания.
+   */
+  emitDrawable(drawable: Drawable, camera: Camera, bucket: Bucket): void {
+    this.#emit(drawable, camera, bucket, 1);
+  }
+
   #emit(drawable: Drawable, camera: Camera, bucket: Bucket, opacity: number): void {
     const s = this.#scale(drawable, camera);
     if (s === null) return;

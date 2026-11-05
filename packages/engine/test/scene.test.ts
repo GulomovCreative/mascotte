@@ -58,6 +58,7 @@ describe('служебный доступ закрыт', () => {
         'Bucket',
         'decalAnchor',
         'GLCollector',
+        'HitTester',
         'MAX_ANCHORS',
         'PIXEL_BUDGET',
         'supersampleFor',
