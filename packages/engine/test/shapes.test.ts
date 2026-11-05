@@ -1,7 +1,3 @@
-import { zdogFixture } from './zdog-fixture.ts';
-
-const zdog = zdogFixture('shapes');
-
 import { describe, expect, it } from 'vitest';
 import {
   ARC_HANDLE,
@@ -15,6 +11,9 @@ import {
   RoundedRect,
   type Shape,
 } from '../src/index.ts';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('shapes');
 
 interface Recorded {
   ops: number[];
@@ -30,8 +29,19 @@ function fromGeometry(geometry: PathGeometry): Recorded {
   };
 }
 
-function expectSamePath(ours: Shape, b: Recorded): void {
+/** Что задаёт фигуру: тип, размеры, путь. Записано вместе с ответом Zdog. */
+function shapeInput(shape: Shape): Record<string, unknown> {
+  const input: Record<string, unknown> = { type: shape.typeName, closed: shape.closed };
+  for (const name of ['width', 'height', 'quarters', 'cornerRadius', 'radius', 'sides', 'path']) {
+    if (name in shape) input[name] = (shape as unknown as Record<string, unknown>)[name];
+  }
+  return input;
+}
+
+/** Путь нашей фигуры против пути, который построил Zdog для той же фигуры (тест `key`). */
+function expectSamePath(ours: Shape, key: string): void {
   const a = fromGeometry(ours.geometry);
+  const b = zdog.next<Recorded>(key, shapeInput(ours));
   expect(a.ops).toEqual(b.ops);
   expect(a.closed).toBe(b.closed);
   expect(a.points).toHaveLength(b.points.length);
@@ -45,29 +55,17 @@ describe('геометрия совпадает с Zdog', () => {
     for (const quarters of [1, 2, 3, 4]) {
       expectSamePath(
         new Ellipse({ width: 30, height: 18, quarters }),
-        zdog.next<Recorded>('эллипс, все варианты четвертей'),
+        'эллипс, все варианты четвертей',
       );
     }
-    expectSamePath(
-      new Ellipse({ diameter: 12 }),
-      zdog.next<Recorded>('эллипс, все варианты четвертей'),
-    );
-    expectSamePath(
-      new Ellipse({ width: 30 }),
-      zdog.next<Recorded>('эллипс, все варианты четвертей'),
-    );
-    expectSamePath(
-      new Ellipse({ height: 18 }),
-      zdog.next<Recorded>('эллипс, все варианты четвертей'),
-    );
-    expectSamePath(
-      new Ellipse({ diameter: 10, height: 4 }),
-      zdog.next<Recorded>('эллипс, все варианты четвертей'),
-    );
+    expectSamePath(new Ellipse({ diameter: 12 }), 'эллипс, все варианты четвертей');
+    expectSamePath(new Ellipse({ width: 30 }), 'эллипс, все варианты четвертей');
+    expectSamePath(new Ellipse({ height: 18 }), 'эллипс, все варианты четвертей');
+    expectSamePath(new Ellipse({ diameter: 10, height: 4 }), 'эллипс, все варианты четвертей');
   });
 
   it('прямоугольник', () => {
-    expectSamePath(new Rect({ width: 40, height: 20 }), zdog.next<Recorded>('прямоугольник'));
+    expectSamePath(new Rect({ width: 40, height: 20 }), 'прямоугольник');
   });
 
   it('скруглённый прямоугольник, включая радиус больше половины стороны и квадрат', () => {
@@ -80,16 +78,14 @@ describe('геометрия совпадает с Zdog', () => {
     for (const options of cases) {
       expectSamePath(
         new RoundedRect(options),
-        zdog.next<Recorded>(
-          'скруглённый прямоугольник, включая радиус больше половины стороны и квадрат',
-        ),
+        'скруглённый прямоугольник, включая радиус больше половины стороны и квадрат',
       );
     }
   });
 
   it('многоугольник', () => {
     for (const sides of [3, 5, 8, 64]) {
-      expectSamePath(new Polygon({ radius: 25, sides }), zdog.next<Recorded>('многоугольник'));
+      expectSamePath(new Polygon({ radius: 25, sides }), 'многоугольник');
     }
   });
 
@@ -109,23 +105,17 @@ describe('геометрия совпадает с Zdog', () => {
           { type: 'line', point: { x: -25, y: 0, z: -3 } },
         ],
       });
-      expectSamePath(
-        ours,
-        zdog.next<Recorded>('путь с отрезками, дугой и кривой Безье, открытый и замкнутый'),
-      );
+      expectSamePath(ours, 'путь с отрезками, дугой и кривой Безье, открытый и замкнутый');
     }
   });
 
   it('точка и отрезок: отрезок не замыкается', () => {
-    expectSamePath(new PathShape(), zdog.next<Recorded>('точка и отрезок: отрезок не замыкается'));
+    expectSamePath(new PathShape(), 'точка и отрезок: отрезок не замыкается');
     const segment = [
       { type: 'move', point: { x: -30 } },
       { type: 'line', point: { x: 30 } },
     ] as const;
-    expectSamePath(
-      new PathShape({ path: segment }),
-      zdog.next<Recorded>('точка и отрезок: отрезок не замыкается'),
-    );
+    expectSamePath(new PathShape({ path: segment }), 'точка и отрезок: отрезок не замыкается');
     expect(new PathShape({ path: segment }).geometry.closed).toBe(false);
   });
 });

@@ -15,16 +15,24 @@ export const diffDir = join(root, 'test', '__diff__');
 /** Снимки, которые нарисовала копия Zdog до удаления: замороженный эталон эталонных сцен. */
 export const zdogSnapshotDir = join(snapshotDir, 'zdog');
 
-/** Рисует эталонную сцену на новом ядре в canvas Node и возвращает PNG того же размера, что снимок Zdog. */
-export function renderEngineToPng(scene: ReferenceScene, options: RenderOptions = {}): Buffer {
+/**
+ * Рисует эталонную сцену на новом ядре в canvas Node и возвращает PNG размером
+ * `width × height`, умноженным на `pixelRatio` (у снимков Zdog: 2 у основного кадра,
+ * 1 у кадров анимации). По умолчанию граф строится заново, но можно передать уже
+ * построенную сцену, чтобы рисовать один граф несколько раз.
+ */
+export function renderEngineToPng(
+  scene: ReferenceScene,
+  options: RenderOptions = {},
+  world: Scene = new Scene(scene.engine.build()),
+): Buffer {
   const pixelRatio = options.pixelRatio ?? 1;
   const canvas = createCanvas(scene.width * pixelRatio, scene.height * pixelRatio);
-  const root = scene.engine.build();
-  scene.engine.pose(root, options.time ?? 0);
-  // Сверка с Zdog проверяет его поведение, поэтому частичное перекрытие здесь выключено.
+  scene.engine.pose(world.root, options.time ?? 0);
+  // Снимки Zdog нарисованы без частичного перекрытия, поэтому здесь оно выключено.
   new CanvasRenderer({ partialOcclusion: false }).render(
     canvas.getContext('2d'),
-    new Scene(root),
+    world,
     new Camera({ zoom: scene.zoom }),
     {
       width: scene.width,

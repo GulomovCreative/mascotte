@@ -26,7 +26,7 @@ describe('совместимость иерархии с Zdog', () => {
     const offset = { x: 1, y: -2, z: 3 };
 
     // Мировые позиции корня, середины, листа и точки внутри листа у Zdog.
-    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins');
+    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins', { levels, offset });
 
     const nodes = levels.map(
       ({ translate, rotate, scale }) =>

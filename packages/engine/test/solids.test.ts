@@ -1,8 +1,4 @@
 import { euler, TAU, vec3 } from '@mascotte/math';
-import { zdogFixture } from './zdog-fixture.ts';
-
-const zdog = zdogFixture('solids');
-
 import { describe, expect, it } from 'vitest';
 import {
   BOX_FACES,
@@ -21,6 +17,9 @@ import {
   type Surface,
   SurfaceOutline,
 } from '../src/index.ts';
+import { zdogFixture } from './zdog-fixture.ts';
+
+const zdog = zdogFixture('solids');
 
 /** Повороты, при которых видны разные стороны фигур. */
 const ROTATIONS = [
@@ -127,7 +126,7 @@ describe('экранные части совпадают с Zdog', () => {
   it('купол полусферы', () => {
     for (const setup of SETUPS) {
       const stroke = strokeFor(setup, 3);
-      const recorded = zdog.next<Recorded>('купол');
+      const recorded = zdog.next<Recorded>('купол', { setup, stroke });
 
       const ours = new Hemisphere({
         diameter: 40,
@@ -144,7 +143,7 @@ describe('экранные части совпадают с Zdog', () => {
   it('боковая поверхность цилиндра', () => {
     for (const setup of SETUPS) {
       const stroke = strokeFor(setup, 2);
-      const recorded = zdog.next<Recorded>('цилиндр');
+      const recorded = zdog.next<Recorded>('цилиндр', { setup, stroke });
 
       const ours = new Cylinder({ diameter: 30, length: 50, style: { stroke } });
       ourParent(setup).add(ours);
@@ -163,7 +162,7 @@ describe('экранные части совпадают с Zdog', () => {
     ];
     for (const setup of setups) {
       const stroke = strokeFor(setup, 2);
-      const recorded = zdog.next<Recorded>('конус');
+      const recorded = zdog.next<Recorded>('конус', { setup, stroke });
 
       const ours = new Cone({ diameter: 30, length: 40, style: { stroke } });
       ourParent(setup).add(ours);
@@ -182,7 +181,7 @@ describe('экранные части совпадают с Zdog', () => {
 
   it('основания и грани — обычные фигуры в тех же мировых точках, что у Zdog', () => {
     for (const setup of SETUPS) {
-      const expected = zdog.next<{ faces: WorldPath[]; bases: WorldPath[] }>('грани');
+      const expected = zdog.next<{ faces: WorldPath[]; bases: WorldPath[] }>('грани', { setup });
 
       const box = new Box({ width: 20, height: 30, depth: 40 });
       const cylinder = new Cylinder({ diameter: 16, length: 24 });

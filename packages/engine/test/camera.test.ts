@@ -1,10 +1,9 @@
 import { euler, quat, vec3 } from '@mascotte/math';
+import { describe, expect, it } from 'vitest';
+import { Camera, createProjectedPoint, Node, Scene } from '../src/index.ts';
 import { zdogFixture } from './zdog-fixture.ts';
 
 const zdog = zdogFixture('camera');
-
-import { describe, expect, it } from 'vitest';
-import { Camera, createProjectedPoint, Node, Scene } from '../src/index.ts';
 
 function projected(camera: Camera, point: vec3.Vec3, referenceDepth?: number) {
   const out = createProjectedPoint();
@@ -160,7 +159,10 @@ describe('совместимость с Zdog', () => {
       { x: -7, y: 2, z: -12 },
       { x: 0, y: 20, z: 6 },
     ];
-    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins');
+    const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins', {
+      rotate,
+      points,
+    });
 
     const sceneRotation = quat.fromEuler(
       quat.create(),

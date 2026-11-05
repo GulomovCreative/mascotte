@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { Scene } from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
 import { referenceScenes } from '../src/index.ts';
 import { compareImages, renderEngineToPng, zdogSnapshotDir } from '../src/snapshot.ts';
@@ -9,6 +10,11 @@ import { compareImages, renderEngineToPng, zdogSnapshotDir } from '../src/snapsh
  * которые нарисовала копия Zdog, пока она была в репозитории. Снимки не пересоздаются:
  * это замороженный эталон. На практике кадры совпадают пиксель в пиксель; допуск
  * сравнения оставлен на случай разного сглаживания.
+ *
+ * Кадры Zdog растеризованы через @napi-rs/canvas 1.1.0, тот же, что рисует новое ядро
+ * (версия закреплена в reference/package.json). Обновление растеризатора может сдвинуть
+ * сглаживание краёв, а пересоздать снимки Zdog нельзя: при обновлении сверьте разницу
+ * и при необходимости поднимите допуск, а не перезаписывайте снимки.
  */
 function zdogSnapshot(name: string): Buffer {
   return readFileSync(join(zdogSnapshotDir, `${name}.png`));
@@ -37,9 +43,15 @@ describe('новое ядро против снимков Zdog', () => {
       }
     });
 
-    it(`${scene.id}: поза меняет кадр, повторный кадр того же графа тот же`, () => {
+    it(`${scene.id}: поза меняет кадр, рендер детерминирован`, () => {
       expect(renderEngineToPng(scene).equals(renderEngineToPng(scene, { time: 0.5 }))).toBe(false);
       expect(renderEngineToPng(scene).equals(renderEngineToPng(scene))).toBe(true);
+    });
+
+    it(`${scene.id}: повторный рендер того же графа не накапливает состояние`, () => {
+      const world = new Scene(scene.engine.build());
+      renderEngineToPng(scene, { time: 0.5 }, world);
+      expect(renderEngineToPng(scene, {}, world).equals(renderEngineToPng(scene))).toBe(true);
     });
   }
 });
