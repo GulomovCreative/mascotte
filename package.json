@@ -14,11 +14,15 @@
     "format": "biome check --write .",
     "test": "vitest run",
     "test:watch": "vitest",
-    "snapshots:update": "UPDATE_SNAPSHOTS=1 vitest run reference"
+    "test:gl": "vitest run -c vitest.gl.config.ts",
+    "snapshots:update": "UPDATE_SNAPSHOTS=1 vitest run reference",
+    "snapshots:update:gl": "UPDATE_SNAPSHOTS=1 vitest run -c vitest.gl.config.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",
     "@types/node": "26.6.6",
+    "@vitest/browser-playwright": "5.1.0",
+    "playwright": "1.64.1",
     "typescript": "7.0.2",
     "vitest": "5.1.0"
   }

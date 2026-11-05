@@ -23,6 +23,9 @@ jobs:
       - run: pnpm typecheck
       - run: pnpm lint
       - run: pnpm test
+      - name: Install Chromium for WebGL tests
+        run: pnpm exec playwright install --with-deps --only-shell chromium
+      - run: pnpm test:gl
       - run: pnpm build
       - name: Upload snapshot diffs
         if: failure()

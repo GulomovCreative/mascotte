@@ -24,6 +24,7 @@
 pnpm install
 pnpm dev               # playground на http://localhost:5173
 pnpm test              # тесты, включая сравнение снимков кадров
+pnpm test:gl           # тесты WebGL2 в Chromium без интерфейса (SwiftShader)
 pnpm typecheck         # проверка типов
 pnpm lint              # линтер и форматирование (Biome)
 pnpm format            # исправить форматирование
@@ -37,7 +38,9 @@ pnpm build             # сборка playground
 - `reference/` — эталонные сцены в двух версиях (копия Zdog и новое ядро) и снимки кадров Zdog в `reference/snapshots/`; кадры нового ядра сравниваются с ними;
 - `src/core/` — неизменённая копия ядра Zdog.
 
-Если тест снимка упал, фактический кадр и карта отличий лежат в `reference/test/__diff__/`. Снимки создаются и обновляются только командой `pnpm snapshots:update`, обычный прогон тестов их не пишет. В CI обновление запрещено.
+Если тест снимка упал, фактический кадр и карта отличий лежат в `reference/test/__diff__/` (для WebGL — в `reference/test/__diff__/gl/`). Снимки создаются и обновляются только командами `pnpm snapshots:update` и `pnpm snapshots:update:gl`, обычный прогон тестов их не пишет. В CI обновление запрещено.
+
+Тестам WebGL нужен Chromium для Playwright: один раз выполните `pnpm exec playwright install chromium`. Снимки WebGL лежат в `reference/snapshots/gl/`.
 
 ## Лицензия
 

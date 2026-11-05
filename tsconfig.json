@@ -10,6 +10,8 @@
     "apps/*/vite.config.ts",
     "reference/src",
     "reference/test",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "reference/test-gl",
+    "vitest.gl.config.ts"
   ]
 }
