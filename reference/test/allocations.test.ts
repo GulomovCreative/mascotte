@@ -181,4 +181,22 @@ describe('allocations in the frame loop', () => {
       tracks.length * 200,
     );
   }, 60_000);
+
+  it('animation layers without new clips: an override and an additive layer', async () => {
+    const { world, tracks } = clipWorld();
+    const animator = new Animator(world);
+    animator.addLayer().play({ duration: 1, loop: 'loop', tracks });
+    animator
+      .addLayer({ mode: 'additive', weight: 0.5 })
+      .play({ duration: 1.5, loop: 'loop', tracks });
+    const bytes = await allocatedBytesPerCall(() => animator.update(1 / 60), {
+      warmup: 3000,
+      runs: 300,
+    });
+    // Two layers sample every track: about 45 bytes per track and layer, the boxed numbers of
+    // `apply`. Reallocating the sample buffers per frame would go over the threshold.
+    expect(bytes, `${Math.round(bytes)} bytes for ${tracks.length} tracks`).toBeLessThan(
+      tracks.length * 2 * 75,
+    );
+  }, 60_000);
 });
