@@ -200,7 +200,7 @@ docs/
 
 ### 5.11. Интерактивность
 
-- Hit-testing по списку отрисовки с учётом порядка, чтобы определить, по какому узлу кликнули.
+- Hit-testing (`HitTester`): какая фигура видна в точке кадра. Фигуры раскладываются на те же примитивы, что для WebGL2, и в точке считается пересечение луча взгляда с каждым; правила видимости те же, что при отрисовке (слои, ближняя фигура, декали на видимой опоре). Результат — рисуемый узел и составная фигура, к которой он относится.
 - События указателя (наведение, нажатие, перетаскивание) превращаются во входы машины состояний.
 - Вращение мышью (как `dragRotate` в Zdog) становится одним из стандартных поведений, а не частью ядра.
 
@@ -282,7 +282,7 @@ docs/
 - [x] Список отрисовки и бэкенд Canvas 2D ([#12](https://github.com/GulomovCreative/mascotte/issues/12))
 - [x] Бэкенд WebGL2 с глубиной на пиксель ([#51](https://github.com/GulomovCreative/mascotte/issues/51))
 - [x] Снимки кадров WebGL в тестах ([#53](https://github.com/GulomovCreative/mascotte/issues/53))
-- [ ] Hit-testing ([#13](https://github.com/GulomovCreative/mascotte/issues/13))
+- [x] Hit-testing ([#13](https://github.com/GulomovCreative/mascotte/issues/13))
 - [ ] Бенчмарк и проверка аллокаций ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
 - [ ] Убрать копию Zdog из src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
 
