@@ -33,6 +33,7 @@ export interface SphereOptions extends SurfaceOptions {
  * масштаб по локальной оси x. Голова маскота, глаз, нос.
  */
 export class Sphere extends Surface<typeof SPHERE_PARAMS> {
+  static override readonly typeName: string = 'Sphere';
   static override readonly params = SPHERE_PARAMS;
 
   constructor(options: SphereOptions = {}) {
@@ -80,6 +81,7 @@ export interface CapsuleOptions extends SurfaceOptions {
  * Тело и конечности маскота.
  */
 export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
+  static override readonly typeName: string = 'Capsule';
   static override readonly params = CAPSULE_PARAMS;
 
   constructor(options: CapsuleOptions = {}) {
@@ -151,6 +153,7 @@ const DOME_PARAMS = { diameter: { kind: 'length', default: 1 } } as const satisf
  * граница проходит через центр перпендикулярно проекции оси.
  */
 export class HemisphereDome extends Surface<typeof DOME_PARAMS> {
+  static override readonly typeName: string = 'HemisphereDome';
   static override readonly params = DOME_PARAMS;
 
   get diameter(): number {
@@ -188,6 +191,7 @@ const CYLINDER_BODY_PARAMS = {
  * плюс обводка стиля, с плоскими концами.
  */
 export class CylinderBody extends Surface<typeof CYLINDER_BODY_PARAMS> {
+  static override readonly typeName: string = 'CylinderBody';
   static override readonly params = CYLINDER_BODY_PARAMS;
 
   get diameter(): number {
@@ -235,6 +239,7 @@ const CONE_SURFACE_PARAMS = {
  * Не рисуется, если вершина видна внутри основания или на его краю.
  */
 export class ConeSurface extends Surface<typeof CONE_SURFACE_PARAMS> {
+  static override readonly typeName: string = 'ConeSurface';
   static override readonly params = CONE_SURFACE_PARAMS;
 
   get diameter(): number {
@@ -339,6 +344,7 @@ export interface HemisphereOptions extends SolidOptions {
 
 /** Полусфера: основание-эллипс и купол в сторону +z. */
 export class Hemisphere extends Solid<typeof HEMISPHERE_PARAMS> {
+  static override readonly typeName: string = 'Hemisphere';
   static override readonly params = HEMISPHERE_PARAMS;
 
   readonly base: Ellipse;
@@ -392,6 +398,7 @@ export interface CylinderOptions extends SolidOptions {
 
 /** Цилиндр вдоль локальной z: два основания и боковая поверхность. */
 export class Cylinder extends Solid<typeof CYLINDER_PARAMS> {
+  static override readonly typeName: string = 'Cylinder';
   static override readonly params = CYLINDER_PARAMS;
 
   readonly body: CylinderBody;
@@ -471,6 +478,7 @@ export interface ConeOptions extends SolidOptions {
 
 /** Конус: основание-эллипс и вершина на `length` по +z. */
 export class Cone extends Solid<typeof CONE_PARAMS> {
+  static override readonly typeName: string = 'Cone';
   static override readonly params = CONE_PARAMS;
 
   readonly surface: ConeSurface;
@@ -555,6 +563,7 @@ const FACE_ROTATION: Record<BoxFace, { x: number; y: number }> = {
 
 /** Коробка из шести граней-прямоугольников. Каждую грань можно скрыть или перекрасить. */
 export class Box extends Solid<typeof BOX_PARAMS> {
+  static override readonly typeName: string = 'Box';
   static override readonly params = BOX_PARAMS;
 
   readonly faces: Readonly<Record<BoxFace, Rect>>;

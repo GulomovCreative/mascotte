@@ -25,6 +25,7 @@ const ELLIPSE_PARAMS = {
 
 /** Эллипс или его часть из четвертей. По умолчанию не замкнут, как в Zdog. */
 export class Ellipse extends Shape<typeof ELLIPSE_PARAMS> {
+  static override readonly typeName: string = 'Ellipse';
   static override readonly params = ELLIPSE_PARAMS;
   static override readonly defaultClosed = false;
 
@@ -91,6 +92,7 @@ const RECT_PARAMS = {
 
 /** Прямоугольник. */
 export class Rect<S extends typeof RECT_PARAMS = typeof RECT_PARAMS> extends Shape<S> {
+  static override readonly typeName: string = 'Rect';
   static override readonly params: ParamSchema = RECT_PARAMS;
 
   constructor(options: RectOptions = {}) {
@@ -130,6 +132,7 @@ const ROUNDED_RECT_PARAMS = {
 
 /** Прямоугольник со скруглёнными углами. Путь возвращается в начало, поэтому не замкнут, как в Zdog. */
 export class RoundedRect extends Rect<typeof ROUNDED_RECT_PARAMS> {
+  static override readonly typeName: string = 'RoundedRect';
   static override readonly params: ParamSchema = ROUNDED_RECT_PARAMS;
   static override readonly defaultClosed = false;
 
@@ -175,6 +178,7 @@ const POLYGON_PARAMS = {
 
 /** Правильный многоугольник. Первая вершина — сверху. */
 export class Polygon extends Shape<typeof POLYGON_PARAMS> {
+  static override readonly typeName: string = 'Polygon';
   static override readonly params = POLYGON_PARAMS;
 
   constructor(options: PolygonOptions = {}) {

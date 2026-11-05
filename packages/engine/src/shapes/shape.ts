@@ -167,6 +167,7 @@ export interface PathShapeOptions extends ShapeOptions {
  * путь из двух точек — отрезок.
  */
 export class PathShape extends Shape {
+  static override readonly typeName: string = 'PathShape';
   #path: readonly PathCommand[];
 
   constructor(options: PathShapeOptions = {}) {

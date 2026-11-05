@@ -2,19 +2,27 @@ import type { Camera } from '../scene/camera.ts';
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
 import { DepthSorter, type Drawable } from './depth-sort.ts';
-import { Bucket, decalAnchor, GLCollector, STRIDE } from './gl/collect.ts';
+import { Bucket, decalAnchor, GLCollector, MAX_ANCHORS, STRIDE } from './gl/collect.ts';
 
 /*
  * Проверка попадания: какая фигура видна в точке кадра. Фигуры раскладываются на те же
  * примитивы в экранном 3D, что и для WebGL2, и в точке считается пересечение луча
  * взгляда с каждым — теми же формулами, что в шейдерах. Правила видимости тоже те же:
  * - верхний слой сортировки закрывает нижние;
- * - внутри слоя видна ближняя фигура, при равной глубине — нарисованная раньше;
+ * - внутри слоя видна ближняя фигура, при равной глубине — раньше в порядке сортировки;
  * - декаль видна только там, где видна её непрозрачная опора, и тогда закрывает её;
- *   из нескольких декалей видна нарисованная последней.
+ *   из нескольких декалей видна нарисованная последней;
+ * - у полупрозрачной опоры и сверх `MAX_ANCHORS` опор в слое декали — обычные фигуры;
+ * - скрытые, полностью прозрачные и обращённые обратной стороной без `backfaceVisible`
+ *   фигуры не попадают.
  *
- * Canvas 2D рисует перекрытия по порядку, а не по пикселям, поэтому у краёв
- * перекрывающихся фигур его картинка может немного расходиться с результатом.
+ * Расхождения с кадром возможны только у точно совпадающих поверхностей: WebGL2 при
+ * равной глубине оставляет нарисованное раньше, а рисует он корзинами и по видам
+ * примитивов, а не строго в порядке сортировки.
+ *
+ * Проверка идёт по пикселям, как в WebGL2, а не по порядку списка отрисовки. Canvas 2D
+ * рисует перекрытия по порядку, поэтому у краёв перекрывающихся фигур его картинка
+ * может немного расходиться с результатом.
  */
 
 /** Результат проверки попадания. */
@@ -23,7 +31,10 @@ export interface Hit {
   readonly drawable: Drawable;
   /** Узел для выбора: составная фигура для её частей, иначе сам рисуемый узел. */
   readonly node: Node;
-  /** Глубина видимой точки в экранном 3D (больше — ближе к зрителю). */
+  /**
+   * Глубина точки фигуры в экранном 3D (больше — ближе к зрителю). У декали — её
+   * собственная глубина: она может лежать чуть глубже видимой поверхности опоры.
+   */
   readonly depth: number;
 }
 
@@ -39,8 +50,9 @@ interface Candidate {
 }
 
 /**
- * Проверка попадания по сцене. Сортировщик, сборщик и буфер примитивов переиспользуются
- * между вызовами, поэтому её можно вызывать на каждое движение указателя.
+ * Проверка попадания по сцене. Сортировщик, сборщик, буфер примитивов и записи декалей
+ * переиспользуются между вызовами; на вызов создаётся только результат. Стоит она
+ * примерно как сборка кадра для WebGL2.
  */
 export class HitTester {
   readonly #sorter = new DepthSorter();
@@ -49,6 +61,10 @@ export class HitTester {
   // Лучшее в текущем слое: ближайшая обычная фигура и последняя декаль на каждой опоре.
   readonly #nearest: Candidate = { drawable: null, depth: 0 };
   readonly #decals = new Map<Node, Candidate>();
+  readonly #candidates: Candidate[] = [];
+  #usedCandidates = 0;
+  // Опоры с номером в трафарете в текущем слое — так же, как у сборщика кадра.
+  readonly #anchors = new Set<Node>();
 
   /**
    * Фигура, видимая в точке (`x`, `y`) кадра: пиксели CSS от левого верхнего угла,
@@ -68,20 +84,24 @@ export class HitTester {
         result = this.#finishLayer() ?? result;
         run = runs[i] ?? 0;
       }
+      // Номер опоры раздаётся до всех пропусков, как у сборщика кадра.
+      const decal = this.#isDecalOf(drawable);
       if (drawable.worldOpacity <= 0) continue;
       const bucket = this.#bucket;
       bucket.reset();
       this.#collector.emitDrawable(drawable, camera, bucket);
       const depth = nearestDepth(bucket, px, py);
       if (depth === null) continue;
-      const anchor = decalAnchor(drawable);
-      if (anchor && anchor.worldOpacity >= 1) {
+      if (decal) {
         // Декали рисуются по порядку поверх опоры: видна последняя.
-        const candidate = this.#decals.get(anchor);
-        if (candidate) {
-          candidate.drawable = drawable;
-          candidate.depth = depth;
-        } else this.#decals.set(anchor, { drawable, depth });
+        const anchor = decalAnchor(drawable) as Node;
+        let candidate = this.#decals.get(anchor);
+        if (!candidate) {
+          candidate = this.#candidate();
+          this.#decals.set(anchor, candidate);
+        }
+        candidate.drawable = drawable;
+        candidate.depth = depth;
       } else if (this.#nearest.drawable === null || depth > this.#nearest.depth) {
         this.#nearest.drawable = drawable;
         this.#nearest.depth = depth;
@@ -90,9 +110,34 @@ export class HitTester {
     return this.#finishLayer() ?? result;
   }
 
+  /**
+   * Декаль ли фигура для трафарета: у опоры есть номер. Номера раздаются в порядке
+   * сортировки при первой декали опоры, как в `GLCollector.collect`, поэтому проверку
+   * проходят все фигуры слоя, а не только попавшие в точку.
+   */
+  #isDecalOf(drawable: Drawable): boolean {
+    const anchor = decalAnchor(drawable);
+    if (!anchor || anchor.worldOpacity < 1) return false;
+    const anchors = this.#anchors;
+    if (!anchors.has(anchor) && anchors.size < MAX_ANCHORS) anchors.add(anchor);
+    return anchors.has(anchor);
+  }
+
+  #candidate(): Candidate {
+    let candidate = this.#candidates[this.#usedCandidates];
+    if (!candidate) {
+      candidate = { drawable: null, depth: 0 };
+      this.#candidates.push(candidate);
+    }
+    this.#usedCandidates++;
+    return candidate;
+  }
+
   #resetLayer(): void {
     this.#nearest.drawable = null;
     this.#decals.clear();
+    this.#anchors.clear();
+    this.#usedCandidates = 0;
   }
 
   /** Видимое в точке по итогам слоя или `null`; готовит следующий слой. */

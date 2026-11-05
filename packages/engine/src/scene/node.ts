@@ -194,6 +194,17 @@ export class Node {
    */
   static readonly sortsAsGroup: boolean = false;
 
+  /**
+   * Имя типа узла: для подписей, отладки и формата документа. Задано строкой, а не
+   * берётся из имени класса — при сборке с сжатием имена классов меняются.
+   */
+  static readonly typeName: string = 'Node';
+
+  /** Имя типа этого узла, см. `Node.typeName`. */
+  get typeName(): string {
+    return (this.constructor as typeof Node).typeName;
+  }
+
   // ----- сортировка ----- //
 
   get sortMode(): SortMode {
