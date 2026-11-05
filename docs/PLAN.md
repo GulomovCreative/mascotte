@@ -273,7 +273,7 @@ docs/
 
 ### Этап 1. Ядро рендера
 
-Статус: **в работе** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
+Статус: **готов**, кроме замера 60 fps на среднем ноутбуке · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
 
 - [x] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
 - [x] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
@@ -294,7 +294,7 @@ docs/
 
 ### Этап 2. Анимация
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
+Статус: **в работе** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
 
 - [x] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
 - [ ] Реестр анимируемых свойств ([#17](https://github.com/GulomovCreative/mascotte/issues/17))

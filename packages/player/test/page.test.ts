@@ -48,6 +48,19 @@ describe('bindTickerToPage', () => {
     expect(ticker.paused).toBe(false);
     dispose();
     expect(page.doc.size).toBe(0);
+    // После отвязки события страницы тикер не трогают.
+    page.doc.visibilityState = 'hidden';
+    page.doc.emit();
+    expect(ticker.paused).toBe(false);
+  });
+
+  it('вкладка скрыта и меньше движения уже при привязке — пауза сразу', () => {
+    const ticker = new Ticker({ scheduler: idle });
+    const page = fakePage(true, false);
+    const dispose = bindTickerToPage(ticker, {}, page.env);
+    expect(ticker.paused).toBe(true);
+    dispose();
+    expect(ticker.paused).toBe(false);
   });
 
   it('prefers-reduced-motion ставит на паузу, если не попросили его не учитывать', () => {
@@ -60,6 +73,9 @@ describe('bindTickerToPage', () => {
     expect(ticker.paused).toBe(false);
     dispose();
     expect(page.query.size).toBe(0);
+    page.query.matches = true;
+    page.query.emit();
+    expect(ticker.paused).toBe(false);
 
     const ignoring = new Ticker({ scheduler: idle });
     bindTickerToPage(ignoring, { reducedMotion: 'ignore' }, fakePage(false, true).env);
