@@ -67,7 +67,7 @@ reference/     эталонные сцены и снимки кадров
 docs/
 ```
 
-Инструменты: Vite для playground и сборки, Vitest для тестов, `@napi-rs/canvas` для рендера в Node и тестов по снимкам кадров, Biome как линтер и форматтер, CI в GitHub Actions.
+Инструменты: Vite для playground и сборки, Vitest для тестов, `@napi-rs/canvas` для рендера в Node и тестов по снимкам кадров, режим браузера Vitest с Playwright и Chromium на SwiftShader для снимков WebGL, Biome как линтер и форматтер, CI в GitHub Actions.
 
 ### 5.2. Конвейер кадра
 
@@ -281,7 +281,7 @@ docs/
 - [x] Частичное перекрытие: разрез фигур по глубине перекрывателя ([#41](https://github.com/GulomovCreative/mascotte/issues/41))
 - [x] Список отрисовки и бэкенд Canvas 2D ([#12](https://github.com/GulomovCreative/mascotte/issues/12))
 - [x] Бэкенд WebGL2 с глубиной на пиксель ([#51](https://github.com/GulomovCreative/mascotte/issues/51))
-- [ ] Снимки кадров WebGL в тестах ([#53](https://github.com/GulomovCreative/mascotte/issues/53))
+- [x] Снимки кадров WebGL в тестах ([#53](https://github.com/GulomovCreative/mascotte/issues/53))
 - [ ] Hit-testing ([#13](https://github.com/GulomovCreative/mascotte/issues/13))
 - [ ] Бенчмарк и проверка аллокаций ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
 - [ ] Убрать копию Zdog из src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
