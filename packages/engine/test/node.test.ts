@@ -12,8 +12,8 @@ function worldPosition(node: Node): Vec3 {
   return node.getWorldPosition(vec3.create());
 }
 
-describe('Node: создание', () => {
-  it('значения по умолчанию', () => {
+describe('Node: construction', () => {
+  it('defaults', () => {
     const node = new Node();
     expect(node.id).toMatch(/^~\d+$/);
     expect(new Node().id).not.toBe(node.id);
@@ -25,10 +25,10 @@ describe('Node: создание', () => {
     expect(node.opacity).toBe(1);
   });
 
-  it('параметры конструктора', () => {
+  it('constructor parameters', () => {
     const node = new Node({
       id: 'head',
-      name: 'Голова',
+      name: 'Head',
       position: { x: 1, y: 2, z: 3 },
       rotation: euler.create(0, 0, Math.PI / 2),
       scale: 2,
@@ -37,17 +37,17 @@ describe('Node: создание', () => {
       opacity: 0.5,
     });
     expect(node.id).toBe('head');
-    expect(node.name).toBe('Голова');
+    expect(node.name).toBe('Head');
     expect(vec3.clone(node.scale)).toEqual({ x: 2, y: 2, z: 2 });
     expect(new Node({ scale: { x: 1, y: 2, z: 3 } }).scale.z).toBe(3);
     const back = node.getRotationEuler(euler.create());
     expect(back.z).toBeCloseTo(Math.PI / 2, 12);
-    // pivot (0, 1, 0) при повороте на 90° вокруг Z остаётся на месте, затем сдвиг на position.
+    // pivot (0, 1, 0) stays in place under a 90° rotation around Z, then the position offset applies.
     expectVec(node.localToWorld(vec3.create(), { x: 0, y: 1, z: 0 }), { x: 1, y: 3, z: 3 });
   });
 });
 
-describe('Node: мировые матрицы', () => {
+describe('Node: world matrices', () => {
   function chain() {
     const a = new Node({ position: { x: 10, y: 0, z: 0 }, rotation: euler.create(0, 0.4, 0) });
     const b = new Node({ position: { x: 0, y: 5, z: 0 }, scale: { x: 2, y: 1, z: 1 } });
@@ -67,7 +67,7 @@ describe('Node: мировые матрицы', () => {
     expect(mat3x4.equals(c.worldMatrix, expected)).toBe(true);
   });
 
-  it('повторное обращение не пересчитывает матрицу', () => {
+  it('repeated access does not recompute the matrix', () => {
     const { c } = chain();
     const version = c.worldVersion;
     c.worldMatrix;
@@ -75,7 +75,7 @@ describe('Node: мировые матрицы', () => {
     expect(c.worldVersion).toBe(version);
   });
 
-  it('изменение родителя пересчитывает потомков, изменение потомка не трогает родителя', () => {
+  it('a parent change recomputes descendants, a descendant change does not touch the parent', () => {
     const { a, b, c } = chain();
     const [va, vb, vc] = [a.worldVersion, b.worldVersion, c.worldVersion];
     a.position.x = 20;
@@ -84,7 +84,7 @@ describe('Node: мировые матрицы', () => {
     expect([a.worldVersion, b.worldVersion, c.worldVersion]).toEqual([va + 1, vb + 1, vc + 2]);
   });
 
-  it('запись того же значения не помечает узел устаревшим', () => {
+  it('writing the same value does not mark the node stale', () => {
     const { c } = chain();
     const version = c.worldVersion;
     const x = c.position.x;
@@ -96,7 +96,7 @@ describe('Node: мировые матрицы', () => {
     expect(c.worldVersion).toBe(version);
   });
 
-  it('функции vec3 пишут прямо в position и помечают узел', () => {
+  it('vec3 functions write directly to position and mark the node', () => {
     const node = new Node();
     node.worldMatrix;
     vec3.set(node.position, 4, 5, 6);
@@ -105,18 +105,18 @@ describe('Node: мировые матрицы', () => {
     expectVec(worldPosition(node), { x: 8, y: 10, z: 12 });
   });
 
-  it('localToWorld и worldToLocal взаимно обратны, вырожденная матрица даёт null', () => {
+  it('localToWorld and worldToLocal are inverses, a degenerate matrix gives null', () => {
     const { c } = chain();
     const point = { x: 3, y: -2, z: 7 };
     const world = c.localToWorld(vec3.create(), point);
     const back = c.worldToLocal(vec3.create(), world);
-    if (!back) throw new Error('матрица должна обращаться');
+    if (!back) throw new Error('the matrix must be invertible');
     expectVec(back, point);
     c.scale.set(0, 1, 1);
     expect(c.worldToLocal(vec3.create(), world)).toBeNull();
   });
 
-  it('setRotationFromEuler и getRotationEuler', () => {
+  it('setRotationFromEuler and getRotationEuler', () => {
     const node = new Node();
     node.setRotationFromEuler(euler.create(0.1, 0.2, 0.3, 'ZYX'));
     const back = node.getRotationEuler(euler.create(0, 0, 0, 'ZYX'));
@@ -125,7 +125,7 @@ describe('Node: мировые матрицы', () => {
     expect(back.z).toBeCloseTo(0.3, 12);
   });
 
-  it('visibleInTree и worldOpacity учитывают предков', () => {
+  it('visibleInTree and worldOpacity include ancestors', () => {
     const { a, b, c } = chain();
     a.opacity = 0.5;
     b.opacity = 0.5;
@@ -137,8 +137,8 @@ describe('Node: мировые матрицы', () => {
   });
 });
 
-describe('Node: иерархия', () => {
-  it('add по индексу, перестановка внутри родителя', () => {
+describe('Node: hierarchy', () => {
+  it('add at index, reordering within the parent', () => {
     const parent = new Node();
     const [x, y, z] = [new Node(), new Node(), new Node()];
     parent.add(x).add(y).add(z, 0);
@@ -151,7 +151,7 @@ describe('Node: иерархия', () => {
     expect(() => parent.add(new Node(), -1)).toThrow(RangeError);
   });
 
-  it('перенос сохраняет локальную трансформацию, мировая меняется', () => {
+  it('reparenting keeps the local transform, the world transform changes', () => {
     const left = new Node({ position: { x: -10, y: 0, z: 0 } });
     const right = new Node({ position: { x: 10, y: 0, z: 0 } });
     const child = new Node({ position: { x: 1, y: 0, z: 0 } });
@@ -166,21 +166,21 @@ describe('Node: иерархия', () => {
     expectVec(worldPosition(child), { x: 1, y: 0, z: 0 });
   });
 
-  it('циклы запрещены', () => {
+  it('cycles are forbidden', () => {
     const a = new Node();
     const b = new Node();
     a.add(b);
-    expect(() => b.add(a)).toThrow(/потомка/);
-    expect(() => a.add(a)).toThrow(/потомка/);
+    expect(() => b.add(a)).toThrow(/own descendant/);
+    expect(() => a.add(a)).toThrow(/own descendant/);
   });
 
-  it('remove чужого узла ничего не делает', () => {
+  it('remove of a non-child node does nothing', () => {
     const a = new Node();
     const b = new Node();
     expect(a.remove(b)).toBe(a);
   });
 
-  it('traverse обходит в глубину и останавливается по false, findById', () => {
+  it('traverse walks depth-first and stops on false, findById', () => {
     const root = new Node({ id: 'r' });
     const a = new Node({ id: 'a' });
     const b = new Node({ id: 'b' });
@@ -204,7 +204,7 @@ describe('Node: иерархия', () => {
 });
 
 describe('Scene', () => {
-  it('индекс по id для поддеревьев', () => {
+  it('id index for subtrees', () => {
     const scene = new Scene();
     const body = new Node({ id: 'body' });
     const head = new Node({ id: 'head' });
@@ -218,7 +218,7 @@ describe('Scene', () => {
     expect(head.scene).toBeNull();
   });
 
-  it('конфликт id отклоняется без изменений иерархии', () => {
+  it('an id conflict is rejected without hierarchy changes', () => {
     const scene = new Scene();
     scene.root.add(new Node({ id: 'eye' }));
     const other = new Node();
@@ -234,7 +234,7 @@ describe('Scene', () => {
     expect(scene.getById('twin')).toBeNull();
   });
 
-  it('перенос внутри сцены не трогает индекс, между сценами переносит id', () => {
+  it('a move within a scene keeps the index, a move between scenes transfers ids', () => {
     const first = new Scene();
     const second = new Scene();
     const a = new Node({ id: 'a' });
@@ -248,15 +248,15 @@ describe('Scene', () => {
     expect(a.scene).toBe(second);
   });
 
-  it('корень сцены нельзя сделать дочерним', () => {
+  it('a scene root cannot become a child', () => {
     const scene = new Scene();
-    expect(() => new Node().add(scene.root)).toThrow(/корень/);
+    expect(() => new Node().add(scene.root)).toThrow(/is a scene root and cannot become a child/);
     const used = new Node();
     new Node().add(used);
-    expect(() => new Scene(used)).toThrow(/корнем/);
+    expect(() => new Scene(used)).toThrow(/cannot be a scene root/);
   });
 
-  it('плоский список кэшируется до изменения структуры', () => {
+  it('the flat list is cached until the structure changes', () => {
     const scene = new Scene(new Node({ id: 'root' }));
     const a = new Node({ id: 'a' });
     scene.root.add(a);
@@ -273,7 +273,7 @@ describe('Scene', () => {
     expect(scene.nodes).not.toBe(reordered);
   });
 
-  it('updateWorldMatrices пересчитывает только устаревшие узлы', () => {
+  it('updateWorldMatrices recomputes only stale nodes', () => {
     const scene = new Scene();
     const a = new Node();
     const b = new Node();
@@ -287,8 +287,8 @@ describe('Scene', () => {
   });
 });
 
-describe('уничтожение', () => {
-  it('destroy отключает поддерево и снимает id со сцены', () => {
+describe('destruction', () => {
+  it('destroy detaches the subtree and unregisters ids', () => {
     const scene = new Scene();
     const body = new Node({ id: 'body' });
     const head = new Node({ id: 'head' });
@@ -299,12 +299,12 @@ describe('уничтожение', () => {
     expect(head.destroyed).toBe(true);
     expect(scene.root.children).toEqual([]);
     expect(scene.getById('head')).toBeNull();
-    expect(() => scene.root.add(body)).toThrow(/уничтожен/);
-    expect(() => body.add(new Node())).toThrow(/уничтожен/);
+    expect(() => scene.root.add(body)).toThrow(/destroyed/);
+    expect(() => body.add(new Node())).toThrow(/destroyed/);
     expect(() => body.destroy()).not.toThrow();
   });
 
-  it('Scene.destroy уничтожает дерево', () => {
+  it('Scene.destroy destroys the tree', () => {
     const scene = new Scene();
     const node = new Node({ id: 'x' });
     scene.root.add(node);

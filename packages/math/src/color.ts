@@ -1,9 +1,9 @@
 import { clamp } from './common.ts';
 
 /**
- * Цвет в sRGB: компоненты и непрозрачность от 0 до 1, без предумножения на альфу.
- * Так цвет задаётся в документе и передаётся в canvas. Для смешивания цвета
- * переводятся в OKLab, где интерполяция выглядит равномерной на глаз.
+ * Colour in sRGB: components and opacity from 0 to 1, not premultiplied by alpha.
+ * This is how a colour is stored in the document and passed to canvas. For mixing,
+ * colours are converted to OKLab, where interpolation looks perceptually uniform.
  */
 export interface Color {
   r: number;
@@ -13,8 +13,8 @@ export interface Color {
 }
 
 /**
- * Цвет в OKLab: светлота `l` от 0 до 1, оси `a` (зелёный–красный) и `b` (синий–жёлтый).
- * Здесь `a` — это ось цвета, а непрозрачность хранится в `alpha`, в отличие от `Color.a`.
+ * Colour in OKLab: lightness `l` from 0 to 1, axes `a` (green–red) and `b` (blue–yellow).
+ * Here `a` is a colour axis and opacity is stored in `alpha`, unlike `Color.a`.
  */
 export interface Oklab {
   l: number;
@@ -24,8 +24,8 @@ export interface Oklab {
 }
 
 /*
- * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
- * с любым из аргументов.
+ * All operations write the result to `out` and return it. `out` may be the same object
+ * as any of the arguments.
  */
 
 export function create(r = 0, g = 0, b = 0, a = 1): Color {
@@ -57,16 +57,16 @@ export function equals(x: Readonly<Color>, y: Readonly<Color>, epsilon = 1 / 512
   );
 }
 
-// ----- sRGB ↔ линейный RGB ↔ OKLab ----- //
+// ----- sRGB ↔ linear RGB ↔ OKLab ----- //
 
-/** Компонента sRGB → линейная яркость. */
+/** sRGB component → linear intensity. */
 export function srgbToLinear(value: number): number {
   const abs = Math.abs(value);
   const linear = abs <= 0.04045 ? abs / 12.92 : ((abs + 0.055) / 1.055) ** 2.4;
   return value < 0 ? -linear : linear;
 }
 
-/** Линейная яркость → компонента sRGB. */
+/** Linear intensity → sRGB component. */
 export function linearToSrgb(value: number): number {
   const abs = Math.abs(value);
   const srgb = abs <= 0.0031308 ? abs * 12.92 : 1.055 * abs ** (1 / 2.4) - 0.055;
@@ -77,7 +77,7 @@ export function createOklab(l = 0, a = 0, b = 0, alpha = 1): Oklab {
   return { l, a, b, alpha };
 }
 
-/** sRGB → OKLab (матрицы из описания OKLab, Björn Ottosson, 2020). */
+/** sRGB → OKLab (matrices from the OKLab description, Björn Ottosson, 2020). */
 export function toOklab(out: Oklab, c: Readonly<Color>): Oklab {
   const r = srgbToLinear(c.r);
   const g = srgbToLinear(c.g);
@@ -92,7 +92,7 @@ export function toOklab(out: Oklab, c: Readonly<Color>): Oklab {
   return out;
 }
 
-/** OKLab → sRGB. Цвета вне охвата sRGB обрезаются до [0, 1] по каждой компоненте. */
+/** OKLab → sRGB. Colours outside the sRGB gamut are clamped to [0, 1] per component. */
 export function fromOklab(out: Color, lab: Readonly<Oklab>): Color {
   const l = (lab.l + 0.3963377774 * lab.a + 0.2158037573 * lab.b) ** 3;
   const m = (lab.l - 0.1055613458 * lab.a - 0.0638541728 * lab.b) ** 3;
@@ -106,12 +106,12 @@ export function fromOklab(out: Color, lab: Readonly<Oklab>): Color {
 }
 
 /**
- * Интерполяция в OKLab с предумножением на альфу, как в CSS `color-mix`.
- * Поэтому переход из прозрачного цвета не темнеет и не сереет.
+ * Interpolation in OKLab with premultiplied alpha, as in CSS `color-mix`.
+ * A transition from a transparent colour therefore does not darken or turn grey.
  *
- * При `t` вне [0, 1] (недолёт и перелёт кривых `back`, `elastic`) компоненты
- * продолжаются линейно без предумножения, а альфа обрезается до [0, 1]: деление
- * на почти нулевую альфу раздуло бы цвет.
+ * For `t` outside [0, 1] (undershoot and overshoot of `back`, `elastic`) the components
+ * are extrapolated linearly without premultiplication and alpha is clamped to [0, 1]:
+ * dividing by a near-zero alpha would blow up the colour.
  */
 export function mixOklab(out: Oklab, x: Readonly<Oklab>, y: Readonly<Oklab>, t: number): Oklab {
   const xa = x.alpha;
@@ -136,8 +136,8 @@ const mixX = createOklab();
 const mixY = createOklab();
 
 /**
- * Смешивает цвета в OKLab. Для анимации, где концы не меняются, выгоднее один раз
- * перевести их через `toOklab` и вызывать `mixOklab` и `fromOklab`.
+ * Mixes colours in OKLab. For an animation with fixed endpoints it is cheaper to convert
+ * them once with `toOklab` and call `mixOklab` and `fromOklab`.
  */
 export function mix(out: Color, x: Readonly<Color>, y: Readonly<Color>, t: number): Color {
   toOklab(mixX, x);
@@ -145,24 +145,24 @@ export function mix(out: Color, x: Readonly<Color>, y: Readonly<Color>, t: numbe
   return fromOklab(out, mixOklab(mixX, mixX, mixY, t));
 }
 
-// ----- разбор и вывод CSS ----- //
+// ----- CSS parsing and output ----- //
 
 const HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const FUNCTION = /^(rgba?|hsla?|oklab|oklch)\(\s*(.*?)\s*\)$/i;
 
 /**
- * Разбирает цвет CSS и возвращает `null`, если строку разобрать нельзя. В этом случае
- * `out` не меняется.
+ * Parses a CSS colour and returns `null` if the string cannot be parsed. In that case
+ * `out` is left unchanged.
  *
- * Поддерживается:
- * - `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` и `transparent`;
- * - `rgb()`/`rgba()` и `hsl()`/`hsla()` в старом синтаксисе через запятые (без `none`,
- *   каналы `rgb` либо все числами, либо все в процентах);
- * - `rgb()`, `hsl()`, `oklab()`, `oklch()` в новом синтаксисе через пробелы, с альфой
- *   через `/` и ключевым словом `none` (считается нулём);
- * - проценты, числа с экспонентой, единицы угла `deg`, `grad`, `rad`, `turn`.
+ * Supported:
+ * - `#rgb`, `#rgba`, `#rrggbb`, `#rrggbbaa` and `transparent`;
+ * - `rgb()`/`rgba()` and `hsl()`/`hsla()` in the legacy comma syntax (no `none`,
+ *   `rgb` channels either all numbers or all percentages);
+ * - `rgb()`, `hsl()`, `oklab()`, `oklch()` in the modern space syntax, with alpha
+ *   after `/` and the `none` keyword (treated as zero);
+ * - percentages, numbers with exponents, angle units `deg`, `grad`, `rad`, `turn`.
  *
- * Других именованных цветов, кроме `transparent`, нет: редактор пишет hex.
+ * Named colours other than `transparent` are not supported: the editor writes hex.
  */
 export function parse(input: string, out: Color = create()): Color | null {
   const text = input.trim().toLowerCase();
@@ -195,7 +195,7 @@ export function parse(input: string, out: Color = create()): Color | null {
   }
   if (isHsl) {
     const h = parseHue(first, legacy);
-    // В старом синтаксисе s и l обязаны быть процентами, в новом допускаются числа 0–100.
+    // In the legacy syntax s and l must be percentages; the modern one also allows numbers 0–100.
     const s = legacy ? parsePercent(second) : parseNumberOrPercent(second, 100, legacy);
     const l = legacy ? parsePercent(third) : parseNumberOrPercent(third, 100, legacy);
     if (h === null || s === null || l === null) return null;
@@ -219,10 +219,10 @@ export function parse(input: string, out: Color = create()): Color | null {
   return fromOklab(out, { l: lightness, a: c * Math.cos(angle), b: c * Math.sin(angle), alpha });
 }
 
-/** Разбирает цвет CSS и бросает ошибку, если это не удалось. */
+/** Parses a CSS colour and throws if parsing fails. */
 export function parseOrThrow(input: string, out: Color = create()): Color {
   const result = parse(input, out);
-  if (!result) throw new SyntaxError(`Не удалось разобрать цвет «${input}».`);
+  if (!result) throw new SyntaxError(`Cannot parse colour "${input}".`);
   return result;
 }
 
@@ -236,14 +236,14 @@ function parseHex(out: Color, hex: string): Color {
   return set(out, digit(0) / 255, digit(1) / 255, digit(2) / 255, alpha);
 }
 
-/** Старый синтаксис: `1, 2, 3` или `1, 2, 3, 0.5`. */
+/** Legacy syntax: `1, 2, 3` or `1, 2, 3, 0.5`. */
 function splitLegacy(body: string): string[] | null {
   if (body.includes('/')) return null;
   const parts = body.split(',').map((part) => part.trim());
   return parts.length === 3 || parts.length === 4 ? parts : null;
 }
 
-/** Новый синтаксис: ровно три компонента через пробелы и, возможно, `/ альфа`. */
+/** Modern syntax: exactly three space-separated components and an optional `/ alpha`. */
 function splitModern(body: string): string[] | null {
   const [main = '', alpha, extra] = body.split('/');
   if (extra !== undefined) return null;
@@ -267,7 +267,7 @@ function parsePercent(text: string): number | null {
   return value === null ? null : value / 100;
 }
 
-/** Число, процент (100% соответствует `full`) или `none` в новом синтаксисе. */
+/** A number, a percentage (100% maps to `full`) or `none` in the modern syntax. */
 function parseNumberOrPercent(text: string, full: number, legacy: boolean): number | null {
   if (text === 'none') return legacy ? null : 0;
   if (text.endsWith('%')) {
@@ -277,7 +277,7 @@ function parseNumberOrPercent(text: string, full: number, legacy: boolean): numb
   return parseNumber(text);
 }
 
-/** Канал rgb: число 0–255 или процент. */
+/** An rgb channel: a number 0–255 or a percentage. */
 function parseChannel(text: string, legacy: boolean): number | null {
   if (text.endsWith('%')) {
     const percent = parsePercent(text);
@@ -294,13 +294,13 @@ function parseAlpha(text: string, legacy: boolean): number | null {
 
 const HUE_UNITS: readonly (readonly [string, number])[] = [
   ['deg', 1],
-  // `grad` проверяется раньше `rad`: строка с `grad` тоже оканчивается на `rad`.
+  // `grad` is checked before `rad`: a string ending in `grad` also ends in `rad`.
   ['grad', 0.9],
   ['rad', 180 / Math.PI],
   ['turn', 360],
 ];
 
-/** Угол в градусах: число, `deg`, `grad`, `rad`, `turn` или `none` в новом синтаксисе. */
+/** Angle in degrees: a number, `deg`, `grad`, `rad`, `turn` or `none` in the modern syntax. */
 function parseHue(text: string, legacy: boolean): number | null {
   if (text === 'none') return legacy ? null : 0;
   for (const [unit, factor] of HUE_UNITS) {
@@ -329,7 +329,7 @@ function hexByte(value: number): string {
   return HEX_DIGITS.charAt(byte >> 4) + HEX_DIGITS.charAt(byte & 15);
 }
 
-/** Цвет в виде `#rrggbb` или `#rrggbbaa`, если альфа после округления до байта меньше `ff`. */
+/** Colour as `#rrggbb`, or `#rrggbbaa` if alpha rounded to a byte is below `ff`. */
 export function toHex(c: Readonly<Color>): string {
   const hex = `#${hexByte(c.r)}${hexByte(c.g)}${hexByte(c.b)}`;
   const alpha = hexByte(c.a);

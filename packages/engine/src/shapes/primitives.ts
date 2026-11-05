@@ -4,16 +4,16 @@ import type { PathBuilder } from './path.ts';
 import { Shape, type ShapeOptions } from './shape.ts';
 
 /*
- * Плоские примитивы лежат в плоскости XY фигуры, центр — в начале координат,
- * лицевая сторона смотрит вдоль +z. Геометрия совпадает с Zdog.
+ * Flat primitives lie in the shape's XY plane, centered at the origin,
+ * with the front face looking along +z. The geometry matches Zdog.
  */
 
 export interface EllipseOptions extends ShapeOptions {
-  /** Диаметр: значение по умолчанию для ширины и высоты. */
+  /** Diameter: the default value for width and height. */
   diameter?: number;
   width?: number;
   height?: number;
-  /** Сколько четвертей рисовать, по часовой стрелке от верхней точки: 1–4. */
+  /** How many quarters to draw, clockwise from the top point: 1–4. */
   quarters?: number;
 }
 
@@ -23,7 +23,7 @@ const ELLIPSE_PARAMS = {
   quarters: { kind: 'integer', default: 4, min: 1, max: 4 },
 } as const satisfies ParamSchema;
 
-/** Эллипс или его часть из четвертей. По умолчанию не замкнут, как в Zdog. */
+/** An ellipse or a part of it made of quarters. Not closed by default, as in Zdog. */
 export class Ellipse extends Shape<typeof ELLIPSE_PARAMS> {
   static override readonly typeName: string = 'Ellipse';
   static override readonly params = ELLIPSE_PARAMS;
@@ -52,7 +52,7 @@ export class Ellipse extends Shape<typeof ELLIPSE_PARAMS> {
     this.setParam('height', value);
   }
 
-  /** Задаёт ширину и высоту сразу; при чтении возвращает ширину. */
+  /** Sets width and height at once; on read returns the width. */
   get diameter(): number {
     return this.width;
   }
@@ -90,7 +90,7 @@ const RECT_PARAMS = {
   height: { kind: 'length', default: 1 },
 } as const satisfies ParamSchema;
 
-/** Прямоугольник. */
+/** Rectangle. */
 export class Rect<S extends typeof RECT_PARAMS = typeof RECT_PARAMS> extends Shape<S> {
   static override readonly typeName: string = 'Rect';
   static override readonly params: ParamSchema = RECT_PARAMS;
@@ -121,7 +121,7 @@ export class Rect<S extends typeof RECT_PARAMS = typeof RECT_PARAMS> extends Sha
 }
 
 export interface RoundedRectOptions extends RectOptions {
-  /** Радиус скругления. Ограничивается половиной меньшей стороны. */
+  /** Corner radius. Limited to half of the shorter side. */
   cornerRadius?: number;
 }
 
@@ -130,7 +130,7 @@ const ROUNDED_RECT_PARAMS = {
   cornerRadius: { kind: 'length', default: 0.25 },
 } as const satisfies ParamSchema;
 
-/** Прямоугольник со скруглёнными углами. Путь возвращается в начало, поэтому не замкнут, как в Zdog. */
+/** Rectangle with rounded corners. The path returns to its start, so it is not closed, as in Zdog. */
 export class RoundedRect extends Rect<typeof ROUNDED_RECT_PARAMS> {
   static override readonly typeName: string = 'RoundedRect';
   static override readonly params: ParamSchema = ROUNDED_RECT_PARAMS;
@@ -165,9 +165,9 @@ export class RoundedRect extends Rect<typeof ROUNDED_RECT_PARAMS> {
 }
 
 export interface PolygonOptions extends ShapeOptions {
-  /** Радиус описанной окружности. */
+  /** Circumscribed circle radius. */
   radius?: number;
-  /** Число сторон, не меньше 3. */
+  /** Number of sides, at least 3. */
   sides?: number;
 }
 
@@ -176,7 +176,7 @@ const POLYGON_PARAMS = {
   sides: { kind: 'integer', default: 3, min: 3 },
 } as const satisfies ParamSchema;
 
-/** Правильный многоугольник. Первая вершина — сверху. */
+/** Regular polygon. The first vertex is at the top. */
 export class Polygon extends Shape<typeof POLYGON_PARAMS> {
   static override readonly typeName: string = 'Polygon';
   static override readonly params = POLYGON_PARAMS;

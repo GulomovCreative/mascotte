@@ -1,2 +1,2 @@
-// Схема документа маскота, валидация, версии и миграции. См. docs/PLAN.md, раздел 7.
+// Mascot document schema, validation, versions and migrations. See docs/PLAN.md, section 7.
 export {};

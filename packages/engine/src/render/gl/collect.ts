@@ -22,25 +22,25 @@ import { FloatBuffer, FrameList, IndexBuffer, Polyline } from './buffer.ts';
 import { triangulate } from './triangulate.ts';
 
 /*
- * Сборка кадра для WebGL2. Всё переводится в «экранное 3D»: x вправо и y вниз в пикселях
- * относительно центра кадра, z к зрителю в тех же пикселях (глубина умножена на тот же
- * масштаб перспективы). В этом пространстве лучи взгляда параллельны оси z, поэтому
- * форму и глубину шаров, капсул и поверхностей можно точно посчитать в каждом пикселе.
+ * Frame collection for WebGL2. Everything is converted to "screen 3D": x right and y down in pixels
+ * relative to the frame center, z toward the viewer in the same pixels (depth multiplied by the same
+ * perspective scale). In this space the view rays are parallel to the z axis, so
+ * the shape and depth of balls, capsules and surfaces can be computed exactly per pixel.
  */
 
-/** Сколько чисел у экземпляра каждого вида. Цвет — последние четыре (RGBA, 0–1). */
+/** How many numbers an instance of each kind has. The color is the last four (RGBA, 0–1). */
 export const STRIDE = {
-  /** ax ay az, bx by bz, радиус, цвет */
+  /** ax ay az, bx by bz, radius, color */
   capsule: 11,
-  /** cx cy cz, радиус, цвет */
+  /** cx cy cz, radius, color */
   sphere: 8,
-  /** cx cy cz, радиус, ось x y z (единичная, к куполу), цвет */
+  /** cx cy cz, radius, axis x y z (unit, toward the dome), color */
   hemisphere: 11,
-  /** ax ay az, bx by bz, радиус, цвет */
+  /** ax ay az, bx by bz, radius, color */
   cylinder: 11,
-  /** центр основания x y z, вершина x y z, радиус основания, цвет */
+  /** base center x y z, apex x y z, base radius, color */
   cone: 11,
-  /** вершина треугольника: x y z, цвет */
+  /** triangle vertex: x y z, color */
   fill: 7,
 } as const;
 
@@ -48,15 +48,15 @@ export type PrimitiveKind = keyof typeof STRIDE;
 export const PRIMITIVE_KINDS = Object.keys(STRIDE) as PrimitiveKind[];
 
 /**
- * Корзина примитивов, которые рисуются одной группой вызовов: с одним значением
- * трафарета и одним режимом (обычный, декаль, полупрозрачный).
+ * A bucket of primitives drawn as one group of calls: with one stencil
+ * value and one mode (regular, decal, translucent).
  */
 export class Bucket {
-  /** Номер опоры декалей в трафарете (1–127): у опоры — её номер, у декали — номер её опоры, иначе 0. */
+  /** Decal anchor number in the stencil (1–127): the anchor's own number for an anchor, its anchor's number for a decal, otherwise 0. */
   stencil = 0;
-  /** Декаль: рисуется только поверх видимых пикселей опоры, без проверки глубины. */
+  /** Decal: drawn only over the anchor's visible pixels, without a depth test. */
   decal = false;
-  /** Полупрозрачное: с наложением, без записи глубины, каждый пиксель смешивается один раз. */
+  /** Translucent: blended, without depth writes, each pixel is blended once. */
   blend = false;
   readonly data: Record<PrimitiveKind, FloatBuffer> = {
     capsule: new FloatBuffer(),
@@ -77,27 +77,27 @@ export class Bucket {
 }
 
 /**
- * Слой кадра — прогон слоёв сортировщика. Глубина проверяется только внутри слоя:
- * следующий слой рисуется поверх предыдущего.
+ * A frame layer is a layer run of the sorter. Depth is tested only within a layer:
+ * the next layer is drawn over the previous one.
  */
 export interface GLLayer {
-  /** Непрозрачные корзины: сначала обычная (трафарет 0), затем по одной на опору. */
+  /** Opaque buckets: the regular one first (stencil 0), then one per anchor. */
   readonly opaque: readonly Bucket[];
-  /** Декали в порядке сортировки, по корзине на фигуру. */
+  /** Decals in sort order, one bucket per shape. */
   readonly decals: readonly Bucket[];
-  /** Полупрозрачные фигуры в порядке сортировки, по корзине на фигуру. */
+  /** Translucent shapes in sort order, one bucket per shape. */
   readonly transparent: readonly Bucket[];
 }
 
-/** Кадр: слои в порядке отрисовки и диапазон глубин. */
+/** Frame: layers in drawing order and the depth range. */
 export interface GLFrame {
   readonly layers: readonly GLLayer[];
-  /** Самая дальняя и самая ближняя глубина кадра в экранных пикселях. */
+  /** The farthest and nearest depth of the frame in screen pixels. */
   readonly zMin: number;
   readonly zMax: number;
 }
 
-/** Сколько опор декалей помещается в одном слое: номер опоры занимает 7 бит трафарета. */
+/** How many decal anchors fit in one layer: the anchor number takes 7 stencil bits. */
 export const MAX_ANCHORS = 127;
 
 class Layer implements GLLayer {
@@ -134,8 +134,8 @@ const colors = new Map<string, [number, number, number, number]>();
 const parsed = colorMath.create();
 
 /**
- * RGBA цвета CSS с кэшем. Неразборчивый цвет — пурпурный, чтобы ошибка была видна
- * на кадре; предупреждение в консоль — один раз на цвет.
+ * RGBA of a CSS color, with a cache. An unparsable color becomes magenta so the error is visible
+ * in the frame; the console warning is issued once per color.
  */
 function rgba(css: string): [number, number, number, number] {
   let value = colors.get(css);
@@ -144,7 +144,7 @@ function rgba(css: string): [number, number, number, number] {
     if (c) value = [c.r, c.g, c.b, c.a];
     else {
       value = [1, 0, 1, 1];
-      console.warn(`Не удалось разобрать цвет «${css}», вместо него пурпурный.`);
+      console.warn(`Failed to parse color "${css}", using magenta instead.`);
     }
     colors.set(css, value);
   }
@@ -152,9 +152,9 @@ function rgba(css: string): [number, number, number, number] {
 }
 
 /**
- * Опора декали: ближайший предок, на котором лежит декаль, — рисуемый узел или
- * составная фигура, которые сами не декали. Узел — декаль, если он сам или промежуточный
- * узел до опоры в режиме `attached`.
+ * A decal's anchor: the nearest ancestor the decal lies on, a drawable or a
+ * solid that is not a decal itself. A node is a decal if it or an intermediate
+ * node up to the anchor is in `attached` mode.
  */
 export function decalAnchor(node: Node): Node | null {
   let attached = node.sortMode === 'attached';
@@ -167,7 +167,7 @@ export function decalAnchor(node: Node): Node | null {
 }
 
 const modelView = mat3x4.create();
-// Мировая матрица текущего узла в пространстве камеры, без масштаба перспективы.
+// World matrix of the current node in camera space, without the perspective scale.
 const nodeView = mat3x4.create();
 const boxView = mat3x4.create();
 const corner: Vec3 = { x: 0, y: 0, z: 0 };
@@ -181,8 +181,8 @@ const scratch: Vec3 = { x: 0, y: 0, z: 0 };
 const local: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Сборщик кадра. Корзины, слои, буферы и сам объект кадра переиспользуются между
- * кадрами: результат действителен до следующего вызова `collect`.
+ * Frame collector. Buckets, layers, buffers and the frame object itself are reused between
+ * frames: the result is valid until the next `collect` call.
  */
 export class GLCollector {
   readonly #sorter = new DepthSorter();
@@ -190,9 +190,9 @@ export class GLCollector {
   #used = 0;
   readonly #layerPool: Layer[] = [];
   readonly #layers = new FrameList<Layer>();
-  // Номера опор декалей. Запись действительна, только если её кадр — текущий: так
-  // таблицу не нужно очищать каждый кадр (очистка Map выделяет память). Сбрасывается
-  // при смене сцены или её структуры, чтобы не держать удалённые узлы.
+  // Decal anchor numbers. An entry is valid only if its frame is the current one: this way
+  // the table need not be cleared every frame (clearing a Map allocates memory). It is reset
+  // when the scene or its structure changes, so as not to hold on to removed nodes.
   readonly #anchors = new Map<Node, { frame: number; id: number }>();
   #anchorFrame = 0;
   #anchorScene: Scene | null = null;
@@ -205,9 +205,9 @@ export class GLCollector {
     zMin: 0,
     zMax: 0,
   };
-  // Ломаная текущего контура в экранном 3D и индексы её треугольников.
+  // Polyline of the current contour in screen 3D and the indices of its triangles.
   readonly #line = new Polyline();
-  // Текущая фигура: камера, масштаб перспективы, радиус, непрозрачность, длина оси.
+  // Current shape: camera, perspective scale, radius, opacity, axis length.
   #camera: Camera | null = null;
   #s = 1;
   #radius = 0;
@@ -229,9 +229,9 @@ export class GLCollector {
 
     const drawables = this.#sorter.sort(scene, camera);
     const runs = this.#sorter.runs;
-    // Номера опор: у каждой непрозрачной опоры декалей свой номер трафарета в её слое.
-    // У полупрозрачной опоры номера нет: её декали тоже полупрозрачны (прозрачность
-    // наследуется) и рисуются как обычные полупрозрачные фигуры.
+    // Anchor numbers: each opaque decal anchor gets its own stencil number in its layer.
+    // A translucent anchor has no number: its decals are translucent too (opacity
+    // is inherited) and are drawn as regular translucent shapes.
     for (let i = 0; i < drawables.length; i++) {
       const anchor = decalAnchor(drawables[i] as Drawable);
       if (!anchor || this.#anchorId(anchor) !== 0 || anchor.worldOpacity < 1) continue;
@@ -240,7 +240,7 @@ export class GLCollector {
       else if (!this.#warnedAnchors) {
         this.#warnedAnchors = true;
         console.warn(
-          `В слое больше ${MAX_ANCHORS} опор декалей; декали остальных рисуются как обычные фигуры.`,
+          `A layer has more than ${MAX_ANCHORS} decal anchors; decals of the rest are drawn as regular shapes.`,
         );
       }
     }
@@ -253,8 +253,8 @@ export class GLCollector {
       const anchorId = anchor ? this.#anchorId(anchor) : 0;
       let bucket: Bucket;
       if (anchorId !== 0) {
-        // Декали рисуются без проверки глубины, строго по порядку сортировки, поэтому у
-        // каждой своя корзина: внутри корзины примитивы идут по видам, а не по порядку.
+        // Decals are drawn without a depth test, strictly in sort order, so
+        // each has its own bucket: within a bucket primitives go by kind, not in order.
         bucket = this.#bucket(layer.decalList, anchorId, true, opacity < 1);
       } else if (opacity < 1) {
         bucket = this.#bucket(layer.transparentList, 0, false, true);
@@ -278,7 +278,7 @@ export class GLCollector {
     return frame;
   }
 
-  /** Номер опоры в текущем кадре или 0. */
+  /** Anchor number in the current frame, or 0. */
   #anchorId(node: Node): number {
     const entry = this.#anchors.get(node);
     return entry && entry.frame === this.#anchorFrame ? entry.id : 0;
@@ -292,7 +292,7 @@ export class GLCollector {
     } else this.#anchors.set(node, { frame: this.#anchorFrame, id });
   }
 
-  /** Слой с номером прогона `run`; слои создаются по порядку, пропусков нет. */
+  /** The layer with run number `run`; layers are created in order, with no gaps. */
   #layer(run: number): Layer {
     const layers = this.#layers;
     while (layers.count <= run) {
@@ -303,7 +303,7 @@ export class GLCollector {
       }
       layer.begin();
       layers.push(layer);
-      // Обычная корзина слоя идёт первой.
+      // The layer's regular bucket comes first.
       this.#bucket(layer.opaqueList, 0, false, false);
     }
     return layers.items[run] as Layer;
@@ -339,13 +339,13 @@ export class GLCollector {
   }
 
   /*
-   * Дальше дробные числа не передаются в вызовы и не возвращаются из них: если V8 не
-   * встроит вызов, каждое такое число упаковывается в объект, а вызовов — тысячи на кадр.
-   * Масштаб перспективы и непрозрачность лежат в полях, точки узла считаются прямо по
-   * его матрице в пространстве камеры (`nodeView`), данные пишутся в буфер по индексу.
+   * From here on floats are not passed to calls or returned from them: if V8 does not
+   * inline a call, each such number is boxed into an object, and there are thousands of calls per frame.
+   * The perspective scale and opacity live in fields, node points are computed directly from
+   * its matrix in camera space (`nodeView`), data is written into the buffer by index.
    */
 
-  /** Масштаб перспективы по опорному узлу в `#s`; `false`, если тот за глазом камеры. */
+  /** Perspective scale from the reference node into `#s`; `false` if it is behind the camera eye. */
   #scale(drawable: Drawable, camera: Camera): boolean {
     camera.toView(scratch, drawable.perspectiveReference.getWorldPosition(scratch));
     if (!camera.isInFront(scratch.z)) return false;
@@ -354,8 +354,8 @@ export class GLCollector {
   }
 
   /**
-   * Примитивы одной фигуры в `bucket` так же, как при сборке кадра: в экранном 3D,
-   * с учётом обратной стороны и перспективы. Нужны проверке попадания.
+   * Primitives of one shape into `bucket`, the same as in frame collection: in screen 3D,
+   * accounting for the back face and perspective. Needed by hit testing.
    */
   emitDrawable(drawable: Drawable, camera: Camera, bucket: Bucket): void {
     this.#emit(drawable, camera, bucket, 1);
@@ -374,7 +374,7 @@ export class GLCollector {
     else if (drawable instanceof ConeSurface) this.#coneSurface(drawable, bucket);
   }
 
-  /** Цвет `css` с непрозрачностью фигуры в `d` с индекса `o`. */
+  /** Color `css` with the shape's opacity into `d` at index `o`. */
   #writeColor(d: Float32Array, o: number, css: string): void {
     const color = rgba(css);
     d[o] = color[0];
@@ -383,7 +383,7 @@ export class GLCollector {
     d[o + 3] = color[3] * this.#opacity;
   }
 
-  /** Шар с центром в `scratch` и радиусом `#radius`. */
+  /** A ball centered at `scratch` with radius `#radius`. */
   #pushSphere(bucket: Bucket, css: string): void {
     const out = bucket.data.sphere;
     const o = out.reserve(STRIDE.sphere);
@@ -398,8 +398,8 @@ export class GLCollector {
   }
 
   /**
-   * Отрезок вдоль локальной оси z узла: от `from` до `to` (в единицах узла), радиус
-   * `#radius`. Для капсул и боков цилиндров.
+   * A segment along the node's local z axis: from `from` to `to` (in node units), radius
+   * `#radius`. For capsules and cylinder sides.
    */
   #pushAxisSegment(out: FloatBuffer, from: number, to: number, css: string): void {
     const m = nodeView;
@@ -427,12 +427,12 @@ export class GLCollector {
     this.#extent(bz, r);
   }
 
-  // ----- фигуры с путём ----- //
+  // ----- shapes with a path ----- //
 
   #shape(shape: Shape, bucket: Bucket): void {
     const style = shape.style;
     const m = nodeView;
-    // Обратная сторона, как в Zdog: только если точка `front` строго дальше начала.
+    // Back face, as in Zdog: only if the `front` point is strictly farther than the origin.
     const f = shape.front;
     const originZ = m[11] as number;
     const frontZ =
@@ -441,9 +441,9 @@ export class GLCollector {
     if (facingBack && !style.backfaceVisible) return;
     const css = facingBack ? (style.backfaceColor ?? style.color) : style.color;
 
-    // Крышки и грани залитых объёмных фигур — сплошные плоскости полного размера
-    // с учётом обводки. Трубка-обводка по краю почти совпала бы по глубине с боком
-    // цилиндра или с трубкой соседней грани, и они спорили бы за пиксели.
+    // Caps and faces of filled solids are full-size solid planes
+    // including the stroke. A stroke tube along the edge would almost coincide in depth with the
+    // cylinder side or with the tube of a neighboring face, and they would fight over pixels.
     const owner = shape.owner;
     if (
       style.fill &&
@@ -471,7 +471,7 @@ export class GLCollector {
     );
     this.#radius = (style.stroke * nodeScale * s) / 2;
 
-    // Масштаб перспективы входит в матрицу: s · (V · W · p) = (s · V · W) · p.
+    // The perspective scale is part of the matrix: s · (V · W · p) = (s · V · W) · p.
     for (let k = 0; k < 12; k++) modelView[k] = (m[k] as number) * s;
     const { ops, points, opCount, closed } = shape.geometry;
 
@@ -506,7 +506,7 @@ export class GLCollector {
         const ex = e.x;
         const ey = e.y;
         const ez = e.z;
-        // Число отрезков — по длине опорной ломаной на экране, примерно по 3 пикселя.
+        // The number of segments follows the length of the control polygon on screen, about 3 pixels each.
         const d1x = c1x - x0;
         const d1y = c1y - y0;
         const d2x = c2x - c1x;
@@ -550,9 +550,9 @@ export class GLCollector {
   }
 
   /**
-   * Обводка текущей ломаной капсулами радиуса `#radius` и, если `fill`, заливка.
-   * Заливается только первый контур, как у Canvas с одним контуром. Ломаная после
-   * вызова пуста.
+   * Strokes the current polyline with capsules of radius `#radius` and, if `fill`, fills it.
+   * Only the first contour is filled, as in Canvas with one contour. The polyline is empty
+   * after the call.
    */
   #contour(bucket: Bucket, css: string, closed: boolean, fill: boolean): void {
     const line = this.#line;
@@ -590,7 +590,7 @@ export class GLCollector {
     line.clear();
   }
 
-  /** Крышка цилиндра, конуса или полусферы: диск радиусом основания плюс полтолщины обводки. */
+  /** Cap of a cylinder, cone or hemisphere: a disk with the base radius plus half the stroke width. */
   #cap(base: Ellipse, bucket: Bucket, css: string): void {
     const m = nodeView;
     const s = this.#s;
@@ -607,7 +607,7 @@ export class GLCollector {
     const tz = m[11] as number;
     const line = this.#line;
     line.clear();
-    // Число точек — по размеру на экране, примерно по 3 пикселя дуги.
+    // The number of points follows the on-screen size, about 3 pixels of arc each.
     const k = Math.sqrt(xx * xx + xy * xy + xz * xz) * s;
     const steps = Math.min(128, Math.max(16, Math.ceil((2 * Math.PI * Math.max(rx, ry) * k) / 3)));
     for (let i = 0; i < steps; i++) {
@@ -623,13 +623,13 @@ export class GLCollector {
   }
 
   /**
-   * Грань залитой коробки: коробка раздута на полтолщины обводки во все стороны,
-   * грани плоские и сходятся точно по рёбрам.
+   * Face of a filled box: the box is inflated by half the stroke width in all directions,
+   * the faces are flat and meet exactly at the edges.
    */
   #boxFace(face: Rect, box: Box, bucket: Bucket, css: string): void {
     const s = this.#s;
     const pad = box.style.stroke / 2;
-    // Углы считаются в координатах коробки, поэтому нужна её матрица, а не грани.
+    // Corners are computed in box coordinates, so the box's matrix is needed, not the face's.
     mat3x4.multiply(boxView, (this.#camera as Camera).viewMatrix, box.worldMatrix);
     const line = this.#line;
     line.clear();
@@ -639,7 +639,7 @@ export class GLCollector {
       corner.x = (c[0] * face.width) / 2;
       corner.y = (c[1] * face.height) / 2;
       corner.z = 0;
-      // Угол в координатах коробки: каждая координата — ±половина размера, раздуваем её.
+      // Corner in box coordinates: each coordinate is ±half the size, inflate it.
       mat3x4.transformPoint(corner, local, corner);
       corner.x += Math.sign(corner.x) * pad;
       corner.y += Math.sign(corner.y) * pad;
@@ -653,7 +653,7 @@ export class GLCollector {
     this.#fill(bucket, css, 4);
   }
 
-  /** Заливка первых `n` точек текущей ломаной треугольниками. */
+  /** Fills the first `n` points of the current polyline with triangles. */
   #fill(bucket: Bucket, css: string, n: number): void {
     const triangles = this.#triangles;
     const line = this.#line;
@@ -675,9 +675,9 @@ export class GLCollector {
     }
   }
 
-  // ----- поверхности ----- //
+  // ----- surfaces ----- //
 
-  /** Длина локальной оси x (`axis` 0) или z (`axis` 6) узла в пространстве камеры. */
+  /** Length of the node's local x axis (`axis` 0) or z axis (`axis` 6) in camera space. */
   #axisLength(axis: 0 | 6): void {
     const m = nodeView;
     const x = m[axis] as number;
@@ -756,7 +756,7 @@ export class GLCollector {
   }
 }
 
-/** Точка `index` геометрии через `modelView` (с масштабом перспективы) в экранное 3D. */
+/** Geometry point `index` through `modelView` (with the perspective scale) into screen 3D. */
 function project(points: Float64Array, index: number): Vec3 {
   const i = index * 3;
   local.x = points[i] ?? 0;

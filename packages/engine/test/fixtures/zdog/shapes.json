@@ -1,5 +1,5 @@
 {
-  "эллипс, все варианты четвертей": [
+  "ellipse, every quarters variant": [
     {
       "input": {
         "type": "Ellipse",
@@ -135,7 +135,7 @@
       }
     }
   ],
-  "прямоугольник": [
+  "rect": [
     {
       "input": {
         "type": "Rect",
@@ -150,7 +150,7 @@
       }
     }
   ],
-  "скруглённый прямоугольник, включая радиус больше половины стороны и квадрат": [
+  "rounded rect, including a radius over half the side and a square": [
     {
       "input": {
         "type": "RoundedRect",
@@ -223,7 +223,7 @@
       }
     }
   ],
-  "многоугольник": [
+  "polygon": [
     {
       "input": {
         "type": "Polygon",
@@ -326,7 +326,7 @@
       }
     }
   ],
-  "путь с отрезками, дугой и кривой Безье, открытый и замкнутый": [
+  "path with lines, an arc and a Bezier curve, open and closed": [
     {
       "input": {
         "type": "PathShape",
@@ -454,7 +454,7 @@
       }
     }
   ],
-  "точка и отрезок: отрезок не замыкается": [
+  "point and line: a line does not close": [
     {
       "input": {
         "type": "PathShape",

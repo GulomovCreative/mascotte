@@ -1,21 +1,21 @@
 /**
- * Функция плавности: время клипа от 0 до 1 → доля пройденного пути. Именованные
- * кривые и `cubicBezier` возвращают ровно 0 при t = 0 и ровно 1 при t = 1. Исключение —
- * `steps` в режимах `start` и `both`: там скачок происходит уже в начале. Кривые `back`,
- * `elastic` и `cubicBezier` с y вне [0, 1] выходят за [0, 1] посередине.
+ * Easing function: clip time from 0 to 1 → fraction of the path covered. Named
+ * curves and `cubicBezier` return exactly 0 at t = 0 and exactly 1 at t = 1. The exception
+ * is `steps` in `start` and `both` modes, where the jump happens at the start. The `back`,
+ * `elastic` curves and `cubicBezier` with y outside [0, 1] leave [0, 1] in the middle.
  */
 export type Easing = (t: number) => number;
 
 export const linear: Easing = (t) => t;
 
-// ----- стандартные кривые ----- //
+// ----- standard curves ----- //
 
-/** Отражает кривую: из разгона получается торможение и наоборот, `g(t) = 1 − f(1 − t)`. */
+/** Mirrors a curve: ease-in becomes ease-out and vice versa, `g(t) = 1 − f(1 − t)`. */
 function mirror(curve: Easing): Easing {
   return (t) => 1 - curve(1 - t);
 }
 
-/** Из кривой разгона строит разгон и торможение, симметричные относительно середины. */
+/** Builds an ease-in-out curve, symmetric about the midpoint, from an ease-in curve. */
 function easeInOut(easeIn: Easing): Easing {
   return (t) => (t < 0.5 ? easeIn(t * 2) / 2 : 1 - easeIn((1 - t) * 2) / 2);
 }
@@ -27,16 +27,16 @@ export const quadIn: Easing = (t) => t * t;
 export const cubicIn: Easing = (t) => t * t * t;
 export const quartIn: Easing = (t) => t * t * t * t;
 export const quintIn: Easing = (t) => t * t * t * t * t;
-// Кривые с неточной арифметикой на конце явно возвращают 1 при t ≥ 1.
+// Curves with inexact arithmetic at the end return 1 explicitly for t ≥ 1.
 export const sineIn: Easing = (t) => (t >= 1 ? 1 : 1 - Math.cos((t * Math.PI) / 2));
 export const expoIn: Easing = (t) => (t <= 0 ? 0 : 2 ** (10 * t - 10));
 export const circIn: Easing = (t) => 1 - Math.sqrt(1 - Math.min(1, t * t));
-/** Сначала немного отходит назад, потом разгоняется. */
+/** Pulls back slightly first, then accelerates. */
 export const backIn: Easing = (t) => (t >= 1 ? 1 : (BACK + 1) * t * t * t - BACK * t * t);
-/** Колебания, как у пружины: нарастают к концу (`elasticOut` затухает). */
+/** Spring-like oscillation that grows towards the end (`elasticOut` decays). */
 export const elasticIn: Easing = (t) =>
   t <= 0 ? 0 : t >= 1 ? 1 : -(2 ** (10 * t - 10)) * Math.sin((t * 10 - 10.75) * ELASTIC_PERIOD);
-/** Отскок, как у падающего мяча. */
+/** Bounce, like a falling ball. */
 export const bounceOut: Easing = (t) => {
   const n = 7.5625;
   const d = 2.75;
@@ -72,20 +72,20 @@ export const bounceInOut = easeInOut(bounceIn);
 // ----- cubic-bezier ----- //
 
 /**
- * Кривая Безье как в CSS `cubic-bezier(x1, y1, x2, y2)`: концы в (0, 0) и (1, 1),
- * `x1` и `x2` обязаны лежать в [0, 1], `y` может выходить за пределы.
+ * Bézier curve as in CSS `cubic-bezier(x1, y1, x2, y2)`: endpoints at (0, 0) and (1, 1),
+ * `x1` and `x2` must lie in [0, 1], `y` may go outside.
  */
 export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Easing {
   if (!(x1 >= 0 && x1 <= 1 && x2 >= 0 && x2 <= 1)) {
-    throw new RangeError(`cubic-bezier: x1 и x2 должны быть в [0, 1], получено ${x1}, ${x2}.`);
+    throw new RangeError(`cubic-bezier: x1 and x2 must be in [0, 1], got ${x1}, ${x2}.`);
   }
   if (!(Number.isFinite(y1) && Number.isFinite(y2))) {
-    throw new RangeError(`cubic-bezier: y1 и y2 должны быть конечными, получено ${y1}, ${y2}.`);
+    throw new RangeError(`cubic-bezier: y1 and y2 must be finite, got ${y1}, ${y2}.`);
   }
-  // Прямая линия: возвращается общая функция `linear`.
+  // Straight line: return the shared `linear` function.
   if (x1 === y1 && x2 === y2) return linear;
 
-  // Коэффициенты многочлена B(s) = ((a·s + b)·s + c)·s.
+  // Polynomial coefficients B(s) = ((a·s + b)·s + c)·s.
   const cx = 3 * x1;
   const bx = 3 * (x2 - x1) - cx;
   const ax = 1 - cx - bx;
@@ -96,7 +96,7 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   const sampleY = (s: number) => ((ay * s + by) * s + cy) * s;
   const slopeX = (s: number) => (3 * ax * s + 2 * bx) * s + cx;
 
-  /** Параметр кривой `s`, при котором x(s) = x. Ньютон, а при плохой сходимости — деление пополам. */
+  /** Curve parameter `s` where x(s) = x. Newton's method, falling back to bisection on poor convergence. */
   const solve = (x: number) => {
     let s = x;
     for (let i = 0; i < 8; i++) {
@@ -126,13 +126,13 @@ export function cubicBezier(x1: number, y1: number, x2: number, y2: number): Eas
   };
 }
 
-/** Кривые CSS по умолчанию. */
+/** Default CSS curves. */
 export const cssEase = cubicBezier(0.25, 0.1, 0.25, 1);
 export const cssEaseIn = cubicBezier(0.42, 0, 1, 1);
 export const cssEaseOut = cubicBezier(0, 0, 0.58, 1);
 export const cssEaseInOut = cubicBezier(0.42, 0, 0.58, 1);
 
-/** Все именованные кривые. По этим именам плавность будет храниться в документе. */
+/** All named curves. Easing will be stored in the document under these names. */
 export const named = {
   linear,
   quadIn,
@@ -177,19 +177,19 @@ export function isEasingName(value: string): value is EasingName {
   return Object.hasOwn(named, value);
 }
 
-// ----- ступеньки ----- //
+// ----- steps ----- //
 
-/** Где находятся скачки, как в CSS `steps()`: в начале, в конце, на обоих концах или нигде. */
+/** Where the jumps are, as in CSS `steps()`: at the start, at the end, at both ends or nowhere. */
 export type StepPosition = 'start' | 'end' | 'both' | 'none';
 
 /**
- * Ступенчатая функция как в CSS `steps(count, position)`. Например, `steps(4)` даёт
- * 0, 0.25, 0.5, 0.75 и 1 только в самом конце. Время вне [0, 1] обрезается.
+ * Step function as in CSS `steps(count, position)`. For example, `steps(4)` yields
+ * 0, 0.25, 0.5, 0.75, and 1 only at the very end. Time outside [0, 1] is clamped.
  */
 export function steps(count: number, position: StepPosition = 'end'): Easing {
   const minimum = position === 'none' ? 2 : 1;
   if (!Number.isInteger(count) || count < minimum) {
-    throw new RangeError(`steps: число ступенек должно быть целым и не меньше ${minimum}.`);
+    throw new RangeError(`steps: step count must be an integer not less than ${minimum}.`);
   }
   const jumps = position === 'both' ? count + 1 : position === 'none' ? count - 1 : count;
   const shift = position === 'start' || position === 'both' ? 1 : 0;
@@ -200,9 +200,9 @@ export function steps(count: number, position: StepPosition = 'end'): Easing {
   };
 }
 
-// ----- описание кривой в документе ----- //
+// ----- curve description in the document ----- //
 
-/** Как плавность записывается в документе: имя кривой или параметры. */
+/** How easing is written in the document: a curve name or parameters. */
 export type EasingSpec =
   | EasingName
   | {
@@ -215,12 +215,12 @@ export type EasingSpec =
   | { readonly type: 'steps'; readonly count: number; readonly position?: StepPosition };
 
 /**
- * Функция плавности по описанию из документа. Вызывается при загрузке, а не в каждом
- * кадре. Бросает `RangeError` для неизвестного имени или недопустимых параметров.
+ * Easing function from a document description. Called on load, not every
+ * frame. Throws `RangeError` for an unknown name or invalid parameters.
  */
 export function resolve(spec: EasingSpec): Easing {
   if (typeof spec === 'string') {
-    if (!isEasingName(spec)) throw new RangeError(`Неизвестная кривая плавности «${spec}».`);
+    if (!isEasingName(spec)) throw new RangeError(`Unknown easing curve "${spec}".`);
     return named[spec];
   }
   switch (spec.type) {
@@ -229,6 +229,6 @@ export function resolve(spec: EasingSpec): Easing {
     case 'steps':
       return steps(spec.count, spec.position);
     default:
-      throw new RangeError(`Неизвестный тип плавности «${(spec as { type: unknown }).type}».`);
+      throw new RangeError(`Unknown easing type "${(spec as { type: unknown }).type}".`);
   }
 }

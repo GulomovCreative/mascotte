@@ -1,15 +1,15 @@
-// Команды браузерных тестов WebGL: выполняются в Node. Не импортировать в браузерный код.
+// Commands for the WebGL browser tests: they run in Node. Do not import into browser code.
 import { join } from 'node:path';
 import type { BrowserCommand } from 'vitest/node';
 import { diffDir, matchSnapshot, type SnapshotResult, snapshotDir } from './snapshot.ts';
 
-/** Папка снимков WebGL: кадры WebGL и Canvas 2D различаются сглаживанием и перекрытиями. */
+/** WebGL snapshot folder: WebGL and Canvas 2D frames differ in antialiasing and overlaps. */
 export const glSnapshotDir = join(snapshotDir, 'gl');
 export const glDiffDir = join(diffDir, 'gl');
 
 /**
- * Сравнивает кадр из браузера (data URL PNG) со снимком `reference/snapshots/gl/<name>.png`.
- * Обновление — как у остальных снимков, только в режиме `UPDATE_SNAPSHOTS=1`.
+ * Compares a frame from the browser (a PNG data URL) with the snapshot `reference/snapshots/gl/<name>.png`.
+ * As with other snapshots, it is updated only in `UPDATE_SNAPSHOTS=1` mode.
  */
 export const matchGLSnapshot: BrowserCommand<[name: string, dataUrl: string]> = (
   _context,
@@ -18,13 +18,13 @@ export const matchGLSnapshot: BrowserCommand<[name: string, dataUrl: string]> = 
 ): SnapshotResult => {
   const comma = dataUrl.indexOf(',');
   if (!dataUrl.startsWith('data:image/png;base64,')) {
-    throw new Error(`Ожидался data URL PNG для снимка ${name}.`);
+    throw new Error(`Expected a PNG data URL for snapshot ${name}.`);
   }
   const png = Buffer.from(dataUrl.slice(comma + 1), 'base64');
-  // SwiftShader детерминирован: повторный прогон на той же версии Chromium (её задаёт
-  // playwright в pnpm-lock.yaml) даёт тот же кадр. Обновление Chromium может сдвинуть
-  // сглаживание краёв — тогда снимки пересоздаются. Допуск 0,05 % оставлен на мелкие
-  // различия; пропавшие зрачки маскота отличались на 0,19 % кадра.
+  // SwiftShader is deterministic: a rerun on the same Chromium version (set by playwright
+  // in pnpm-lock.yaml) gives the same frame. A Chromium update may shift edge antialiasing;
+  // then the snapshots are regenerated. The 0.05% tolerance covers small differences; missing
+  // mascot pupils differed by 0.19% of the frame.
   return matchSnapshot(name, png, {
     snapshotDir: glSnapshotDir,
     diffDir: glDiffDir,

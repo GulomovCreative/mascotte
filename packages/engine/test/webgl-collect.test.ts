@@ -47,7 +47,7 @@ function instances(bucket: Bucket | undefined, kind: PrimitiveKind): number[][] 
 
 function first(frame: GLFrame): GLLayer {
   const layer = frame.layers[0];
-  if (!layer) throw new Error('В кадре нет слоёв.');
+  if (!layer) throw new Error('The frame has no layers.');
   return layer;
 }
 
@@ -63,46 +63,46 @@ function area(xs: number[], ys: number[], triangles: number[]): number {
   return sum / 2;
 }
 
-/** Индексы треугольников из буфера как массив. */
+/** Triangle indices from the buffer as an array. */
 function ids(out: IndexBuffer): number[] {
   return Array.from(out.data.subarray(0, out.length));
 }
 
 describe('triangulate', () => {
-  it('выпуклый и невыпуклый многоугольники покрываются без потерь площади', () => {
+  it('convex and concave polygons are covered without area loss', () => {
     const out = new IndexBuffer();
     expect(triangulate([0, 10, 10, 0], [0, 0, 10, 10], 4, out)).toBe(2);
     expect(area([0, 10, 10, 0], [0, 0, 10, 10], ids(out))).toBeCloseTo(100, 9);
-    // Буква «Г»: площадь 75.
+    // An L shape: area 75.
     const xs = [0, 10, 10, 5, 5, 0];
     const ys = [0, 0, 5, 5, 10, 10];
     expect(triangulate(xs, ys, 6, out)).toBe(4);
     expect(area(xs, ys, ids(out))).toBeCloseTo(75, 9);
-    // Обход по часовой стрелке тоже работает.
+    // Clockwise winding works too.
     expect(triangulate([0, 0, 10, 10], [0, 10, 10, 0], 4, out)).toBe(2);
     expect(triangulate([0, 1], [0, 1], 2, out)).toBe(0);
   });
 
-  it('вырожденные контуры не ломают разбиение: индексы в пределах, площадь не теряется', () => {
+  it('degenerate contours do not break triangulation: indices in range, no area lost', () => {
     const out = new IndexBuffer();
-    // Все точки на одной прямой: площадь нулевая.
+    // All points on one line: zero area.
     triangulate([0, 5, 10, 15], [0, 0, 0, 0], 4, out);
     expect(area([0, 5, 10, 15], [0, 0, 0, 0], ids(out))).toBeCloseTo(0, 9);
-    // Повторённые вершины.
+    // Repeated vertices.
     const xs = [0, 10, 10, 10, 0];
     const ys = [0, 0, 0, 10, 10];
     triangulate(xs, ys, 5, out);
     expect(ids(out).every((i) => i >= 0 && i < 5)).toBe(true);
     expect(area(xs, ys, ids(out))).toBeCloseTo(100, 9);
-    // Самопересекающийся «бантик»: разбиение завершается, индексы в пределах.
+    // A self-intersecting bow tie: triangulation finishes, indices in range.
     const n = triangulate([0, 10, 0, 10], [0, 10, 10, 0], 4, out);
     expect(out.length).toBe(n * 3);
     expect(ids(out).every((i) => i >= 0 && i < 4)).toBe(true);
   });
 });
 
-describe('рост рабочих буферов', () => {
-  it('многоугольник больше начального кольца разбивается без потерь', () => {
+describe('scratch buffer growth', () => {
+  it('a polygon larger than the initial ring triangulates without loss', () => {
     const n = 100;
     const xs: number[] = [];
     const ys: number[] = [];
@@ -113,11 +113,11 @@ describe('рост рабочих буферов', () => {
     const out = new IndexBuffer();
     expect(triangulate(xs, ys, n, out)).toBe(n - 2);
     expect(ids(out).every((i) => i >= 0 && i < n)).toBe(true);
-    // Площадь правильного многоугольника: n · r² · sin(2π/n) / 2.
+    // Regular polygon area: n · r² · sin(2π/n) / 2.
     expect(area(xs, ys, ids(out))).toBeCloseTo((n * 2500 * Math.sin((2 * Math.PI) / n)) / 2, 6);
   });
 
-  it('путь на 200 точек: ломаная растёт, все отрезки на месте', () => {
+  it('a 200-point path: the polyline grows, all segments are in place', () => {
     const path: { type: 'move' | 'line'; point: { x: number; y: number } }[] = [];
     for (let i = 0; i < 200; i++) {
       path.push({ type: i === 0 ? 'move' : 'line', point: { x: i - 100, y: (i % 2) * 3 } });
@@ -136,7 +136,7 @@ describe('рост рабочих буферов', () => {
 });
 
 describe('GLCollector', () => {
-  it('точка — шар, отрезок — капсула, замкнутый прямоугольник — четыре капсулы', () => {
+  it('a point is a ball, a line is a capsule, a closed rect is four capsules', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new PathShape({ position: { x: 5, y: 0, z: 0 }, style: { stroke: 10 } }),
@@ -158,7 +158,7 @@ describe('GLCollector', () => {
     expect(capsules[0]?.slice(0, 7)).toEqual([-10, 0, 0, 10, 0, 0, 4]);
   });
 
-  it('заливка разбивается на треугольники, кривая — на отрезки', () => {
+  it('fill is split into triangles, a curve into segments', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new Rect({ width: 10, height: 6, style: { fill: true, stroke: 0 } }),
@@ -168,11 +168,11 @@ describe('GLCollector', () => {
     );
     const plain = first(frame).opaque[0];
     expect(plain?.count('fill')).toBe(6);
-    // Четыре четверти дуги по 9/16 дают кривые: каждая на несколько отрезков.
+    // Four 9/16 arc quarters give curves: each splits into several segments.
     expect(plain?.count('capsule')).toBeGreaterThan(8);
   });
 
-  it('обратная сторона: скрыта или своего цвета', () => {
+  it('back side: hidden or its own color', () => {
     const turned = euler.create(0, Math.PI, 0);
     const frame = new GLCollector().collect(
       sceneWith(
@@ -186,7 +186,7 @@ describe('GLCollector', () => {
     expect(capsules[0]?.slice(7)).toEqual([1, 0, 0, 1]);
   });
 
-  it('декали — в своей корзине с номером опоры, опора — с тем же номером', () => {
+  it('decals go in their own bucket with the anchor number, the anchor has the same number', () => {
     const head = new PathShape({ id: 'head', style: { stroke: 80 } });
     const eye = new Node({ sortMode: 'attached', position: { x: 0, y: 0, z: 36 } });
     eye.add(new PathShape({ id: 'white', style: { stroke: 10 } }));
@@ -198,14 +198,14 @@ describe('GLCollector', () => {
     expect(anchor?.count('sphere')).toBe(1);
     expect(first(frame).opaque[0]?.stencil).toBe(0);
     expect(first(frame).opaque[0]?.count('sphere')).toBe(1);
-    // Каждая декаль — своя корзина в порядке сортировки.
+    // Each decal is its own bucket in sort order.
     expect(first(frame).decals.map((b) => [b.stencil, b.count('sphere')])).toEqual([
       [1, 1],
       [1, 1],
     ]);
   });
 
-  it('у составной фигуры опора — сама фигура, её части в корзине опоры', () => {
+  it('for a solid the anchor is the solid itself, its parts are in the anchor bucket', () => {
     const head = new Hemisphere({ id: 'head', diameter: 40 });
     head.add(
       new PathShape({
@@ -221,7 +221,7 @@ describe('GLCollector', () => {
     expect(first(frame).decals[0]?.count('sphere')).toBe(1);
   });
 
-  it('полупрозрачное — отдельной корзиной по порядку, с непрозрачностью в цвете', () => {
+  it('translucent items go in a separate bucket in order, with opacity in the color', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new PathShape({ opacity: 0.5, style: { stroke: 4, color: '#ffffff' } }),
@@ -233,7 +233,7 @@ describe('GLCollector', () => {
     expect(instances(first(frame).transparent[0], 'sphere')[0]?.slice(4)).toEqual([1, 1, 1, 0.5]);
   });
 
-  it('объёмные примитивы: шар, капсула, купол, бок цилиндра, конус', () => {
+  it('volume primitives: ball, capsule, dome, cylinder side, cone', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new Sphere({ diameter: 10 }),
@@ -249,14 +249,14 @@ describe('GLCollector', () => {
     expect([counts('sphere'), counts('hemisphere'), counts('cylinder'), counts('cone')]).toEqual([
       1, 1, 1, 1,
     ]);
-    // Капсула — одна; крышки цилиндра, конуса и полусферы — сплошные диски без трубок по краю.
+    // One capsule; cylinder, cone and hemisphere caps are solid disks without edge tubes.
     expect(counts('capsule')).toBe(1);
     expect(counts('fill')).toBeGreaterThan(0);
-    // Радиус шара — половина диаметра плюс половина обводки.
+    // Ball radius is half the diameter plus half the stroke.
     expect(instances(first(frame).opaque[0], 'sphere')[0]?.[3]).toBe(5.5);
   });
 
-  it('диапазон глубин охватывает примитивы, перспектива масштабирует', () => {
+  it('the depth range covers the primitives, perspective scales', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new Sphere({ diameter: 10, position: { x: 0, y: 0, z: 30 } }),
@@ -276,7 +276,7 @@ describe('GLCollector', () => {
     expect(instances(first(near).opaque[0], 'sphere')[0]?.[3]).toBeCloseTo(10, 9);
   });
 
-  it('корзины и буферы переиспользуются между кадрами', () => {
+  it('buckets and buffers are reused between frames', () => {
     const scene = sceneWith(new Rect(), new Sphere());
     const collector = new GLCollector();
     const one = first(collector.collect(scene, camera)).opaque[0];
@@ -286,12 +286,12 @@ describe('GLCollector', () => {
     expect(two?.data.capsule.data).toBe(data);
   });
 
-  it('крышки — диски полного радиуса, грани коробки — раздутые на полтолщины обводки', () => {
+  it('caps are full-radius disks, box faces are inflated by half the stroke width', () => {
     const cylinder = new Cylinder({ diameter: 20, length: 10, style: { stroke: 4 } });
     const frame = new GLCollector().collect(sceneWith(cylinder), camera);
     const fills = first(frame).opaque.flatMap((b) => instances(b, 'fill'));
     const radii = fills.map(([x = 0, y = 0]) => Math.hypot(x, y));
-    // Радиус крышки = радиусу бока: (20 + 4) / 2.
+    // Cap radius = side radius: (20 + 4) / 2.
     expect(Math.max(...radii)).toBeCloseTo(12, 6);
     const body = first(frame).opaque.flatMap((b) => instances(b, 'cylinder'))[0];
     expect(body?.[6]).toBeCloseTo(12, 9);
@@ -307,13 +307,13 @@ describe('GLCollector', () => {
     vi.restoreAllMocks();
   });
 
-  it('пустая сцена: слоёв нет, диапазон глубин конечный', () => {
+  it('empty scene: no layers, a finite depth range', () => {
     const frame = new GLCollector().collect(new Scene(), camera);
     expect(frame.layers).toHaveLength(0);
     expect([frame.zMin, frame.zMax]).toEqual([-1, 1]);
   });
 
-  it('фигура за глазом камеры в перспективе не рисуется и не расширяет диапазон', () => {
+  it('a shape behind the camera eye in perspective is not drawn and does not extend the range', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
     const frame = new GLCollector().collect(
       sceneWith(new Sphere({ diameter: 10, position: { x: 0, y: 0, z: 150 } })),
@@ -327,7 +327,7 @@ describe('GLCollector', () => {
     expect([frame.zMin, frame.zMax]).toEqual([-1, 1]);
   });
 
-  it('слои сортировки — отдельные слои кадра: нижний первым, даже если он ближе', () => {
+  it('sort layers are separate frame layers: the lower one first even if closer', () => {
     const shadow = new PathShape({
       sortMode: 'layer',
       layer: -1,
@@ -344,7 +344,7 @@ describe('GLCollector', () => {
     expect(spheres[2]?.[0]?.[3]).toBe(2);
   });
 
-  it('у полупрозрачной опоры декали рисуются как обычные полупрозрачные фигуры', () => {
+  it('with a translucent anchor decals are drawn as regular translucent shapes', () => {
     const head = new PathShape({ opacity: 0.5, style: { stroke: 40 } });
     head.add(new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } }));
     const layer = first(new GLCollector().collect(sceneWith(head), camera));
@@ -352,7 +352,7 @@ describe('GLCollector', () => {
     expect(layer.transparent).toHaveLength(2);
   });
 
-  it('полупрозрачная декаль на непрозрачной опоре — своя корзина с наложением', () => {
+  it('a translucent decal on an opaque anchor gets its own blended bucket', () => {
     const head = new PathShape({ style: { stroke: 40 } });
     head.add(new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } }));
     head.add(
@@ -365,7 +365,7 @@ describe('GLCollector', () => {
     ]);
   });
 
-  it(`сверх ${MAX_ANCHORS} опор в слое декали становятся обычными фигурами с предупреждением`, () => {
+  it(`beyond ${MAX_ANCHORS} anchors in a layer decals become regular shapes with a warning`, () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const heads: Node[] = [];
     for (let i = 0; i <= MAX_ANCHORS; i++) {
@@ -381,27 +381,27 @@ describe('GLCollector', () => {
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('неразборчивый цвет — пурпурный и одно предупреждение', () => {
+  it('an unparsable color becomes magenta with one warning', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
-    const shape = () => new PathShape({ style: { stroke: 2, color: 'не-цвет-для-теста' } });
+    const shape = () => new PathShape({ style: { stroke: 2, color: 'not-a-color-for-test' } });
     const frame = new GLCollector().collect(sceneWith(shape(), shape()), camera);
     expect(instances(first(frame).opaque[0], 'sphere')[0]?.slice(4)).toEqual([1, 0, 1, 1]);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 
-  it('кривые разбиваются мелко и точно: точки эллипса у его радиуса', () => {
+  it('curves are split finely and accurately: ellipse points lie at its radius', () => {
     const frame = new GLCollector().collect(sceneWith(new Ellipse({ diameter: 200 })), camera);
     const capsules = instances(first(frame).opaque[0], 'capsule');
-    // Примерно по 3 пикселя на отрезок: длина окружности ≈ 628.
+    // About 3 pixels per segment: circumference ≈ 628.
     expect(capsules.length).toBeGreaterThan(150);
-    // Дуги — кубические кривые с ручками 9/16, как в Zdog: от окружности они отходят
-    // до 0,6 % радиуса, сами точки разбиения лежат на кривых.
+    // Arcs are cubic curves with 9/16 handles, as in Zdog: they deviate from the circle
+    // by up to 0.6% of the radius, the split points themselves lie on the curves.
     for (const [ax = 0, ay = 0] of capsules) {
       expect(Math.abs(Math.hypot(ax, ay) - 100)).toBeLessThan(0.7);
     }
   });
 
-  it('у пути с несколькими контурами заливается только первый, обводятся все', () => {
+  it('a path with several contours fills only the first, strokes all', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new PathShape({
@@ -420,11 +420,11 @@ describe('GLCollector', () => {
     );
     const plain = first(frame).opaque[0];
     expect(plain?.count('fill')).toBe(3);
-    // Путь замкнут по умолчанию: оба контура — треугольники по три отрезка.
+    // The path is closed by default: both contours are triangles of three segments.
     expect(plain?.count('capsule')).toBe(6);
   });
 
-  it('все грани коробки сходятся в углах раздутой коробки', () => {
+  it('all box faces meet at the corners of the inflated box', () => {
     const box = new Box({ width: 10, height: 10, depth: 10, style: { stroke: 2 } });
     const layer = first(new GLCollector().collect(sceneWith(box), camera));
     const vertices = layer.opaque.flatMap((b) => instances(b, 'fill'));
@@ -436,7 +436,7 @@ describe('GLCollector', () => {
     }
   });
 
-  it('крышки конуса и полусферы — диски радиусом основания плюс полтолщины обводки', () => {
+  it('cone and hemisphere caps are disks with the base radius plus half the stroke width', () => {
     for (const solid of [
       new Cone({ diameter: 20, length: 10, style: { stroke: 4 } }),
       new Hemisphere({ diameter: 20, style: { stroke: 4 } }),
@@ -449,7 +449,7 @@ describe('GLCollector', () => {
     }
   });
 
-  it('при смене числа корзин между кадрами старые данные не просачиваются', () => {
+  it('when the bucket count changes between frames old data does not leak', () => {
     const head = new PathShape({ style: { stroke: 40 } });
     const eye = new PathShape({ sortMode: 'attached', position: { x: 0, y: 0, z: 18 } });
     head.add(eye);
@@ -468,9 +468,9 @@ describe('GLCollector', () => {
 });
 
 describe('supersampleFor', () => {
-  it('снижает множитель под пределы видеокарты и бюджет пикселей', () => {
+  it('lowers the ratio to fit GPU limits and the pixel budget', () => {
     expect(supersampleFor(800, 600, 2, 16384)).toBe(2);
-    // Full HD при плотности 2: при 2× кадр превысил бы бюджет.
+    // Full HD at density 2: at 2× the frame would exceed the budget.
     expect(3840 * 2160 * 4).toBeGreaterThan(PIXEL_BUDGET);
     expect(supersampleFor(3840, 2160, 2, 16384)).toBe(1);
     expect(supersampleFor(3000, 100, 4, 8192)).toBe(2);

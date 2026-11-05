@@ -1,10 +1,10 @@
 import { backfaceGroupsEngine } from '../engine/backface-groups.ts';
 import type { ReferenceScene } from '../scene.ts';
 
-/** Скрытие и подмена цвета обратных граней, а также сортировка внутри групп. */
+/** Hiding and recoloring back faces, and sorting inside groups. */
 export const backfaceGroups: ReferenceScene = {
   id: 'backface-groups',
-  title: 'Обратные грани и группы',
+  title: 'Back faces and groups',
   width: 320,
   height: 200,
   background: '#ffffff',

@@ -1,4 +1,4 @@
-// Сцена, примитивы, сортировка, рендер, анимация и риг. См. docs/PLAN.md, разделы 5.4–5.12.
+// Scene, primitives, sorting, rendering, animation and rig. See docs/PLAN.md, sections 5.4–5.12.
 
 export {
   defaultScheduler,

@@ -1,358 +1,359 @@
-# План развития Mascotte
+# Mascotte development plan
 
-Документ фиксирует цели, архитектуру и этапы работы над движком. Его стоит обновлять по мере того, как решения принимаются или пересматриваются.
+This document records the goals, architecture and stages of work on the engine. Update it as decisions are made or revised.
 
-## 1. Цель
+## 1. Goal
 
-Движок для анимированных маскотов в стиле «2D псевдо-3D»: круглые плоские формы из простых примитивов, которые поворачиваются в пространстве, реагируют на пользователя и живут сами по себе (дышат, моргают, следят за курсором).
+An engine for animated mascots in a "2D pseudo-3D" style: round flat forms built from simple primitives that rotate in space, react to the user and live on their own (breathe, blink, follow the cursor).
 
-Маскоты создаются в будущем визуальном редакторе. Движок проигрывает то, что в нём собрано. Поэтому в центре всего стоит **формат документа маскота**, а не API для ручного построения сцены.
+Mascots are created in a future visual editor. The engine plays back what was assembled there. So the center of everything is the **mascot document format**, not an API for building a scene by hand.
 
-Главное требование: на одном движке должны получаться **разные маскоты**. Разные по форме (капля, двуногий, четвероногий, птица), по стилю и по поведению. Причём без нового кода для каждого.
+The main requirement: one engine must produce **different mascots**. Different in shape (blob, biped, quadruped, bird), in style and in behavior. And without new code for each one.
 
-## 2. Зафиксированные решения
+## 2. Settled decisions
 
-| Решение | Что значит |
+| Decision | What it means |
 |---|---|
-| Совместимость с API Zdog не нужна | Ядро пишется заново. Из Zdog берутся идеи и геометрия, а не структура кода |
-| WebGL2 — основной бэкенд, Canvas 2D — запасной | Глубина на каждый пиксель даёт настоящие, непрерывные перекрытия и пересечения при плоском стиле Zdog. Canvas 2D рисует фигуры целиком по очереди, поэтому перекрытия в нём дискретны; он остаётся запасным для устройств без WebGL2 и для экспорта в PNG и SVG. Решение пересмотрено 2026-11-04 (#51); раньше основным был Canvas 2D |
-| Маскоты собираются в редакторе | Сцена, анимации и поведение описываются данными (JSON). Код нужен только для встраивания плеера на страницу |
+| Zdog API compatibility is not needed | The core is written from scratch. Ideas and geometry are taken from Zdog, not the code structure |
+| WebGL2 is the main backend, Canvas 2D is the fallback | Per-pixel depth gives real, continuous occlusions and intersections in the flat Zdog style. Canvas 2D draws whole shapes one after another, so occlusion in it is discrete; it remains the fallback for devices without WebGL2 and for export to PNG and SVG. Decision revised on 2026-11-04 (#51); Canvas 2D used to be the main backend |
+| Mascots are assembled in the editor | The scene, animations and behavior are described as data (JSON). Code is needed only to embed the player in a page |
 
-## 3. Принципы
+## 3. Principles
 
-1. **Данные важнее кода.** Всё, что можно настроить в редакторе, должно сохраняться в документ и загружаться обратно без потерь.
-2. **Детерминированность.** Состояние кадра однозначно определяется документом, временем и входами. Редактору нужна перемотка в любую точку, а тестам повторяемый результат. Случайность только через сидированный генератор.
-3. **Ноль работы в покое.** Если ничего не изменилось, кадр не пересчитывается. В цикле анимации нет аллокаций.
-4. **Рендер отделён от сцены.** Сцена выдаёт список отрисовки, а бэкенд его рисует. Ядро не знает про DOM и работает в Node и в воркере.
-5. **Маленький плеер.** Плеер (runtime) отделён от кода редактора. Цель по размеру: до 40 КБ gzip.
+1. **Data over code.** Everything that can be configured in the editor must be saved to the document and loaded back without loss.
+2. **Determinism.** The frame state is fully determined by the document, the time and the inputs. The editor needs seeking to any point, and tests need repeatable results. Randomness only through a seeded generator.
+3. **Zero work at rest.** If nothing has changed, the frame is not recomputed. The animation loop does no allocations.
+4. **Rendering is separate from the scene.** The scene produces a display list, and the backend draws it. The core knows nothing about the DOM and runs in Node and in a worker.
+5. **Small player.** The player (runtime) is separate from the editor code. Size target: up to 40 KB gzip.
 
-## 4. Что берём из Zdog
+## 4. What we take from Zdog
 
-Копия ядра Zdog лежала в `src/core/` как справочник и эталон картинки, а не как основа кода. После паритета она удалена (#15); от неё остались замороженные эталоны: снимки кадров эталонных сцен в `reference/snapshots/zdog/` и числа для модульных тестов в `packages/*/test/fixtures/zdog/`. Пересоздать их нельзя, они сверяются с новым ядром как есть.
+A copy of the Zdog core lived in `src/core/` as a reference for behavior and images, not as a code base. After parity it was removed (#15); what remains are frozen references: frame snapshots of the reference scenes in `reference/snapshots/zdog/` and numbers for unit tests in `packages/*/test/fixtures/zdog/`. They cannot be regenerated and are compared with the new core as is.
 
-Берём:
-- стиль: толстые скруглённые обводки, точка как сфера, заливка вместе с обводкой;
-- команды пути `move / line / bezier / arc` и приближение дуги через безье (коэффициент 9/16);
-- геометрию составных примитивов: полусфера (купол через контур по нормали), цилиндр, конус (касательные к основанию), коробка;
-- обратные грани: скрыть или подменить цвет.
+We take:
+- the style: thick rounded strokes, a point as a sphere, fill together with stroke;
+- the path commands `move / line / bezier / arc` and the Bezier approximation of arcs (coefficient 9/16);
+- the geometry of composite primitives: hemisphere (dome via an outline along the normal), cylinder, cone (tangents to the base), box;
+- back faces: hide or substitute the color.
 
-Не берём:
-- повторную трансформацию вершин на каждом уровне иерархии;
-- повороты только углами Эйлера;
-- рендереры внутри фигур и ветки `isCanvas / isSvg`;
-- пересборку плоского списка сцены и пересоздание SVG-элементов в каждом кадре;
-- систему опций через `defaults / optionKeys`;
-- `Illustration`, в котором смешаны DOM, ресайз, вращение мышью и рендер.
+We do not take:
+- re-transforming vertices at every level of the hierarchy;
+- rotations through Euler angles only;
+- renderers inside shapes and `isCanvas / isSvg` branches;
+- rebuilding the flat scene list and recreating SVG elements every frame;
+- the option system via `defaults / optionKeys`;
+- `Illustration`, which mixes the DOM, resizing, mouse rotation and rendering.
 
-Найденные в копии ошибки (для справки, копия удалена): дедупликация `optionKeys` в `anchor.js` не работает; `Vector.rotate*` не возвращают `this`; нет `destroy()`, поэтому слушатели событий не снимаются.
+Bugs found in the copy (for reference, the copy is removed): `optionKeys` deduplication in `anchor.js` does not work; `Vector.rotate*` do not return `this`; there is no `destroy()`, so event listeners are never removed.
 
-Упоминание в NOTICE остаётся: в проекте есть заимствованная геометрия и эталоны, нарисованные Zdog.
+The NOTICE mention stays: the project contains borrowed geometry and references drawn by Zdog.
 
-## 5. Архитектура
+## 5. Architecture
 
-### 5.1. Структура репозитория
+### 5.1. Repository structure
 
-Монорепозиторий на pnpm workspaces, TypeScript в строгом режиме, ES-модули.
+A pnpm workspaces monorepo, TypeScript in strict mode, ES modules.
 
 ```
 packages/
-  math/        векторы, матрицы, кватернионы, цвет, кривые плавности
-  engine/      сцена, примитивы, сортировка, рендер, анимация, риг
-  format/      схема документа, валидация, версии и миграции
-  player/      встраивание: загрузка документа, цикл, ввод, ресайз
+  math/        vectors, matrices, quaternions, color, easing curves
+  engine/      scene, primitives, sorting, rendering, animation, rig
+  format/      document schema, validation, versions and migrations
+  player/      embedding: document loading, loop, input, resize
 apps/
-  playground/  примеры, отладка, бенчмарки
-  editor/      редактор (отдельный план, этап 6)
-reference/     эталонные сцены и снимки кадров
+  playground/  examples, debugging, benchmarks
+  editor/      editor (separate plan, stage 6)
+reference/     reference scenes and frame snapshots
 docs/
 ```
 
-Инструменты: Vite для playground и сборки, Vitest для тестов, `@napi-rs/canvas` для рендера в Node и тестов по снимкам кадров, режим браузера Vitest с Playwright и Chromium на SwiftShader для снимков WebGL, Biome как линтер и форматтер, CI в GitHub Actions.
+Tools: Vite for the playground and builds, Vitest for tests, `@napi-rs/canvas` for rendering in Node and frame snapshot tests, Vitest browser mode with Playwright and Chromium on SwiftShader for WebGL snapshots, Biome as linter and formatter, CI on GitHub Actions.
 
-### 5.2. Конвейер кадра
+### 5.2. Frame pipeline
 
 ```
-входы (время, указатель, параметры)
-  → машина состояний       выбирает и смешивает клипы
-  → клипы                  ключевые кадры → значения свойств
-  → процедурные поведения  моргание, дыхание, шум
-  → ограничения рига       lookAt, IK, лимиты
-  → вторичное движение     пружины, покачивание
-  → мировые матрицы        только у узлов с флагом dirty
-  → геометрия              проекция вершин в экран
-  → сортировка по глубине
-  → список отрисовки
-  → бэкенд (WebGL2 или Canvas 2D)
+inputs (time, pointer, parameters)
+  → state machine          selects and blends clips
+  → clips                  keyframes → property values
+  → procedural behaviors   blinking, breathing, noise
+  → rig constraints        lookAt, IK, limits
+  → secondary motion       springs, wobble
+  → world matrices         only for nodes flagged dirty
+  → geometry               projecting vertices to the screen
+  → depth sorting
+  → display list
+  → backend (WebGL2 or Canvas 2D)
 ```
 
-Каждый шаг пропускается, если его входы не изменились. Сцена ведёт общий счётчик изменений `changeVersion`: он растёт при любом изменении узлов (структура, трансформации, видимость, прозрачность, стиль, геометрия и параметры фигур, режим сортировки, слой, `zBias`). Если не изменились ни он, ни камера, ни размеры кадра, WebGL2 не пересобирает и не рисует кадр — на холсте остаётся прошлый.
+Each step is skipped if its inputs have not changed. The scene keeps a shared change counter `changeVersion`: it grows on any node change (structure, transforms, visibility, opacity, style, shape geometry and parameters, sort mode, layer, `zBias`). If neither it, nor the camera, nor the frame size has changed, WebGL2 does not rebuild or draw the frame, and the previous one stays on the canvas.
 
-Выделения памяти в цикле кадра проверяются тестами через профилировщик кучи V8 (в Node и в Chrome). В покое их нет совсем. При анимации бенчмарка (20 маскотов по 300 рисуемых узлов) — несколько килобайт на кадр: пересчёт мировых матриц и вызовы WebGL самого браузера. Рабочие буферы сборщика кадра — типизированные массивы со своими счётчиками, списки кадра пишутся по индексу без обнуления длины, дробные числа не передаются через невстроенные вызовы (V8 упаковал бы каждое в объект).
+Allocations in the frame loop are checked by tests with the V8 heap profiler (in Node and in Chrome). At rest there are none. While animating the benchmark (20 mascots with 300 drawable nodes each) there are a few kilobytes per frame: world matrix recomputation and the browser's own WebGL calls. The frame builder's working buffers are typed arrays with their own counters, frame lists are written by index without resetting their length, and floating-point numbers are not passed through non-inlined calls (V8 would box each one into an object).
 
-Бенчмарк — пример «Бенчмарк: 20 маскотов» в playground (WebGL2 и Canvas 2D) с временем кадра на процессоре. На машине разработки кадр WebGL2 с работой видеокарты занимает около 7 мс, Canvas 2D — около 36 мс: для 60 fps на такой нагрузке нужен WebGL2. На среднем ноутбуке из критерия этапа это ещё не проверялось.
+The benchmark is the "Benchmark: 20 mascots" example in the playground (WebGL2 and Canvas 2D) with CPU frame time. On the development machine a WebGL2 frame including GPU work takes about 7 ms, Canvas 2D about 36 ms: 60 fps at this load requires WebGL2. It has not yet been checked on the average laptop from the stage criterion.
 
-### 5.3. Математика (`packages/math`)
+### 5.3. Math (`packages/math`)
 
-- `Vec2`, `Vec3`, `Mat3x4` (аффинная матрица), `Quat`.
-- Операции без аллокаций: запись в выходной аргумент, пулы временных объектов.
-- Повороты хранятся кватернионами. В редакторе и документе их можно задавать углами Эйлера с выбранным порядком осей.
-- Порядок `'XYZ'` означает матрицу `Rx · Ry · Rz`. Поворот Zdog `rotate: {x, y, z}` равен углам `{x, -y, z}` в этом порядке: у Zdog обратный знак поворота вокруг Y.
-- Цвет хранится в sRGB с альфой без предумножения, а смешивается в OKLab с предумножением на альфу, как CSS `color-mix`. Разбор строк CSS: hex, `rgb()`, `hsl()`, `oklab()`, `oklch()` (старый синтаксис через запятые и новый через пробелы с `none`) и `transparent`. Других именованных цветов нет: редактор пишет hex.
-- Плавность: стандартный набор (in/out/inOut для quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce), кривые CSS, произвольная `cubic-bezier`, ступеньки `steps()` с теми же режимами, что в CSS. В документе кривая описывается `EasingSpec` (имя из `easing.named` или параметры `cubicBezier` и `steps`), а `easing.resolve` превращает описание в функцию при загрузке.
+- `Vec2`, `Vec3`, `Mat3x4` (affine matrix), `Quat`.
+- Allocation-free operations: writing into an output argument, pools of temporary objects.
+- Rotations are stored as quaternions. In the editor and the document they can be given as Euler angles with a chosen axis order.
+- The order `'XYZ'` means the matrix `Rx · Ry · Rz`. The Zdog rotation `rotate: {x, y, z}` equals the angles `{x, -y, z}` in this order: Zdog has the opposite sign for rotation around Y.
+- Color is stored in sRGB with non-premultiplied alpha and blended in OKLab with premultiplied alpha, like CSS `color-mix`. CSS string parsing: hex, `rgb()`, `hsl()`, `oklab()`, `oklch()` (the legacy comma syntax and the modern space syntax with `none`) and `transparent`. There are no other named colors: the editor writes hex.
+- Easing: the standard set (in/out/inOut for quad, cubic, quart, quint, sine, expo, circ, back, elastic, bounce), CSS curves, arbitrary `cubic-bezier`, `steps()` with the same modes as in CSS. In the document a curve is described by `EasingSpec` (a name from `easing.named` or the parameters `cubicBezier` and `steps`), and `easing.resolve` turns the description into a function at load time.
 
-### 5.4. Сцена
+### 5.4. Scene
 
-- `Node` хранит локальную трансформацию (позиция, кватернион, масштаб, pivot), видимость, прозрачность, режим сортировки и стабильный `id`.
-- Мировая матрица пересчитывается лениво через флаг dirty, который распространяется на поддерево.
-- Камера: ортографическая по умолчанию, со слабой перспективой как опцией. Камера тоже узел, поэтому её можно вращать вокруг маскота или прикрепить к ригу. Система координат как в Zdog: x вправо, y вниз, z к зрителю; камера смотрит вдоль −z. Узел камеры — плоскость картинки и центр вращения, в перспективе глаз стоит на `distance` позади него. Масштаб берётся по глубине опорной точки фигуры, чтобы круги оставались кругами. Пространство камеры строится только из положения и поворота: масштаб узла и предков в кадр не попадает, увеличение задаётся `zoom`.
-- Плоский список рисуемых элементов кэшируется и пересобирается только при изменении структуры дерева.
-- Явный жизненный цикл: `destroy()` освобождает всё, включая подписки.
+- `Node` stores the local transform (position, quaternion, scale, pivot), visibility, opacity, sort mode and a stable `id`.
+- The world matrix is recomputed lazily through a dirty flag that propagates to the subtree.
+- Camera: orthographic by default, with weak perspective as an option. The camera is also a node, so it can orbit the mascot or be attached to the rig. The coordinate system is the same as in Zdog: x right, y down, z toward the viewer; the camera looks along −z. The camera node is the picture plane and the center of rotation; in perspective the eye sits `distance` behind it. Scale is taken from the depth of the shape's reference point so that circles stay circles. Camera space is built only from position and rotation: the scale of the node and its ancestors does not affect the frame, and magnification is set by `zoom`.
+- The flat list of drawable elements is cached and rebuilt only when the tree structure changes.
+- Explicit lifecycle: `destroy()` releases everything, including subscriptions.
 
-### 5.5. Примитивы
+### 5.5. Primitives
 
-Параметрические фигуры. Их параметры реактивны: изменил свойство, и геометрия пересчиталась в следующем кадре. Поэтому любой параметр можно анимировать.
+Parametric shapes. Their parameters are reactive: change a property, and the geometry is recomputed on the next frame. So any parameter can be animated.
 
-- Базовые: путь, точка, линия, эллипс и дуга, прямоугольник, скруглённый прямоугольник, многоугольник.
-- Объёмные: сфера, полусфера, цилиндр, конус, коробка, капсула (тело и конечности маскотов).
-- Геометрия кэшируется в локальных координатах и проецируется одной матрицей на вершину. Путь собирается в переиспользуемые буферы (`move`, `line`, кубические кривые; дуги заменяются кривыми с ручками 9/16, как в Zdog), поэтому анимация параметров не создаёт объектов.
-- Изменение параметров фигуры увеличивает `geometryVersion`, изменение стиля — `appearanceVersion`, движение — `worldVersion`: по этим счётчикам кэши отрисовки решают, что пересчитать.
-- `Shape` — один путь и один стиль. Стиль хранится одним объектом `style` (обводка, заливка, цвет, обратная сторона), чтобы материалы потом заменили цвет в одном месте. Числовые параметры примитивов описаны статической схемой `params`: по ней конструкторы проверяют ввод, а реестр свойств и формат документа узнают, что можно анимировать и сохранять.
-- Фигуры, поверхности и составные фигуры наследуют общую основу `Styled`: стиль и числовые параметры по схеме, имена которых проверяет компилятор.
-- Объёмные примитивы — составные узлы (`Solid`), владеющие дочерними фигурами и передающие им стиль, размеры и положение: коробка — шесть граней `Rect`, цилиндр — два основания `Ellipse` и бок, конус и полусфера — основание и боковая часть. У частей `owner` — сама фигура, а `id` — `«id фигуры»/«ключ»` (свои `id` не могут содержать `/`). В документ будет сохраняться только сама фигура, а поиск под курсором будет возвращать владельца.
-- Перспектива всех частей составной фигуры считается по глубине начала самой фигуры (`perspectiveReference`), иначе в перспективе части расходятся.
-- Части, которые нельзя описать трёхмерным путём, — экранные поверхности (`Surface`): сфера, капсула, купол полусферы, бок цилиндра, поверхность конуса. Они строят контур (`ScreenPath` в пикселях относительно центра кадра и параметры кисти) по камере в каждом кадре, без создания объектов. Формулы повторяют Zdog; в отличие от Zdog, обводка масштабируется вместе с узлом.
-- Отрисовка опирается на два вида элементов: фигуры с трёхмерным путём (`Shape`) и экранные поверхности (`Surface`). Сортировку частей составной фигуры между собой задаёт #11.
-- Обводка масштабируется вместе с узлом (режим можно отключить).
+- Basic: path, point, line, ellipse and arc, rectangle, rounded rectangle, polygon.
+- Solid: sphere, hemisphere, cylinder, cone, box, capsule (mascot bodies and limbs).
+- Geometry is cached in local coordinates and projected with one matrix per vertex. The path is assembled into reused buffers (`move`, `line`, cubic curves; arcs are replaced with curves with 9/16 handles, as in Zdog), so animating parameters creates no objects.
+- Changing shape parameters increments `geometryVersion`, changing style increments `appearanceVersion`, movement increments `worldVersion`: render caches use these counters to decide what to recompute.
+- `Shape` is one path and one style. The style is stored as a single `style` object (stroke, fill, color, back side) so that materials can later replace color in one place. Numeric primitive parameters are described by a static `params` schema: constructors use it to validate input, and the property registry and the document format use it to learn what can be animated and saved.
+- Shapes, surfaces and composite shapes inherit a common base `Styled`: style and numeric parameters from the schema, whose names are checked by the compiler.
+- Solid primitives are composite nodes (`Solid`) that own child shapes and pass them style, size and position: a box is six `Rect` faces, a cylinder is two `Ellipse` bases and a side, a cone and a hemisphere are a base and a side part. The parts have `owner` set to the shape itself and `id` set to `<shape id>/<key>` (their own `id`s cannot contain `/`). Only the shape itself will be saved to the document, and hit-testing will return the owner.
+- Perspective for all parts of a composite shape is computed from the depth of the shape's own origin (`perspectiveReference`); otherwise the parts drift apart in perspective.
+- Parts that cannot be described by a 3D path are screen surfaces (`Surface`): sphere, capsule, hemisphere dome, cylinder side, cone surface. They build an outline (`ScreenPath` in pixels relative to the frame center, plus brush parameters) from the camera every frame without creating objects. The formulas follow Zdog; unlike Zdog, the stroke scales with the node.
+- Rendering relies on two kinds of elements: shapes with a 3D path (`Shape`) and screen surfaces (`Surface`). Sorting of composite shape parts among themselves is defined by #11.
+- The stroke scales with the node (this mode can be turned off).
 
-### 5.6. Порядок отрисовки
+### 5.6. Draw order
 
-Средняя глубина по точкам, как в Zdog, даёт мерцание на лицах. Поэтому у узла есть режим сортировки:
+Average depth over points, as in Zdog, causes flicker on faces. So a node has a sort mode:
 
-| Режим | Поведение |
+| Mode | Behavior |
 |---|---|
-| `auto` | по глубине центроида |
-| `group` | поддерево сортируется как единое целое, внутри свой порядок |
-| `attached` | декаль на поверхности родителя (глаз, рот, пятно): рисуется сразу после родителя, видна, только когда обращена к камере |
-| `layer` | фиксированный слой поверх или под остальными (тень, эффекты) |
+| `auto` | by centroid depth |
+| `group` | the subtree is sorted as a single unit, with its own order inside |
+| `attached` | a decal on the parent's surface (eye, mouth, spot): drawn right after the parent, visible only when facing the camera |
+| `layer` | a fixed layer above or below everything else (shadow, effects) |
 
-К этому добавляются смещение глубины `zBias` и стабильная сортировка, чтобы элементы с равной глубиной не менялись местами.
+On top of this there is a depth offset `zBias` and stable sorting, so that elements with equal depth do not swap places.
 
-Как это устроено (`DepthSorter`):
-- Глубина узла — глубина его точки сортировки в пространстве камеры плюс `zBias`. У фигуры с путём это среднее концов команд, как в Zdog; у полусферы и конуса — центроид, как в Zdog; у остальных — начало координат.
-- Узел без рисования в режиме `auto` прозрачен: его дети сортируются вместе с соседями. Группой сортируются узел в режиме `group`, составная фигура (всегда) и узел без рисования в режиме `layer` или `attached`; режим такого узла задаёт только место группы. Группа рисуется целиком на глубине своей точки сортировки.
-- Декаль рисуется сразу после ближайшего рисуемого предка или составной фигуры и только когда обращена к камере; скрытая или отвёрнутая декаль скрывает и свои декали. Без опоры декаль сортируется как обычный узел. Слой задаёт порядок внутри своего списка (сцены или группы).
-- В составных фигурах купол, бок цилиндра и поверхность конуса имеют `zBias = -Infinity` и рисуются первыми, как в Zdog; основания цилиндра и грани коробки — по глубине.
-- Структура пересобирается только при изменении дерева, режимов и слоёв. `zBias` и видимость учитываются в каждом кадре и пересборки не требуют, поэтому их анимация и моргание скрытием не создают объектов. Списки досортировываются вставками: между кадрами порядок почти не меняется.
+How it works (`DepthSorter`):
+- A node's depth is the depth of its sort point in camera space plus `zBias`. For a shape with a path it is the average of the command endpoints, as in Zdog; for a hemisphere and a cone it is the centroid, as in Zdog; for everything else it is the origin.
+- A non-drawing node in `auto` mode is transparent: its children are sorted together with their siblings. Sorted as a group are a node in `group` mode, a composite shape (always), and a non-drawing node in `layer` or `attached` mode; the mode of such a node only sets the group's position. A group is drawn as a whole at the depth of its sort point.
+- A decal is drawn right after its nearest drawable ancestor or composite shape, and only when facing the camera; a hidden or back-facing decal also hides its own decals. Without an anchor a decal is sorted as a regular node. A layer sets the order within its own list (the scene's or the group's).
+- In composite shapes the dome, the cylinder side and the cone surface have `zBias = -Infinity` and are drawn first, as in Zdog; cylinder bases and box faces are sorted by depth.
+- The structure is rebuilt only when the tree, modes or layers change. `zBias` and visibility are applied every frame and need no rebuild, so animating them and blinking by hiding create no objects. Lists are re-sorted with insertion sort, since the order barely changes between frames.
 
-**Частичное перекрытие.** Одна глубина на фигуру не позволяет части уха уйти за голову, а части остаться видимой. Поэтому обводка, которая проходит за объёмным перекрывателем и накрывает его на экране, режется на часть за ним (рисуется до перекрывателя) и часть перед ним (рисуется после). Обводка, целиком стоящая не на своей стороне в порядке отрисовки, переносится.
-- Сфера (`Sphere` и точка пути с толстой обводкой — голова в стиле Zdog) режет своей передней поверхностью: точка скрыта, если на экране она внутри силуэта и глубже передней поверхности. Это точно и для фигур, которые входят внутрь сферы, например уха, растущего из головы. Шов ищется по оси обводки, поэтому сфера раздувается на полтолщины обводки: видимая часть начинается там, где поверхности касается край обводки.
-- Декали на сфере (глаза, рот — узлы в режиме `attached` и всё внутри них) сферой не режутся, а обрезаются по её силуэту: при повороте головы глаз плавно уходит за край, а не торчит за ним и не исчезает скачком. Обычный ребёнок, лежащий внутри сферы, ей закрыт — поэтому детали на поверхности головы нужно делать декалями.
-- Капсула режет плоскостью, перпендикулярной взгляду, через середину оси; при наклоне капсулы к взгляду это приближение. Капсула и сама режется большими перекрывателями; разрезанная капсула никого не перекрывает.
-- Режутся обводки без заливки: пути и капсулы. Отрезки и кривые Безье режутся по корням уравнения поверхности разреза. Каждая обводка режется не больше чем одним перекрывателем — первым по порядку отрисовки, с которым она пересекается на экране.
-- Пока не сделано: разрез фигур с заливкой (кроме декалей), коробки и цилиндры как перекрыватели, обрезка декалей по силуэту несферических опор, кэш разрезов по `worldVersion` — сейчас разрез считается в каждом кадре.
-- Разрез и обрезка декалей отключаются (`partialOcclusion: false`), например, для сравнения кадра с Zdog.
+**Partial occlusion.** A single depth per shape does not let part of an ear go behind the head while another part stays visible. So a stroke that passes behind a solid occluder and covers it on screen is split into the part behind it (drawn before the occluder) and the part in front of it (drawn after). A stroke that lies entirely on the wrong side in the draw order is moved.
+- A sphere (`Sphere` and a path point with a thick stroke, the Zdog-style head) cuts with its front surface: a point is hidden if on screen it is inside the silhouette and deeper than the front surface. This is exact also for shapes that enter the sphere, such as an ear growing out of the head. The seam is found along the stroke axis, so the sphere is inflated by half the stroke width: the visible part starts where the edge of the stroke touches the surface.
+- Decals on a sphere (eyes, mouth: nodes in `attached` mode and everything inside them) are not cut by the sphere but clipped to its silhouette: when the head turns, the eye slides smoothly past the edge instead of sticking out beyond it or disappearing abruptly. A regular child lying inside the sphere is hidden by it, so details on the head surface should be made as decals.
+- A capsule cuts with a plane perpendicular to the view through the middle of its axis; when the capsule tilts toward the view this is an approximation. A capsule is itself cut by larger occluders; a cut capsule occludes nothing.
+- Strokes without fill are cut: paths and capsules. Segments and Bezier curves are cut at the roots of the cutting surface equation. Each stroke is cut by at most one occluder: the first in draw order that it intersects on screen.
+- Not done yet: cutting filled shapes (except decals), boxes and cylinders as occluders, clipping decals to the silhouette of non-spherical anchors, a cut cache keyed by `worldVersion` (cuts are currently computed every frame).
+- Cutting and decal clipping can be turned off (`partialOcclusion: false`), for example to compare a frame with Zdog.
 
-### 5.7. Рендер
+### 5.7. Rendering
 
-**WebGL2 (основной, #51).** Обводка со скруглёнными концами — трубка из капсул вдоль пути, точка и сфера — шар, заливка — плоский многоугольник в своей плоскости, полусфера и бока цилиндра и конуса — свои поверхности. Шары, капсулы и поверхности рисуются прямоугольниками-заглушками: форма и глубина считаются в каждом пикселе. Края сглаживаются через alpha-to-coverage и MSAA, линии пересечения — суперсэмплингом (по умолчанию 2×2, на больших холстах меньше). Слои сортировки (`layer`) рисуются по очереди, глубина проверяется только внутри слоя. Декали рисуются по порядку только поверх видимых пикселей своей непрозрачной опоры (трафарет); у полупрозрачной опоры они рисуются как обычные полупрозрачные фигуры. Полупрозрачное — после непрозрачного своего слоя, по порядку сортировки, каждая фигура смешивается в пикселе один раз. Без фона кадр прозрачный, альфа точно отражает покрытие.
+**WebGL2 (main, #51).** A stroke with rounded caps is a tube of capsules along the path, a point and a sphere are a ball, a fill is a flat polygon in its own plane, and the hemisphere and the cylinder and cone sides are their own surfaces. Balls, capsules and surfaces are drawn as proxy rectangles: shape and depth are computed per pixel. Edges are antialiased with alpha-to-coverage and MSAA, intersection lines with supersampling (2×2 by default, less on large canvases). Sort layers (`layer`) are drawn one after another, and depth is tested only within a layer. Decals are drawn in order only over the visible pixels of their opaque anchor (stencil); with a semi-transparent anchor they are drawn as regular semi-transparent shapes. Semi-transparent shapes are drawn after the opaque ones of their layer, in sort order, and each shape is blended into a pixel once. Without a background the frame is transparent, and alpha reflects coverage exactly.
 
-**Canvas 2D (запасной).** Описан ниже: порядок отрисовки, разрезы перекрывателями.
+**Canvas 2D (fallback).** Described below: draw order, cuts by occluders.
 
 
-- Сцена выдаёт **список отрисовки**: экранные пути, стиль обводки и заливки, прозрачность, клип.
-- Камеры входят в `Scene.nodes` как обычные узлы; при построении списка отрисовки они пропускаются.
-- `DisplayList` собирает кадр: сортировка по глубине, проекция путей фигур (перспектива по `perspectiveReference`), контуры поверхностей, обратные стороны (скрыть или перекрасить), прозрачность с учётом предков. Точка рисуется кругом из обводки, как в Zdog. Элементы и буферы переиспользуются между кадрами.
-- `CanvasRenderer` рисует список: центр кадра — начало координат камеры, `devicePixelRatio` задаётся в кадре, состояние контекста переключается только при изменении. Команды Canvas совпадают с Zdog, пока узлы не масштабированы (в отличие от Zdog, толщина обводки здесь умножается на масштаб узла). В эталонных сценах масштаба узлов нет, поэтому они дают тот же кадр, что и Zdog: это проверяется по снимкам и в нескольких моментах анимации. То, чего нет в Zdog (перспектива, масштаб обводок, поверхности, слои, прозрачность, декали), проверяется собственными снимками нового ядра. Кадр очищается всегда, даже при заданном фоне.
-- Бэкенд Canvas 2D: учёт `devicePixelRatio` и его смены, минимальные переключения состояния контекста, работа в `OffscreenCanvas` и воркере.
-- Экспорт: SVG и PNG статичного кадра, последовательность кадров для видео.
-- Интерфейс бэкенда описан так, чтобы WebGL-бэкенд добавлялся без изменений в сцене.
+- The scene produces a **display list**: screen paths, stroke and fill style, opacity, clip.
+- Cameras are part of `Scene.nodes` as regular nodes; they are skipped when building the display list.
+- `DisplayList` assembles the frame: depth sorting, projection of shape paths (perspective from `perspectiveReference`), surface outlines, back sides (hide or recolor), opacity including ancestors. A point is drawn as a circle from the stroke, as in Zdog. Elements and buffers are reused between frames.
+- `CanvasRenderer` draws the list: the frame center is the camera origin, `devicePixelRatio` is set per frame, and context state is switched only when it changes. Canvas commands match Zdog as long as nodes are not scaled (unlike Zdog, the stroke width here is multiplied by the node scale). The reference scenes have no node scale, so they produce the same frame as Zdog: this is checked with snapshots and at several points of the animation. What Zdog does not have (perspective, stroke scaling, surfaces, layers, opacity, decals) is checked with the new core's own snapshots. The frame is always cleared, even when a background is set.
+- Canvas 2D backend: handling `devicePixelRatio` and its changes, minimal context state switches, running in `OffscreenCanvas` and a worker.
+- Export: SVG and PNG of a still frame, a frame sequence for video.
+- The backend interface is designed so that the WebGL backend can be added without changes to the scene.
 
-### 5.8. Материалы и затенение
+### 5.8. Materials and shading
 
-Без затенения маскоты выглядят плоско, с затенением получают объём. Затенение остаётся стилизованным:
+Without shading mascots look flat; with shading they gain volume. Shading stays stylized:
 
-- Материал: базовый цвет, цвет тени, цвет блика, цвет обратной грани.
-- Глобальное направление света. Тон грани выбирается по нормали из палитры (toon с 2–3 ступенями).
-- Для сфер и капсул: сдвинутая клипованная заливка тени и блика.
-- Обводка-контур (outline) вокруг силуэта как опция стиля.
-- Простая тень под маскотом (blob shadow) как отдельный слой.
+- Material: base color, shadow color, highlight color, back face color.
+- A global light direction. The face tone is picked from a palette by the normal (toon with 2–3 steps).
+- For spheres and capsules: an offset clipped fill for shadow and highlight.
+- An outline around the silhouette as a style option.
+- A simple shadow under the mascot (blob shadow) as a separate layer.
 
-### 5.9. Анимация
+### 5.9. Animation
 
-**Свойства.** Каждый тип узла публикует реестр анимируемых свойств с типом (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), диапазоном и значением по умолчанию. Через этот же реестр редактор строит инспектор.
+**Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry.
 
-**Клипы.** Клип содержит длительность, режим повтора и дорожки. Дорожка задаёт цель (узел или слот рига), свойство и ключи `{ время, значение, плавность }`. Значение клипа в момент времени `t` вычисляется чистой функцией, поэтому перемотка в редакторе работает точно.
+**Clips.** A clip contains a duration, a loop mode and tracks. A track specifies a target (a node or a rig slot), a property and keys `{ time, value, easing }`. The clip value at time `t` is computed by a pure function, so seeking in the editor is exact.
 
-**Слои и смешивание.** Слои бывают замещающими и аддитивными, у каждого есть вес и маска по поддереву. Между состояниями работает плавный переход (crossfade). Пример: базовый слой проигрывает простой в цикле, аддитивный добавляет моргание, слой с маской головы ведёт взгляд.
+**Layers and blending.** Layers are override or additive, and each has a weight and a subtree mask. A crossfade runs between states. Example: the base layer plays idle in a loop, an additive layer adds blinking, a layer masked to the head drives the gaze.
 
-**Процедурные поведения** (настраиваются в редакторе, без кода):
-- моргание со случайными интервалами;
-- дыхание (периодическое масштабирование и смещение);
-- шум покачивания;
-- следование за указателем через `lookAt`.
+**Procedural behaviors** (configured in the editor, without code):
+- blinking at random intervals;
+- breathing (periodic scaling and offset);
+- wobble noise;
+- following the pointer via `lookAt`.
 
-**Вторичное движение.** Пружины на узлах дают покачивание ушей, хвоста и антенн, а также overshoot при остановке. Пружины хранят состояние, поэтому вычисляются на фиксированном шаге после клипов. Для перемотки в редакторе их можно отключить или прогнать заново от начала.
+**Secondary motion.** Springs on nodes make ears, tails and antennae sway and give overshoot when motion stops. Springs keep state, so they are evaluated at a fixed step after the clips. For seeking in the editor they can be disabled or re-simulated from the start.
 
-**Ticker.** Один общий цикл на страницу (`Ticker.shared`): подписки получают `dt` в секундах и своё время, большие скачки ограничены (`maxDelta`, по умолчанию 0,1 с), после паузы время паузы в `dt` не попадает. Паузы задаются причинами, чтобы источники не мешали друг другу: у тикера — `'hidden'` (вкладка скрыта) и `'reduced-motion'` (`prefers-reduced-motion`), у подписки — `'offscreen'` (её холст вне области видимости, `IntersectionObserver`). Пока нет активных подписок или тикер на паузе, кадры не просятся. Ядро не знает про DOM: кадры просит подставляемый планировщик (по умолчанию `requestAnimationFrame`), а связь со страницей даёт `@mascotte/player` (`bindTickerToPage`, `pauseWhenOffscreen`).
+**Ticker.** One shared loop per page (`Ticker.shared`): subscriptions receive `dt` in seconds and their own time, large jumps are capped (`maxDelta`, 0.1 s by default), and after a pause the paused time does not go into `dt`. Pauses are set by reasons so that sources do not interfere with each other: the ticker has `'hidden'` (tab hidden) and `'reduced-motion'` (`prefers-reduced-motion`), a subscription has `'offscreen'` (its canvas is outside the viewport, `IntersectionObserver`). While there are no active subscriptions or the ticker is paused, no frames are requested. The core knows nothing about the DOM: frames are requested by a pluggable scheduler (`requestAnimationFrame` by default), and `@mascotte/player` connects it to the page (`bindTickerToPage`, `pauseWhenOffscreen`).
 
-### 5.10. Риг
+### 5.10. Rig
 
-- Кости — это обычные узлы, помеченные как кости.
-- **Слоты** — именованные точки рига (`head`, `eye.L`, `eye.R`, `mouth`, `arm.L`, …). Анимации и поведения обращаются к слотам, а не к конкретным узлам.
-- Ограничения: `lookAt` и `aim` с лимитами углов, IK на две кости, копирование трансформации, лимиты поворота.
-- Порядок вычисления ограничений задаётся явно и сохраняется в документе.
+- Bones are regular nodes marked as bones.
+- **Slots** are named rig points (`head`, `eye.L`, `eye.R`, `mouth`, `arm.L`, …). Animations and behaviors refer to slots, not to specific nodes.
+- Constraints: `lookAt` and `aim` with angle limits, two-bone IK, copy transform, rotation limits.
+- The constraint evaluation order is set explicitly and saved in the document.
 
-### 5.11. Интерактивность
+### 5.11. Interactivity
 
-- Hit-testing (`HitTester`): какая фигура видна в точке кадра. Фигуры раскладываются на те же примитивы, что для WebGL2, и в точке считается пересечение луча взгляда с каждым; правила видимости те же, что при отрисовке (слои, ближняя фигура, декали на видимой опоре). Результат — рисуемый узел и составная фигура, к которой он относится. Проверка идёт по пикселям, а не по порядку списка отрисовки: в WebGL2 перекрытие решает глубина в пикселе, и проверка повторяет его, чтобы попадание совпадало с картинкой.
-- События указателя (наведение, нажатие, перетаскивание) превращаются во входы машины состояний.
-- Вращение мышью (как `dragRotate` в Zdog) становится одним из стандартных поведений, а не частью ядра.
+- Hit-testing (`HitTester`): which shape is visible at a point of the frame. Shapes are broken down into the same primitives as for WebGL2, and at the point the intersection of the view ray with each one is computed; the visibility rules are the same as when drawing (layers, the nearest shape, decals on a visible anchor). The result is the drawable node and the composite shape it belongs to. The check works per pixel rather than by display list order: in WebGL2 occlusion is decided by per-pixel depth, and the check repeats that so that a hit matches the picture.
+- Pointer events (hover, press, drag) become state machine inputs.
+- Mouse rotation (like `dragRotate` in Zdog) becomes one of the standard behaviors rather than part of the core.
 
-### 5.12. Машина состояний
+### 5.12. State machine
 
-- **Входы:** `bool`, `number`, `trigger`. Их выставляют события указателя или код страницы (`player.setInput('happy', true)`).
-- **Состояния:** клип или смесь клипов по числовому входу (blend 1D).
-- **Переходы:** условия на входах, длительность смешивания, ожидание конца клипа.
-- Несколько машин могут работать параллельно в разных слоях (тело, лицо).
+- **Inputs:** `bool`, `number`, `trigger`. They are set by pointer events or by page code (`player.setInput('happy', true)`).
+- **States:** a clip or a blend of clips by a numeric input (blend 1D).
+- **Transitions:** conditions on inputs, blend duration, waiting for the clip to end.
+- Several machines can run in parallel on different layers (body, face).
 
-## 6. Как получаются разные маскоты
+## 6. How different mascots are made
 
-Это главное требование, и архитектура строится вокруг него.
+This is the main requirement, and the architecture is built around it.
 
-1. **Архетипы.** Стандартные наборы слотов: «капля», «двуногий», «четвероногий», «птица», «предмет с лицом». Маскот объявляет архетип и привязывает к слотам свои узлы.
-2. **Библиотека анимаций и поведений по слотам.** Клип «помахать рукой» или поведение «смотреть на курсор» написаны для слотов архетипа. Поэтому они подходят любому маскоту этого архетипа без переделки. Различия в пропорциях учитываются нормализацией по длинам костей.
-3. **Префабы частей.** Глаз (белок, зрачок, веко, блик), рот (набор форм для эмоций), ухо, лапа. Их можно вставить в любого маскота и переопределить параметры.
-4. **Параметры формы.** Маскот публикует параметры (округлость головы, длина ушей, размер глаз), которые управляют геометрией. Один документ даёт целое семейство вариаций.
-5. **Скины и палитры.** Палитра хранится отдельно от формы и меняется на лету: цветовые темы, светлый и тёмный режим, бренд.
-6. **Эмоции как данные.** Эмоция — это именованный набор поз и параметров лица, который машина состояний смешивает с текущей анимацией.
+1. **Archetypes.** Standard slot sets: "blob", "biped", "quadruped", "bird", "object with a face". A mascot declares an archetype and binds its own nodes to the slots.
+2. **A library of animations and behaviors by slot.** A "wave a hand" clip or a "look at the cursor" behavior is written for the archetype's slots. So it fits any mascot of that archetype without changes. Differences in proportions are handled by normalizing by bone lengths.
+3. **Part prefabs.** Eye (white, pupil, eyelid, highlight), mouth (a set of shapes for emotions), ear, paw. They can be inserted into any mascot with overridden parameters.
+4. **Shape parameters.** A mascot publishes parameters (head roundness, ear length, eye size) that drive the geometry. One document yields a whole family of variations.
+5. **Skins and palettes.** The palette is stored separately from the shape and changes on the fly: color themes, light and dark mode, branding.
+6. **Emotions as data.** An emotion is a named set of poses and face parameters that the state machine blends with the current animation.
 
-Проверка требования: к концу этапа 4 должны работать минимум три маскота разных архетипов. Все три собраны только из документа и используют общую библиотеку анимаций.
+Requirement check: by the end of stage 4 at least three mascots of different archetypes must work. All three are assembled only from documents and use the shared animation library.
 
-## 7. Формат документа
+## 7. Document format
 
-- JSON с явной версией схемы и миграциями между версиями.
-- Валидация схемы (JSON Schema или аналог) с понятными сообщениями об ошибках.
-- Состав: метаданные, палитры, дерево узлов со стабильными `id`, риг и слоты, префабы, параметры, клипы, поведения, машины состояний, входы.
-- Ассеты кодируются внутри документа или подключаются ссылками.
-- Формат одинаково читают плеер и редактор. Редактор не хранит ничего, что нельзя воспроизвести в плеере.
+- JSON with an explicit schema version and migrations between versions.
+- Schema validation (JSON Schema or similar) with clear error messages.
+- Contents: metadata, palettes, a node tree with stable `id`s, rig and slots, prefabs, parameters, clips, behaviors, state machines, inputs.
+- Assets are embedded in the document or linked.
+- The player and the editor read the format the same way. The editor stores nothing that cannot be reproduced in the player.
 
-## 8. Требования редактора к движку
+## 8. Editor requirements for the engine
 
-Чтобы редактор не пришлось подпирать хаками, движок с самого начала обеспечивает:
+So that the editor does not need hacks, the engine provides from the start:
 
-- интроспекцию: типы узлов, их свойства и диапазоны;
-- изменения через команды, чтобы работали отмена и повтор (undo/redo);
-- перемотку и пошаговый просмотр клипов;
-- hit-testing и данные для гизмо: мировые матрицы, оси, габариты;
-- отладочный режим рендера: оси, pivot, кости, порядок сортировки;
-- горячую подмену документа без пересоздания плеера.
+- introspection: node types, their properties and ranges;
+- changes through commands, so that undo/redo works;
+- seeking and stepping through clips;
+- hit-testing and data for gizmos: world matrices, axes, bounds;
+- a debug render mode: axes, pivot, bones, sort order;
+- hot swapping of the document without recreating the player.
 
-## 9. Этапы
+## 9. Stages
 
-Каждый этап заканчивается рабочим состоянием: тесты проходят, playground показывает результат.
+Each stage ends in a working state: tests pass, the playground shows the result.
 
-### Как отмечать выполнение
+### How to track progress
 
-- Каждый этап соответствует milestone на GitHub, каждый пункт — issue в этом milestone.
-- PR, который выполняет пункт, пишет в описании `Closes #N` и в этом же PR ставит галочку `[x]` здесь.
-- Пункт выполнен, когда PR влит в `main`. Этап готов, когда выполнены все пункты и его критерий «Готово, когда».
-- Статус этапа: **не начат**, **в работе**, **готов**. Его меняют в том же PR, который начинает или завершает этап.
-- Новые задачи сначала заводятся как issue в нужном milestone, потом добавляются в список ниже.
-- Изменение решений из раздела 2 оформляется документом в `docs/decisions/`.
+- Each stage corresponds to a milestone on GitHub, and each item to an issue in that milestone.
+- The PR that completes an item has `Closes #N` in its description and ticks the checkbox `[x]` here in the same PR.
+- An item is done when its PR is merged into `main`. A stage is done when all its items are done and its "Done when" criterion is met.
+- Stage status: **not started**, **in progress**, **done**. It is changed in the same PR that starts or finishes the stage.
+- New tasks are first filed as issues in the right milestone, then added to the list below.
+- Changes to the decisions in section 2 are recorded as a document in `docs/decisions/`.
+- All repository text (code comments, tests, messages, docs, issues, PRs) is written in English.
 
-### Этап 0. Каркас
+### Stage 0. Scaffolding
 
-Статус: **готов** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/1)
+Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/1)
 
-- [x] Монорепозиторий: pnpm workspaces, TypeScript strict ([#1](https://github.com/GulomovCreative/mascotte/issues/1))
-- [x] Линтер, форматтер и CI ([#2](https://github.com/GulomovCreative/mascotte/issues/2))
-- [x] Playground на Vite ([#3](https://github.com/GulomovCreative/mascotte/issues/3))
-- [x] Тесты по снимкам кадров и эталонные сцены ([#4](https://github.com/GulomovCreative/mascotte/issues/4))
+- [x] Monorepo: pnpm workspaces, TypeScript strict ([#1](https://github.com/GulomovCreative/mascotte/issues/1))
+- [x] Linter, formatter and CI ([#2](https://github.com/GulomovCreative/mascotte/issues/2))
+- [x] Playground on Vite ([#3](https://github.com/GulomovCreative/mascotte/issues/3))
+- [x] Frame snapshot tests and reference scenes ([#4](https://github.com/GulomovCreative/mascotte/issues/4))
 
-**Готово, когда** CI собирает проект и проверяет снимки кадров.
+**Done when** CI builds the project and checks frame snapshots.
 
-### Этап 1. Ядро рендера
+### Stage 1. Rendering core
 
-Статус: **готов**, кроме замера 60 fps на среднем ноутбуке · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
+Status: **done**, except the 60 fps check on an average laptop · [milestone](https://github.com/GulomovCreative/mascotte/milestone/2)
 
 - [x] math: Vec2, Vec3, Mat3x4, Quat ([#5](https://github.com/GulomovCreative/mascotte/issues/5))
-- [x] math: цвет и функции плавности ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
-- [x] Сцена: Node, ленивые мировые матрицы, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
-- [x] Камера: ортография и слабая перспектива ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
-- [x] Путь и базовые примитивы ([#9](https://github.com/GulomovCreative/mascotte/issues/9))
-- [x] Объёмные примитивы ([#10](https://github.com/GulomovCreative/mascotte/issues/10))
-- [x] Режимы сортировки по глубине ([#11](https://github.com/GulomovCreative/mascotte/issues/11))
-- [x] Частичное перекрытие: разрез фигур по глубине перекрывателя ([#41](https://github.com/GulomovCreative/mascotte/issues/41))
-- [x] Список отрисовки и бэкенд Canvas 2D ([#12](https://github.com/GulomovCreative/mascotte/issues/12))
-- [x] Бэкенд WebGL2 с глубиной на пиксель ([#51](https://github.com/GulomovCreative/mascotte/issues/51))
-- [x] Снимки кадров WebGL в тестах ([#53](https://github.com/GulomovCreative/mascotte/issues/53))
+- [x] math: color and easing functions ([#6](https://github.com/GulomovCreative/mascotte/issues/6))
+- [x] Scene: Node, lazy world matrices, destroy ([#7](https://github.com/GulomovCreative/mascotte/issues/7))
+- [x] Camera: orthographic and weak perspective ([#8](https://github.com/GulomovCreative/mascotte/issues/8))
+- [x] Path and basic primitives ([#9](https://github.com/GulomovCreative/mascotte/issues/9))
+- [x] Solid primitives ([#10](https://github.com/GulomovCreative/mascotte/issues/10))
+- [x] Depth sort modes ([#11](https://github.com/GulomovCreative/mascotte/issues/11))
+- [x] Partial occlusion: cutting shapes by occluder depth ([#41](https://github.com/GulomovCreative/mascotte/issues/41))
+- [x] Display list and Canvas 2D backend ([#12](https://github.com/GulomovCreative/mascotte/issues/12))
+- [x] WebGL2 backend with per-pixel depth ([#51](https://github.com/GulomovCreative/mascotte/issues/51))
+- [x] WebGL frame snapshots in tests ([#53](https://github.com/GulomovCreative/mascotte/issues/53))
 - [x] Hit-testing ([#13](https://github.com/GulomovCreative/mascotte/issues/13))
-- [x] Бенчмарк и проверка аллокаций ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
-- [x] Убрать копию Zdog из src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
+- [x] Benchmark and allocation checks ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
+- [x] Remove the Zdog copy from src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
 
-**Готово, когда** эталонные сцены совпадают с Zdog визуально, в простое нет аллокаций, бенчмарк тянет 20 маскотов по 300 примитивов при 60 fps на среднем ноутбуке.
+**Done when** the reference scenes visually match Zdog, there are no allocations at idle, and the benchmark runs 20 mascots with 300 primitives each at 60 fps on an average laptop.
 
-### Этап 2. Анимация
+### Stage 2. Animation
 
-Статус: **в работе** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
+Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/3)
 
 - [x] Ticker ([#16](https://github.com/GulomovCreative/mascotte/issues/16))
-- [ ] Реестр анимируемых свойств ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
-- [ ] Клипы, дорожки и ключи ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
-- [ ] Слои, маски, веса и переходы ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
-- [ ] Процедурные поведения ([#20](https://github.com/GulomovCreative/mascotte/issues/20))
-- [ ] Пружины и вторичное движение ([#21](https://github.com/GulomovCreative/mascotte/issues/21))
+- [ ] Animatable property registry ([#17](https://github.com/GulomovCreative/mascotte/issues/17))
+- [ ] Clips, tracks and keys ([#18](https://github.com/GulomovCreative/mascotte/issues/18))
+- [ ] Layers, masks, weights and transitions ([#19](https://github.com/GulomovCreative/mascotte/issues/19))
+- [ ] Procedural behaviors ([#20](https://github.com/GulomovCreative/mascotte/issues/20))
+- [ ] Springs and secondary motion ([#21](https://github.com/GulomovCreative/mascotte/issues/21))
 
-**Готово, когда** маскот из примера дышит, моргает и машет, а перемотка клипа даёт тот же кадр, что и проигрывание.
+**Done when** the example mascot breathes, blinks and waves, and seeking a clip gives the same frame as playback.
 
-### Этап 3. Риг и интерактивность
+### Stage 3. Rig and interactivity
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/4)
+Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/4)
 
-- [ ] Кости и слоты рига ([#22](https://github.com/GulomovCreative/mascotte/issues/22))
-- [ ] Ограничения рига ([#23](https://github.com/GulomovCreative/mascotte/issues/23))
-- [ ] Машина состояний и входы ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
-- [ ] События указателя и вращение мышью ([#25](https://github.com/GulomovCreative/mascotte/issues/25))
+- [ ] Bones and rig slots ([#22](https://github.com/GulomovCreative/mascotte/issues/22))
+- [ ] Rig constraints ([#23](https://github.com/GulomovCreative/mascotte/issues/23))
+- [ ] State machine and inputs ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
+- [ ] Pointer events and mouse rotation ([#25](https://github.com/GulomovCreative/mascotte/issues/25))
 
-**Готово, когда** маскот следит за курсором, реагирует на наведение и клик и переключает эмоции.
+**Done when** the mascot follows the cursor, reacts to hover and click, and switches emotions.
 
-### Этап 4. Формат и плеер
+### Stage 4. Format and player
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
+Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
 
-- [ ] Схема документа, валидация, версии и миграции ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
-- [ ] Пакет player ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
-- [ ] Архетипы и библиотека анимаций по слотам ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
-- [ ] Префабы частей и параметры формы ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
-- [ ] Палитры и скины ([#30](https://github.com/GulomovCreative/mascotte/issues/30))
-- [ ] Три эталонных маскота ([#31](https://github.com/GulomovCreative/mascotte/issues/31))
+- [ ] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
+- [ ] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
+- [ ] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
+- [ ] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
+- [ ] Palettes and skins ([#30](https://github.com/GulomovCreative/mascotte/issues/30))
+- [ ] Three reference mascots ([#31](https://github.com/GulomovCreative/mascotte/issues/31))
 
-**Готово, когда** три маскота разных архетипов работают в playground из JSON и используют общие анимации.
+**Done when** three mascots of different archetypes run in the playground from JSON and use shared animations.
 
-### Этап 5. Визуальный стиль
+### Stage 5. Visual style
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
+Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
 
-- [ ] Материалы и toon-затенение ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
-- [ ] Контур и тень под маскотом ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
-- [ ] Экспорт кадров ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
+- [ ] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
+- [ ] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
+- [ ] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 
-**Готово, когда** эталонные маскоты выглядят объёмно, а экспорт совпадает с рендером в браузере.
+**Done when** the reference mascots look solid and the export matches the in-browser render.
 
-### Этап 6. Редактор
+### Stage 6. Editor
 
-Статус: **не начат** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/7)
+Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/7)
 
-- [ ] План редактора ([#35](https://github.com/GulomovCreative/mascotte/issues/35))
+- [ ] Editor plan ([#35](https://github.com/GulomovCreative/mascotte/issues/35))
 
-**Готово, когда** отдельный план редактора утверждён и разбит на задачи.
+**Done when** a separate editor plan is approved and broken down into tasks.
 
-Минимальный объём редактора: дерево сцены, инспектор свойств, вьюпорт с гизмо, таймлайн ключей, редактор машины состояний, палитры, сохранение и загрузка документа, предпросмотр в плеере.
+Minimum editor scope: scene tree, property inspector, viewport with gizmos, key timeline, state machine editor, palettes, document save and load, preview in the player.
 
-## 10. Открытые вопросы
+## 10. Open questions
 
-- Нужна ли перспектива как основной режим или достаточно ортографии со слабой перспективой?
-- Обёртки для фреймворков (React, Vue, Web Component): какие нужны и когда?
-- Технологии редактора: веб-приложение, десктоп-обёртка или и то и другое?
-- Импорт и экспорт в сторонние форматы (Lottie, Rive): нужен ли, и в какую сторону?
-- Публикация: имя пакета в npm, лицензия на библиотеку архетипов и анимаций.
+- Is perspective needed as the main mode, or is orthographic with weak perspective enough?
+- Framework wrappers (React, Vue, Web Component): which ones are needed and when?
+- Editor technology: a web app, a desktop wrapper, or both?
+- Import and export to third-party formats (Lottie, Rive): are they needed, and in which direction?
+- Publishing: npm package name, license for the archetype and animation library.

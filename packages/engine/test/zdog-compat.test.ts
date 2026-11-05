@@ -6,13 +6,13 @@ import { zdogFixture } from './zdog-fixture.ts';
 const zdog = zdogFixture('hierarchy');
 
 /*
- * Иерархия трансформаций должна совпадать с Zdog: точка узла проходит через
- * масштаб, поворот и перенос самого узла, потом через те же шаги каждого предка.
- * Поворот Zdog {x, y, z} соответствует углам {x, -y, z} в порядке 'XYZ'.
- * У Zdog нет pivot, поэтому он здесь не участвует.
+ * The transform hierarchy must match Zdog: a node point goes through
+ * the scale, rotation and translation of the node itself, then the same steps of each ancestor.
+ * A Zdog rotation {x, y, z} corresponds to angles {x, -y, z} in 'XYZ' order.
+ * Zdog has no pivot, so it is not used here.
  */
-describe('совместимость иерархии с Zdog', () => {
-  it('мировые позиции вложенных узлов совпадают', () => {
+describe('hierarchy compatibility with Zdog', () => {
+  it('world positions of nested nodes match', () => {
     const levels = [
       { translate: { x: 10, y: -4, z: 3 }, rotate: { x: 0.3, y: -0.8, z: 0.2 }, scale: 1.5 },
       { translate: { x: -2, y: 6, z: 1 }, rotate: { x: -0.5, y: 0.4, z: 1.1 }, scale: 0.7 },
@@ -22,10 +22,10 @@ describe('совместимость иерархии с Zdog', () => {
         scale: { x: 2, y: 0.5, z: 1.3 },
       },
     ];
-    // Точка внутри листа: на её положение влияют его собственные поворот и масштаб.
+    // A point inside the leaf: its position depends on the leaf rotation and scale.
     const offset = { x: 1, y: -2, z: 3 };
 
-    // Мировые позиции корня, середины, листа и точки внутри листа у Zdog.
+    // Zdog world positions of the root, the middle node, the leaf and the point inside the leaf.
     const origins = zdog.next<{ x: number; y: number; z: number }[]>('origins', { levels, offset });
 
     const nodes = levels.map(

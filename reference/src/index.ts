@@ -11,5 +11,5 @@ export {
 export { type EngineScene, engineScenes } from './engine-only/scenes.ts';
 export type { EngineVersion, ReferenceScene, RenderOptions } from './scene.ts';
 
-/** Все эталонные сцены. Для каждой хранятся снимки кадров Zdog в `reference/snapshots/zdog/`. */
+/** All reference scenes. Zdog frame snapshots for each are stored in `reference/snapshots/zdog/`. */
 export const referenceScenes = [flatPrimitives, solidPrimitives, mascot, backfaceGroups];

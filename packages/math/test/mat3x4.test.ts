@@ -19,12 +19,12 @@ function point(m: mat3x4.Mat3x4, v: Vec3): Vec3 {
 }
 
 describe('mat3x4', () => {
-  it('create даёт единичную матрицу', () => {
+  it('create gives the identity matrix', () => {
     const v = vec3.create(1, 2, 3);
     expect(point(mat3x4.create(), v)).toEqual(v);
   });
 
-  it('compose = перенос · поворот · масштаб', () => {
+  it('compose = translation · rotation · scale', () => {
     const next = random(1);
     for (let i = 0; i < 50; i++) {
       const { translation, rotation, scale } = randomTransform(next);
@@ -37,7 +37,7 @@ describe('mat3x4', () => {
     }
   });
 
-  it('pivot: поворот и масштаб вокруг точки для произвольных точек', () => {
+  it('pivot: rotation and scale about a point for arbitrary points', () => {
     const next = random(4);
     for (let i = 0; i < 50; i++) {
       const { translation, rotation, scale } = randomTransform(next);
@@ -54,14 +54,14 @@ describe('mat3x4', () => {
     }
   });
 
-  it('pivot остаётся на месте при повороте и масштабе', () => {
+  it('pivot stays in place under rotation and scale', () => {
     const pivot = vec3.create(5, -3, 2);
     const rotation = quat.setAxisAngle(quat.create(), vec3.create(0, 0, 1), 1.2);
     const m = mat3x4.compose(mat3x4.create(), vec3.create(), rotation, vec3.create(2, 2, 2), pivot);
     expectClose(point(m, pivot), pivot);
   });
 
-  it('pivot со сдвигом переносит точку pivot на translation', () => {
+  it('pivot with translation moves the pivot point to translation', () => {
     const pivot = vec3.create(5, -3, 2);
     const translation = vec3.create(10, 0, -4);
     const rotation = quat.setAxisAngle(quat.create(), vec3.create(1, 0, 0), 0.5);
@@ -69,7 +69,7 @@ describe('mat3x4', () => {
     expectClose(point(m, pivot), vec3.add(vec3.create(), pivot, translation));
   });
 
-  it('multiply(a, b) применяет сначала b, потом a, и допускает out = a', () => {
+  it('multiply(a, b) applies b first, then a, and allows out = a', () => {
     const next = random(2);
     const ta = randomTransform(next);
     const tb = randomTransform(next);
@@ -83,13 +83,13 @@ describe('mat3x4', () => {
     expect(mat3x4.equals(mat3x4.multiply(bb, a, bb), ab)).toBe(true);
   });
 
-  it('invert обращает преобразование', () => {
+  it('invert inverts the transform', () => {
     const next = random(3);
     for (let i = 0; i < 50; i++) {
       const { translation, rotation, scale } = randomTransform(next);
       const m = mat3x4.compose(mat3x4.create(), translation, rotation, scale);
       const inv = mat3x4.invert(mat3x4.create(), m);
-      if (!inv) throw new Error('матрица должна обращаться');
+      if (!inv) throw new Error('matrix must be invertible');
       expect(mat3x4.equals(mat3x4.multiply(mat3x4.create(), m, inv), mat3x4.create(), 1e-9)).toBe(
         true,
       );
@@ -99,7 +99,7 @@ describe('mat3x4', () => {
     }
   });
 
-  it('invert вырожденной матрицы возвращает null и не трогает out', () => {
+  it('invert of a singular matrix returns null and leaves out untouched', () => {
     const singular = mat3x4.compose(
       mat3x4.create(),
       vec3.create(),
@@ -111,7 +111,7 @@ describe('mat3x4', () => {
     expect(mat3x4.equals(out, mat3x4.create())).toBe(true);
   });
 
-  it('отрицательный масштаб: отражение с det < 0 обращается', () => {
+  it('negative scale: a reflection with det < 0 is invertible', () => {
     const rotation = quat.setAxisAngle(quat.create(), vec3.create(0, 0, 1), 0.4);
     const m = mat3x4.compose(
       mat3x4.create(),
@@ -121,40 +121,40 @@ describe('mat3x4', () => {
     );
     expect(mat3x4.determinant(m)).toBeCloseTo(-1);
     const inv = mat3x4.invert(mat3x4.create(), m);
-    if (!inv) throw new Error('отражение должно обращаться');
+    if (!inv) throw new Error('reflection must be invertible');
     expect(mat3x4.equals(mat3x4.multiply(mat3x4.create(), inv, m), mat3x4.create(), 1e-12)).toBe(
       true,
     );
   });
 
-  it('очень маленький, но честный масштаб обращается', () => {
+  it('a very small but genuine scale is invertible', () => {
     const tiny = vec3.create(1e-5, 1e-5, 1e-5);
     const m = mat3x4.compose(mat3x4.create(), vec3.create(1, 2, 3), quat.create(), tiny);
     const inv = mat3x4.invert(mat3x4.create(), m);
-    if (!inv) throw new Error('масштаб 1e-5 должен обращаться');
+    if (!inv) throw new Error('scale 1e-5 must be invertible');
     const v = vec3.create(4, -5, 6);
     expectClose(point(inv, point(m, v)), v, 6);
   });
 
-  it('матрица с параллельными столбцами вырождена', () => {
+  it('a matrix with parallel columns is singular', () => {
     const m = mat3x4.fromArray([1, 2, 3, 2, 4, 6, 0, 0, 1, 5, 5, 5]);
     expect(mat3x4.invert(mat3x4.create(), m)).toBeNull();
   });
 
-  it('fromArray проверяет длину', () => {
+  it('fromArray checks the length', () => {
     expect(() => mat3x4.fromArray(new Float64Array(16))).toThrow(RangeError);
     const values = [1, 0, 0, 0, 1, 0, 0, 0, 1, 7, 8, 9];
     expect(Array.from(mat3x4.fromArray(values))).toEqual(values);
   });
 
-  it('copy и identity перезаписывают матрицу целиком', () => {
+  it('copy and identity overwrite the whole matrix', () => {
     const dirty = mat3x4.fromArray([9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9]);
     expect(mat3x4.equals(mat3x4.identity(dirty), mat3x4.create())).toBe(true);
     const source = mat3x4.fromArray([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]);
     expect(Array.from(mat3x4.copy(mat3x4.create(), source))).toEqual(Array.from(source));
   });
 
-  it('transformPoint и transformDirection допускают out = v', () => {
+  it('transformPoint and transformDirection allow out = v', () => {
     const rotation = quat.setAxisAngle(quat.create(), vec3.create(1, 0, 0), 0.9);
     const m = mat3x4.compose(mat3x4.create(), vec3.create(1, 2, 3), rotation, vec3.create(2, 1, 3));
     const v = vec3.create(0.5, -1, 2);
@@ -165,13 +165,13 @@ describe('mat3x4', () => {
     expect(mat3x4.transformDirection(w, m, w)).toEqual(d);
   });
 
-  it('determinant равен произведению масштабов', () => {
+  it('determinant equals the product of the scales', () => {
     const rotation = quat.setAxisAngle(quat.create(), vec3.create(0, 1, 0), 0.8);
     const m = mat3x4.compose(mat3x4.create(), vec3.create(9, 9, 9), rotation, vec3.create(2, 3, 4));
     expect(mat3x4.determinant(m)).toBeCloseTo(24);
   });
 
-  it('transformDirection не учитывает перенос', () => {
+  it('transformDirection ignores translation', () => {
     const m = mat3x4.compose(
       mat3x4.create(),
       vec3.create(10, 20, 30),
@@ -183,7 +183,7 @@ describe('mat3x4', () => {
     expect(mat3x4.getTranslation(vec3.create(), m)).toEqual({ x: 10, y: 20, z: 30 });
   });
 
-  it('fromQuat совпадает с поворотом кватернионом', () => {
+  it('fromQuat matches rotation by the quaternion', () => {
     const q = quat.setAxisAngle(
       quat.create(),
       vec3.normalize(vec3.create(), vec3.create(1, 1, 0)),

@@ -5,40 +5,40 @@ import { DepthSorter, type Drawable } from './depth-sort.ts';
 import { Bucket, decalAnchor, GLCollector, MAX_ANCHORS, STRIDE } from './gl/collect.ts';
 
 /*
- * Проверка попадания: какая фигура видна в точке кадра. Фигуры раскладываются на те же
- * примитивы в экранном 3D, что и для WebGL2, и в точке считается пересечение луча
- * взгляда с каждым — теми же формулами, что в шейдерах. Правила видимости тоже те же:
- * - верхний слой сортировки закрывает нижние;
- * - внутри слоя видна ближняя фигура, при равной глубине — раньше в порядке сортировки;
- * - декаль видна только там, где видна её непрозрачная опора, и тогда закрывает её;
- *   из нескольких декалей видна нарисованная последней;
- * - у полупрозрачной опоры и сверх `MAX_ANCHORS` опор в слое декали — обычные фигуры;
- * - скрытые, полностью прозрачные и обращённые обратной стороной без `backfaceVisible`
- *   фигуры не попадают.
+ * Hit testing: which shape is visible at a frame point. Shapes are decomposed into the same
+ * screen 3D primitives as for WebGL2, and the intersection of the view ray
+ * with each one is computed at the point, with the same formulas as in the shaders. The visibility rules are the same too:
+ * - an upper sort layer covers lower ones;
+ * - within a layer the nearest shape is visible; at equal depth, the one earlier in sort order;
+ * - a decal is visible only where its opaque anchor is visible, and then covers it;
+ *   of several decals, the one drawn last is visible;
+ * - with a translucent anchor, and beyond `MAX_ANCHORS` anchors in a layer, decals are regular shapes;
+ * - hidden, fully transparent and back-facing shapes without `backfaceVisible`
+ *   are not hit.
  *
- * Расхождения с кадром возможны только у точно совпадающих поверхностей: WebGL2 при
- * равной глубине оставляет нарисованное раньше, а рисует он корзинами и по видам
- * примитивов, а не строго в порядке сортировки.
+ * Mismatches with the frame are possible only for exactly coincident surfaces: at equal depth
+ * WebGL2 keeps what was drawn earlier, and it draws by buckets and by primitive
+ * kind, not strictly in sort order.
  *
- * Проверка идёт по пикселям, как в WebGL2, а не по порядку списка отрисовки. Canvas 2D
- * рисует перекрытия по порядку, поэтому у краёв перекрывающихся фигур его картинка
- * может немного расходиться с результатом.
+ * The test works per pixel, as in WebGL2, not by display list order. Canvas 2D
+ * draws overlaps in order, so near the edges of overlapping shapes its image
+ * may differ slightly from the result.
  */
 
-/** Результат проверки попадания. */
+/** Hit test result. */
 export interface Hit {
-  /** Рисуемый узел в точке. */
+  /** The drawable at the point. */
   readonly drawable: Drawable;
-  /** Узел для выбора: составная фигура для её частей, иначе сам рисуемый узел. */
+  /** The node to select: the solid for its parts, otherwise the drawable itself. */
   readonly node: Node;
   /**
-   * Глубина точки фигуры в экранном 3D (больше — ближе к зрителю). У декали — её
-   * собственная глубина: она может лежать чуть глубже видимой поверхности опоры.
+   * Depth of the shape's point in screen 3D (larger is closer to the viewer). For a decal, its
+   * own depth: it may lie slightly deeper than the anchor's visible surface.
    */
   readonly depth: number;
 }
 
-/** Размеры кадра в пикселях CSS. */
+/** Frame size in CSS pixels. */
 export interface HitViewport {
   readonly width: number;
   readonly height: number;
@@ -50,25 +50,25 @@ interface Candidate {
 }
 
 /**
- * Проверка попадания по сцене. Сортировщик, сборщик, буфер примитивов и записи декалей
- * переиспользуются между вызовами; на вызов создаётся только результат. Стоит она
- * примерно как сборка кадра для WebGL2.
+ * Hit testing over a scene. The sorter, the collector, the primitive buffer and the decal records
+ * are reused between calls; only the result is created per call. It costs
+ * roughly as much as building a WebGL2 frame.
  */
 export class HitTester {
   readonly #sorter = new DepthSorter();
   readonly #collector = new GLCollector();
   readonly #bucket = new Bucket();
-  // Лучшее в текущем слое: ближайшая обычная фигура и последняя декаль на каждой опоре.
+  // The best in the current layer: the nearest regular shape and the last decal on each anchor.
   readonly #nearest: Candidate = { drawable: null, depth: 0 };
   readonly #decals = new Map<Node, Candidate>();
   readonly #candidates: Candidate[] = [];
   #usedCandidates = 0;
-  // Опоры с номером в трафарете в текущем слое — так же, как у сборщика кадра.
+  // Anchors with a stencil number in the current layer, the same as in the frame collector.
   readonly #anchors = new Set<Node>();
 
   /**
-   * Фигура, видимая в точке (`x`, `y`) кадра: пиксели CSS от левого верхнего угла,
-   * как у `offsetX`/`offsetY` события указателя. `null`, если там ничего нет.
+   * The shape visible at frame point (`x`, `y`): CSS pixels from the top left corner,
+   * like `offsetX`/`offsetY` of a pointer event. `null` if there is nothing there.
    */
   hitTest(scene: Scene, camera: Camera, viewport: HitViewport, x: number, y: number): Hit | null {
     const px = x - viewport.width / 2;
@@ -84,7 +84,7 @@ export class HitTester {
         result = this.#finishLayer() ?? result;
         run = runs[i] ?? 0;
       }
-      // Номер опоры раздаётся до всех пропусков, как у сборщика кадра.
+      // The anchor number is assigned before any skips, as in the frame collector.
       const decal = this.#isDecalOf(drawable);
       if (drawable.worldOpacity <= 0) continue;
       const bucket = this.#bucket;
@@ -93,7 +93,7 @@ export class HitTester {
       const depth = nearestDepth(bucket, px, py);
       if (depth === null) continue;
       if (decal) {
-        // Декали рисуются по порядку поверх опоры: видна последняя.
+        // Decals are drawn in order over the anchor: the last one is visible.
         const anchor = decalAnchor(drawable) as Node;
         let candidate = this.#decals.get(anchor);
         if (!candidate) {
@@ -111,9 +111,9 @@ export class HitTester {
   }
 
   /**
-   * Декаль ли фигура для трафарета: у опоры есть номер. Номера раздаются в порядке
-   * сортировки при первой декали опоры, как в `GLCollector.collect`, поэтому проверку
-   * проходят все фигуры слоя, а не только попавшие в точку.
+   * Whether the shape is a stencil decal: its anchor has a number. Numbers are assigned in sort
+   * order at the anchor's first decal, as in `GLCollector.collect`, so all shapes of the layer
+   * go through the check, not only those that hit the point.
    */
   #isDecalOf(drawable: Drawable): boolean {
     const anchor = decalAnchor(drawable);
@@ -140,12 +140,12 @@ export class HitTester {
     this.#usedCandidates = 0;
   }
 
-  /** Видимое в точке по итогам слоя или `null`; готовит следующий слой. */
+  /** What is visible at the point after the layer, or `null`; prepares the next layer. */
   #finishLayer(): Hit | null {
     const nearest = this.#nearest.drawable;
     let hit: Hit | null = null;
     if (nearest) {
-      // Декаль видна, если в точке видна её опора: сама фигура или часть составной.
+      // A decal is visible if its anchor is visible at the point: the shape itself or a part of the solid.
       const decal = this.#decals.get(nearest) ?? (nearest.owner && this.#decals.get(nearest.owner));
       const drawable = decal ? (decal.drawable as Drawable) : nearest;
       hit = {
@@ -159,7 +159,7 @@ export class HitTester {
   }
 }
 
-/** Ближайшая к зрителю глубина примитивов корзины в точке или `null`. */
+/** The depth nearest to the viewer of the bucket's primitives at the point, or `null`. */
 function nearestDepth(bucket: Bucket, px: number, py: number): number | null {
   let best = Number.NEGATIVE_INFINITY;
   const sphere = bucket.data.sphere;
@@ -205,8 +205,8 @@ function sphereDepth(px: number, py: number, cx: number, cy: number, cz: number,
 }
 
 /*
- * Формулы ниже — пересечения луча из (px, py, +∞) вдоль −z, как в шейдерах. Луч
- * начинается чуть ближе самого примитива: z = rayZ, результат — глубина rayZ − t.
+ * The formulas below are intersections of the ray from (px, py, +∞) along −z, as in the shaders. The ray
+ * starts slightly closer than the primitive itself: z = rayZ, the result is depth rayZ − t.
  */
 
 function capsuleDepth(px: number, py: number, d: Float32Array | Float64Array, i: number) {
@@ -240,7 +240,7 @@ function capsuleDepth(px: number, py: number, d: Float32Array | Float64Array, i:
     if (y > 0 && y < baba) return rayZ - t;
     return y <= 0 ? sphereDepth(px, py, ax, ay, az, r) : sphereDepth(px, py, bx, by, bz, r);
   }
-  // Отрезок вдоль луча: видна ближняя сфера-конец.
+  // Segment along the ray: the near end sphere is visible.
   return az > bz ? sphereDepth(px, py, ax, ay, az, r) : sphereDepth(px, py, bx, by, bz, r);
 }
 
@@ -269,7 +269,7 @@ function cylinderDepth(px: number, py: number, d: Float32Array | Float64Array, i
   let h = k1 * k1 - k2 * k0;
   if (h < 0) return MISS;
   h = Math.sqrt(h);
-  // Ближняя стенка, а если она за краем отрезка — дальняя (вид внутрь трубы).
+  // The near wall, or, if it is past the segment end, the far one (view inside the tube).
   const near = (-k1 - h) / k2;
   const nearY = baoc + near * bard;
   if (nearY > 0 && nearY < baba) return rayZ - near;
@@ -291,7 +291,7 @@ function hemisphereDepth(px: number, py: number, d: Float32Array | Float64Array,
   const h = r * r - dx * dx - dy * dy;
   if (h < 0) return MISS;
   const s = Math.sqrt(h);
-  // Ближняя точка сферы, если она на стороне купола, иначе дальняя (вид внутрь).
+  // The near sphere point if it is on the dome side, otherwise the far one (view inside).
   const along = dx * ux + dy * uy;
   if (along + s * uz >= 0) return cz + s;
   if (along - s * uz >= 0) return cz - s;
@@ -349,7 +349,7 @@ function triangleDepth(
   const cy = at(d, c + 1);
   const area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax);
   if (area === 0) return MISS;
-  // Барицентрические координаты; знак площади учитывает любой обход.
+  // Barycentric coordinates; the area sign accounts for either winding.
   const u = ((bx - px) * (cy - py) - (by - py) * (cx - px)) / area;
   const v = ((cx - px) * (ay - py) - (cy - py) * (ax - px)) / area;
   const w = 1 - u - v;

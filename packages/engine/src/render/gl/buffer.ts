@@ -1,4 +1,4 @@
-/** Растущий буфер чисел: переиспользуется между кадрами, растёт удвоением. */
+/** Growable number buffer: reused between frames, grows by doubling. */
 export class FloatBuffer {
   #data = new Float32Array(256);
   #length = 0;
@@ -20,8 +20,8 @@ export class FloatBuffer {
   }
 
   /**
-   * Резервирует `count` чисел в конце и возвращает индекс первого: дальше их пишут прямо
-   * в `data`. Так горячие циклы обходятся без вызова на каждое число.
+   * Reserves `count` numbers at the end and returns the index of the first: they are then written
+   * directly into `data`. This way hot loops avoid a call per number.
    */
   reserve(count: number): number {
     const start = this.#length;
@@ -39,7 +39,7 @@ export class FloatBuffer {
   }
 }
 
-/** Растущий буфер индексов: как `FloatBuffer`, но целые числа. */
+/** Growable index buffer: like `FloatBuffer`, but with integers. */
 export class IndexBuffer {
   #data = new Int32Array(256);
   #length = 0;
@@ -65,7 +65,7 @@ export class IndexBuffer {
   }
 }
 
-/** Ломаная в экранном 3D: координаты в растущих массивах, переиспользуется между кадрами. */
+/** Polyline in screen 3D: coordinates in growable arrays, reused between frames. */
 export class Polyline {
   xs = new Float64Array(64);
   ys = new Float64Array(64);
@@ -77,9 +77,9 @@ export class Polyline {
   }
 
   /**
-   * Добавляет точку и возвращает её индекс; координаты пишутся прямо в `xs`, `ys`, `zs`
-   * после вызова. Без дробных аргументов вызов не упаковывает числа, даже если V8 его
-   * не встроит.
+   * Adds a point and returns its index; the coordinates are written directly into `xs`, `ys`, `zs`
+   * after the call. Without fractional arguments the call does not box numbers, even if V8
+   * does not inline it.
    */
   add(): number {
     if (this.length === this.xs.length) {
@@ -99,10 +99,10 @@ function grow(data: Float64Array, size: number): Float64Array<ArrayBuffer> {
 }
 
 /**
- * Список, который каждый кадр заполняется заново без выделений памяти. Обнуление длины
- * массива в V8 может освободить его память, и следующие добавления выделят её снова, поэтому
- * элементы пишутся по индексу, а длина ставится один раз в конце: у той же сцены она не
- * меняется.
+ * A list refilled every frame without memory allocations. Resetting an array's length
+ * in V8 can free its memory, and the following pushes would allocate it again, so
+ * elements are written by index and the length is set once at the end: for the same scene it
+ * does not change.
  */
 export class FrameList<T> {
   readonly items: T[] = [];

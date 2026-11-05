@@ -6,11 +6,11 @@ import { zdogFixture } from './zdog-fixture.ts';
 const zdog = zdogFixture('rotations');
 
 /*
- * Zdog поворачивает вектор сначала вокруг Z, потом вокруг Y, потом вокруг X,
- * но знак поворота вокруг Y у него обратный. Поэтому `rotate` из Zdog совпадает
- * с порядком 'XYZ' и углом `-y`. Это нужно при переносе сцен и сравнении со снимками.
+ * Zdog rotates a vector first about Z, then about Y, then about X,
+ * but its rotation about Y has the opposite sign. So Zdog's `rotate` matches
+ * order 'XYZ' with angle `-y`. This matters when porting scenes and comparing against snapshots.
  */
-describe('совместимость поворотов с Zdog', () => {
+describe('rotation compatibility with Zdog', () => {
   it("Zdog rotate {x, y, z} = fromEuler {x, -y, z, 'XYZ'}", () => {
     const next = random(7);
     for (let i = 0; i < 200; i++) {

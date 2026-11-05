@@ -5,24 +5,24 @@ import type { Scene } from '../scene/scene.ts';
 import { Shape } from '../shapes/shape.ts';
 import { Surface } from '../shapes/surface.ts';
 
-/** То, что рисуется: фигура с трёхмерным путём или экранная поверхность. */
+/** What gets drawn: a shape with a 3D path or a screen surface. */
 export type Drawable = Shape | Surface;
 
 export function isDrawable(node: Node): node is Drawable {
   return node instanceof Shape || node instanceof Surface;
 }
 
-/** Элемент сортировки: рисуемый узел или группа. */
+/** Sort item: a drawable or a group. */
 interface Unit {
   readonly node: Node;
-  /** Сам узел, если это рисуемый элемент; у группы — `null`. */
+  /** The node itself if this is a drawable; `null` for a group. */
   readonly drawable: Drawable | null;
-  /** Порядок в дереве: при равной глубине раньше рисуется то, что раньше в дереве. */
+  /** Tree order: at equal depth, what comes earlier in the tree is drawn first. */
   readonly index: number;
   readonly layer: number;
-  /** Члены группы (у рисуемого элемента пусто). */
+  /** Group members (empty for a drawable). */
   readonly members: Unit[];
-  /** Декали, прикреплённые к элементу или группе: рисуются сразу после них. */
+  /** Decals attached to the item or group: drawn right after them. */
   readonly decals: Unit[];
   depth: number;
 }
@@ -32,19 +32,19 @@ const world: Vec3 = { x: 0, y: 0, z: 0 };
 const front: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
- * Сортировка сцены по глубине для отрисовки: возвращает рисуемые узлы от дальних
- * к ближним с учётом режимов `SortMode`, `zBias` и слоёв.
+ * Depth sorting of the scene for drawing: returns drawables from far
+ * to near, taking into account `SortMode` modes, `zBias` and layers.
  *
- * Группой сортируются: узел в режиме `group`, составная фигура (всегда) и узел без
- * рисования в режиме `layer` или `attached`. Режим такого узла определяет, куда
- * попадает группа: в список по глубине, в слой или в декали ближайшего рисуемого
- * предка или группы.
+ * Sorted as a group: a node in `group` mode, a solid (always) and a non-drawing
+ * node in `layer` or `attached` mode. The mode of such a node determines where
+ * the group goes: into the depth list, into a layer or into the decals of the nearest drawable
+ * ancestor or group.
  *
- * Структура (группы, декали, слои) собирается заново только при изменении дерева
- * или режимов и слоёв. В остальных кадрах пересчитываются глубины (вместе с `zBias`),
- * а списки досортировываются вставками: порядок между кадрами почти не меняется,
- * поэтому это быстро и не создаёт объектов. Результат — один и тот же массив,
- * перезаписываемый при каждом вызове.
+ * The structure (groups, decals, layers) is rebuilt only when the tree
+ * or the modes and layers change. In other frames the depths are recomputed (together with `zBias`),
+ * and the lists are re-sorted by insertion: the order barely changes between frames,
+ * so this is fast and creates no objects. The result is one and the same array,
+ * overwritten on every call.
  */
 export class DepthSorter {
   #top: Unit[] = [];
@@ -52,12 +52,12 @@ export class DepthSorter {
   #structureVersion = -1;
   #settingsVersion = -1;
   #next = 0;
-  // Результат и номера прогонов пишутся по индексу, длина ставится в конце: обнуление
-  // длины массива в V8 освобождает его память, и каждый кадр выделял бы её снова.
+  // The result and run numbers are written by index, the length is set at the end: resetting
+  // an array's length in V8 frees its memory, and every frame would allocate it again.
   readonly #out: Drawable[] = [];
   #outCount = 0;
   readonly #runs: number[] = [];
-  // Слои на пути от верхнего списка к текущему элементу и путь текущего прогона.
+  // Layers on the path from the top list to the current item, and the path of the current run.
   readonly #path: number[] = [];
   #pathLength = 0;
   readonly #runPath: number[] = [];
@@ -84,17 +84,17 @@ export class DepthSorter {
   }
 
   /**
-   * Номер прогона слоёв для каждого элемента последнего результата. Прогон — подряд
-   * идущие элементы с одинаковым путём слоёв от верхнего списка (нулевые слои в конце
-   * пути не считаются). Номера растут с нуля. Отрисовка с буфером глубины проверяет
-   * глубину только внутри прогона: так слой под содержимым остаётся под ним, даже
-   * если он ближе к камере.
+   * Layer run number for each item of the last result. A run is consecutive
+   * items with the same layer path from the top list (zero layers at the end
+   * of the path do not count). Numbers grow from zero. Drawing with a depth buffer tests
+   * depth only within a run: this way a layer under content stays under it even
+   * if it is closer to the camera.
    */
   get runs(): readonly number[] {
     return this.#runs;
   }
 
-  // ----- структура ----- //
+  // ----- structure ----- //
 
   #rebuild(scene: Scene): void {
     this.#scene = scene;
@@ -102,7 +102,7 @@ export class DepthSorter {
     this.#settingsVersion = getSortSettingsVersion();
     this.#next = 0;
     this.#top = [];
-    // Корень сцены прозрачен: его дети — верхний список.
+    // The scene root is transparent: its children are the top list.
     const root = scene.root;
     if (isDrawable(root)) this.#place(root, this.#unit(root, root), this.#top, null, true);
     else for (const child of root.children) this.#add(child, this.#top, null);
@@ -120,13 +120,13 @@ export class DepthSorter {
     };
   }
 
-  /** Кладёт элемент в список или, если это декаль с опорой, в декали опоры. */
+  /** Puts the item into a list or, if it is a decal with an anchor, into the anchor's decals. */
   #place(node: Node, unit: Unit, list: Unit[], anchor: Unit | null, isRoot = false): void {
     if (!isRoot && node.sortMode === 'attached' && anchor) anchor.decals.push(unit);
     else list.push(unit);
   }
 
-  /** Добавляет узел и его потомков; `anchor` — ближайший рисуемый предок или группа. */
+  /** Adds a node and its descendants; `anchor` is the nearest drawable ancestor or group. */
   #add(node: Node, list: Unit[], anchor: Unit | null): void {
     const drawable = isDrawable(node) ? node : null;
     const mode = node.sortMode;
@@ -152,11 +152,11 @@ export class DepthSorter {
       return;
     }
 
-    // Узел без рисования в режиме auto прозрачен: потомки сортируются вместе с соседями.
+    // A non-drawing node in auto mode is transparent: its descendants are sorted together with its siblings.
     for (const child of node.children) this.#add(child, list, anchor);
   }
 
-  // ----- кадр ----- //
+  // ----- frame ----- //
 
   #emitList(list: Unit[], camera: Camera): void {
     for (let i = 0; i < list.length; i++) this.#depth(list[i] as Unit, camera);
@@ -181,7 +181,7 @@ export class DepthSorter {
     this.#pathLength--;
   }
 
-  /** Добавляет элемент в результат и отмечает его прогон слоёв. */
+  /** Adds an item to the result and records its layer run. */
   #push(drawable: Drawable): void {
     const path = this.#path;
     const runPath = this.#runPath;
@@ -198,7 +198,7 @@ export class DepthSorter {
     this.#out[this.#outCount++] = drawable;
   }
 
-  /** Глубина элемента в `unit.depth`: запись на месте, без возврата дробного числа. */
+  /** Item depth into `unit.depth`: written in place, without returning a float. */
   #depth(unit: Unit, camera: Camera): void {
     const node = unit.node;
     node.getSortPoint(local);
@@ -207,7 +207,7 @@ export class DepthSorter {
   }
 }
 
-/** Обращена ли лицевая сторона декали к камере: у фигур — `front`, у остальных — +z. */
+/** Whether the decal's front face faces the camera: `front` for shapes, +z for the rest. */
 function isFacing(node: Node, camera: Camera): boolean {
   if (node instanceof Shape) {
     front.x = node.front.x;
@@ -233,7 +233,7 @@ function before(a: Unit, b: Unit): boolean {
   return a.index < b.index;
 }
 
-/** Сортировка вставками: стабильна и почти линейна на почти упорядоченных данных. */
+/** Insertion sort: stable and nearly linear on nearly sorted data. */
 function insertionSort(list: Unit[]): void {
   for (let i = 1; i < list.length; i++) {
     const unit = list[i] as Unit;

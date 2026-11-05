@@ -1,10 +1,10 @@
 import type { Quat, Vec3 } from '@mascotte/math';
 
 /**
- * Вектор, который сообщает владельцу об изменении. Поля читаются и пишутся как у
- * обычного `Vec3`, поэтому его можно передавать в функции `vec3` в качестве `out`.
- * Функции `vec3` пишут покомпонентно и могут сообщить до трёх раз: это дёшево, потому
- * что повторная пометка ничего не делает. Метод `set` сообщает не больше одного раза.
+ * A vector that notifies its owner of changes. Fields are read and written as on
+ * a plain `Vec3`, so it can be passed to `vec3` functions as `out`.
+ * `vec3` functions write per component and may notify up to three times: this is cheap because
+ * a repeated mark does nothing. The `set` method notifies at most once.
  */
 export class ObservedVec3 implements Vec3 {
   #x: number;
@@ -49,7 +49,7 @@ export class ObservedVec3 implements Vec3 {
     }
   }
 
-  /** Записывает все компоненты и сообщает об изменении не больше одного раза. */
+  /** Writes all components and notifies of the change at most once. */
   set(x: number, y: number, z: number): this {
     if (x !== this.#x || y !== this.#y || z !== this.#z) {
       this.#x = x;
@@ -65,7 +65,7 @@ export class ObservedVec3 implements Vec3 {
   }
 }
 
-/** Кватернион, который сообщает владельцу об изменении. */
+/** A quaternion that notifies its owner of changes. */
 export class ObservedQuat implements Quat {
   #x = 0;
   #y = 0;
@@ -117,7 +117,7 @@ export class ObservedQuat implements Quat {
     }
   }
 
-  /** Записывает все компоненты и сообщает об изменении не больше одного раза. */
+  /** Writes all components and notifies of the change at most once. */
   set(x: number, y: number, z: number, w: number): this {
     if (x !== this.#x || y !== this.#y || z !== this.#z || w !== this.#w) {
       this.#x = x;

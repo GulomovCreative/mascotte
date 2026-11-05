@@ -11,8 +11,8 @@ function expectVec(actual: Readonly<Vec3>, expected: Readonly<Vec3>, digits = 9)
 
 const world = (node: Node) => node.getWorldPosition(vec3.create());
 
-describe('служебный доступ закрыт', () => {
-  it('пакет не экспортирует внутренние объекты, у Scene и Node нет служебных методов', () => {
+describe('internal access is closed', () => {
+  it('the package does not export internals, Scene and Node have no internal methods', () => {
     expect(Object.keys(engine).sort()).toEqual(
       [
         'ARC_HANDLE',
@@ -83,8 +83,8 @@ describe('служебный доступ закрыт', () => {
   });
 });
 
-describe('идентификаторы', () => {
-  it('пустые, из пробелов и с зарезервированным префиксом запрещены', () => {
+describe('identifiers', () => {
+  it('empty, whitespace-only and reserved-prefix ids are forbidden', () => {
     for (const id of ['', '   ', '~1', '~root']) {
       expect(() => new Node({ id }), JSON.stringify(id)).toThrow(RangeError);
     }
@@ -92,8 +92,8 @@ describe('идентификаторы', () => {
   });
 });
 
-describe('внешний вид', () => {
-  it('visible и opacity меняют appearanceVersion, opacity обрезается, NaN запрещён', () => {
+describe('appearance', () => {
+  it('visible and opacity change appearanceVersion, opacity is clamped, NaN is forbidden', () => {
     const node = new Node();
     const version = node.appearanceVersion;
     node.visible = true;
@@ -113,7 +113,7 @@ describe('внешний вид', () => {
     expect(new Node({ opacity: 3 }).opacity).toBe(1);
   });
 
-  it('worldOpacity с нулём и видимость отсоединённого узла', () => {
+  it('worldOpacity with zero and visibility of a detached node', () => {
     const parent = new Node({ opacity: 0 });
     const child = new Node();
     parent.add(child);
@@ -124,8 +124,8 @@ describe('внешний вид', () => {
   });
 });
 
-describe('трансформации в иерархии', () => {
-  it('каждая компонента трансформации помечает узел', () => {
+describe('transforms in the hierarchy', () => {
+  it('each transform component marks the node', () => {
     const fields: [string, (node: Node) => void][] = [
       ['position.x', (n) => (n.position.x = 1)],
       ['position.y', (n) => (n.position.y = 1)],
@@ -150,18 +150,18 @@ describe('трансформации в иерархии', () => {
     }
   });
 
-  it('pivot родителя: поворот на 90° вокруг его точки', () => {
+  it('parent pivot: a 90° rotation around its point', () => {
     const parent = new Node({
       pivot: { x: 1, y: 0, z: 0 },
       rotation: euler.create(0, 0, Math.PI / 2),
     });
     const child = new Node({ position: { x: 2, y: 0, z: 0 } });
     parent.add(child);
-    // Точка (2, 0, 0) поворачивается вокруг (1, 0, 0) на 90° против часовой: (1, 1, 0).
+    // The point (2, 0, 0) rotates 90° counterclockwise around (1, 0, 0): (1, 1, 0).
     expectVec(world(child), { x: 1, y: 1, z: 0 });
   });
 
-  it('поддерево, посчитанное отдельно, после подключения учитывает нового родителя', () => {
+  it('a subtree computed on its own picks up the new parent after attaching', () => {
     for (const parentDirty of [true, false]) {
       const scene = new Scene(new Node({ position: { x: 100, y: 0, z: 0 } }));
       if (!parentDirty) scene.root.worldMatrix;
@@ -176,7 +176,7 @@ describe('трансформации в иерархии', () => {
     }
   });
 
-  it('перестановка внутри родителя не пересчитывает мировую матрицу', () => {
+  it('reordering within the parent does not recompute the world matrix', () => {
     const parent = new Node();
     const [x, y] = [new Node(), new Node()];
     parent.add(x).add(y);
@@ -186,7 +186,7 @@ describe('трансформации в иерархии', () => {
     expect(x.worldVersion).toBe(version);
   });
 
-  it('remove помечает мировую матрицу ребёнка', () => {
+  it('remove marks the child world matrix', () => {
     const parent = new Node({ position: { x: 5, y: 0, z: 0 } });
     const child = new Node();
     parent.add(child);
@@ -195,7 +195,7 @@ describe('трансформации в иерархии', () => {
     expect(child.worldVersion).toBe(version + 1);
   });
 
-  it('onWorldInvalidated вызывается один раз на каждую пометку', () => {
+  it('onWorldInvalidated is called once per mark', () => {
     class Counting extends Node {
       calls = 0;
       protected override onWorldInvalidated(): void {
@@ -216,8 +216,8 @@ describe('трансформации в иерархии', () => {
   });
 });
 
-describe('дети и обход', () => {
-  it('children — неизменяемый снимок, обновляется при изменении состава', () => {
+describe('children and traversal', () => {
+  it('children is an immutable snapshot, updated when membership changes', () => {
     const parent = new Node();
     const [a, b, c] = [new Node(), new Node(), new Node()];
     parent.add(a).add(b).add(c);
@@ -229,7 +229,7 @@ describe('дети и обход', () => {
     expect(snapshot).toEqual([a, b, c]);
   });
 
-  it('граничные индексы перестановки', () => {
+  it('boundary reorder indices', () => {
     const parent = new Node();
     const [a, b, c] = [new Node(), new Node(), new Node()];
     parent.add(a).add(b).add(c);
@@ -241,7 +241,7 @@ describe('дети и обход', () => {
     expect(parent.children).toEqual([b, c, a]);
   });
 
-  it('traverse останавливается во внуке и пропускает соседей предков', () => {
+  it('traverse stops at a grandchild and skips ancestor siblings', () => {
     const root = new Node({ id: 'r' });
     const a = new Node({ id: 'a' });
     const deep = new Node({ id: 'deep' });
@@ -259,8 +259,8 @@ describe('дети и обход', () => {
   });
 });
 
-describe('сцена: структура и индекс', () => {
-  it('structureVersion растёт на 1 за каждую операцию', () => {
+describe('scene: structure and index', () => {
+  it('structureVersion grows by 1 per operation', () => {
     const first = new Scene();
     const second = new Scene();
     const [a, b] = [new Node(), new Node()];
@@ -279,7 +279,7 @@ describe('сцена: структура и индекс', () => {
     expect(second.structureVersion).toBe(v2 + 1);
   });
 
-  it('готовый корень с детьми регистрирует их id, дубликаты отклоняются', () => {
+  it('a prebuilt root with children registers their ids, duplicates are rejected', () => {
     const root = new Node({ id: 'r' });
     const kid = new Node({ id: 'k' });
     root.add(kid);
@@ -293,19 +293,19 @@ describe('сцена: структура и индекс', () => {
     expect(broken.scene).toBeNull();
   });
 
-  it('перенос в сцену с занятым id отклоняется, узел остаётся в старой', () => {
+  it('moving into a scene with a taken id is rejected, the node stays in the old one', () => {
     const first = new Scene();
     const second = new Scene();
     const a = new Node({ id: 'a' });
     first.root.add(a);
     second.root.add(new Node({ id: 'a' }));
-    expect(() => second.root.add(a)).toThrow(/«a»/);
+    expect(() => second.root.add(a)).toThrow(/"a"/);
     expect(first.getById('a')).toBe(a);
     expect(a.scene).toBe(first);
     expect(a.parent).toBe(first.root);
   });
 
-  it('уничтожение узла в середине дерева', () => {
+  it('destroying a node in the middle of the tree', () => {
     const scene = new Scene();
     const a = new Node({ id: 'a' });
     const b = new Node({ id: 'b' });
@@ -322,7 +322,7 @@ describe('сцена: структура и индекс', () => {
     expect(scene.nodes.map((node) => node.id)).toEqual([scene.root.id, 'a']);
   });
 
-  it('destroy корня уничтожает всю сцену', () => {
+  it('destroying the root destroys the whole scene', () => {
     const scene = new Scene();
     const a = new Node({ id: 'a' });
     scene.root.add(a);
@@ -337,7 +337,7 @@ describe('сцена: структура и индекс', () => {
 });
 
 describe('typeName', () => {
-  it('у каждого конкретного класса узла имя типа совпадает с именем класса', async () => {
+  it('every concrete node class has a type name equal to its class name', async () => {
     const engine: Record<string, unknown> = await import('../src/index.ts');
     const abstract = new Set(['Shape', 'Styled', 'Surface', 'Solid']);
     const checked: string[] = [];
@@ -358,7 +358,7 @@ describe('typeName', () => {
 });
 
 describe('Scene.changeVersion', () => {
-  it('растёт при любом изменении сцены и не растёт от чтения', async () => {
+  it('grows on any scene change and not on reads', async () => {
     const engine = await import('../src/index.ts');
     const { PathShape: Path, Sphere: Ball } = engine;
     const scene = new Scene();
@@ -377,80 +377,80 @@ describe('Scene.changeVersion', () => {
       expect(scene.changeVersion, name).toBeGreaterThan(version);
       version = scene.changeVersion;
     };
-    changed('добавление', () => scene.root.add(path));
-    changed('позиция', () => {
+    changed('add', () => scene.root.add(path));
+    changed('position', () => {
       ball.position.x = 5;
     });
-    changed('поворот', () => ball.setRotationFromEuler({ x: 0.3, y: 0, z: 0, order: 'XYZ' }));
-    changed('масштаб', () => {
+    changed('rotation', () => ball.setRotationFromEuler({ x: 0.3, y: 0, z: 0, order: 'XYZ' }));
+    changed('scale', () => {
       ball.scale.y = 2;
     });
-    changed('видимость', () => {
+    changed('visibility', () => {
       ball.visible = false;
     });
-    changed('непрозрачность', () => {
+    changed('opacity', () => {
       ball.opacity = 0.5;
     });
-    changed('стиль', () => {
+    changed('style', () => {
       ball.style.color = '#123456';
     });
-    changed('параметр', () => {
+    changed('parameter', () => {
       ball.diameter = 20;
     });
-    // Геометрия фигур с путём: она не входит в appearanceVersion, но кадр меняет.
-    changed('путь', () => {
+    // Path shape geometry: not part of appearanceVersion, but it changes the frame.
+    changed('path', () => {
       path.path = [
         { type: 'move', point: { x: 0 } },
         { type: 'line', point: { x: 5 } },
       ];
     });
-    changed('замкнутость', () => {
+    changed('closed', () => {
       path.closed = !path.closed;
     });
-    changed('ширина прямоугольника', () => {
+    changed('rect width', () => {
       rect.width = 20;
     });
-    changed('скругление', () => {
+    changed('corner radius', () => {
       rounded.cornerRadius = 3;
     });
-    changed('диаметр эллипса', () => {
+    changed('ellipse diameter', () => {
       ellipse.diameter = 20;
     });
-    changed('четверти эллипса', () => {
+    changed('ellipse quarters', () => {
       ellipse.quarters = 2;
     });
-    changed('стороны многоугольника', () => {
+    changed('polygon sides', () => {
       polygon.sides = 7;
     });
-    changed('лицевая сторона', () => {
+    changed('front', () => {
       rect.front.x = 1;
     });
-    changed('цвет обратной стороны', () => {
+    changed('back color', () => {
       rect.style.backfaceColor = '#ff0000';
     });
-    changed('грань коробки', () => box.setFace('top', { visible: false }));
-    changed('опорная точка', () => {
+    changed('box face', () => box.setFace('top', { visible: false }));
+    changed('pivot', () => {
       ball.pivot.x = 2;
     });
-    changed('режим сортировки', () => {
+    changed('sort mode', () => {
       path.sortMode = 'layer';
     });
-    changed('слой', () => {
+    changed('layer', () => {
       path.layer = 2;
     });
-    changed('смещение глубины', () => {
+    changed('depth bias', () => {
       path.zBias = 3;
     });
-    changed('удаление', () => scene.root.remove(path));
+    changed('remove', () => scene.root.remove(path));
 
-    // Чтение матриц, видимости и непрозрачности ничего не меняет; то же значение — тоже.
+    // Reading matrices, visibility and opacity changes nothing; neither does the same value.
     ball.worldMatrix;
     ball.visibleInTree;
     ball.worldOpacity;
     ball.position.x = 5;
     ball.opacity = 0.5;
     expect(scene.changeVersion).toBe(version);
-    // Узел вне сцены сцену не трогает.
+    // A node outside the scene does not touch it.
     path.position.x = 9;
     expect(scene.changeVersion).toBe(version);
   });

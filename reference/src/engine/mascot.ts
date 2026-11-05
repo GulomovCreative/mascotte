@@ -19,8 +19,8 @@ export const mascotEngine: EngineVersion = {
           style: { stroke: 16, color: '#e0861a' },
         }),
       );
-      // Глаз — декаль на голове: рисуется сразу после неё и только по её видимой части,
-      // голова его не режет. С выключенным перекрытием в Canvas 2D кадр совпадает с Zdog.Group.
+      // The eye is a decal on the head: drawn right after it and only over its visible part,
+      // so the head does not clip it. With overlap off in Canvas 2D the frame matches Zdog.Group.
       const eye = new Node({ sortMode: 'attached', position: { x: side * 14, y: -6, z: 36 } });
       eye
         .add(new Ellipse({ diameter: 8, style: { stroke: 6, fill: true, color: '#fff' } }))
@@ -35,7 +35,7 @@ export const mascotEngine: EngineVersion = {
         quarters: 2,
         rotation: zdogRotation(0, 0, TAU / 4),
         position: { x: 0, y: 12, z: 38 },
-        // Рот тоже декаль: он лежит внутри сферы головы и иначе был бы ей закрыт.
+        // The mouth is a decal too: it lies inside the head sphere and would otherwise be hidden by it.
         sortMode: 'attached',
         closed: false,
         style: { stroke: 4, color: '#8a3b12' },

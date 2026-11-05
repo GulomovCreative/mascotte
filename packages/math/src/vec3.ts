@@ -7,9 +7,9 @@ export interface Vec3 {
 }
 
 /*
- * Все операции пишут результат в `out` и возвращают его. `out` может совпадать
- * с любым из аргументов. Преобразования матрицей и кватернионом лежат в модулях
- * `mat3x4` и `quat`.
+ * All operations write the result to `out` and return it. `out` may be the same object
+ * as any of the arguments. Transforms by a matrix and a quaternion live in the modules
+ * `mat3x4` and `quat`.
  */
 
 export function create(x = 0, y = 0, z = 0): Vec3 {
@@ -48,7 +48,7 @@ export function sub(out: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   return out;
 }
 
-/** Покомпонентное произведение. */
+/** Component-wise product. */
 export function mul(out: Vec3, a: Readonly<Vec3>, b: Readonly<Vec3>): Vec3 {
   out.x = a.x * b.x;
   out.y = a.y * b.y;
@@ -110,7 +110,7 @@ export function distance(a: Readonly<Vec3>, b: Readonly<Vec3>): number {
   return Math.sqrt(distanceSq(a, b));
 }
 
-/** Нормирует вектор. Нулевой вектор остаётся нулевым. */
+/** Normalizes a vector. A zero vector stays zero. */
 export function normalize(out: Vec3, a: Readonly<Vec3>): Vec3 {
   const len = length(a);
   return scale(out, a, len > 0 ? 1 / len : 0);

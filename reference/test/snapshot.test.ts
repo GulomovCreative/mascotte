@@ -5,7 +5,7 @@ import { PNG } from 'pngjs';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { compareImages, isUpdatingSnapshots, matchSnapshot } from '../src/snapshot.ts';
 
-/** PNG заданного размера, залитый одним цветом; `changed` первых пикселей перекрашены. */
+/** A PNG of the given size filled with one color; the first `changed` pixels are recolored. */
 function makePng(width: number, height: number, changed = 0): Buffer {
   const png = new PNG({ width, height });
   for (let i = 0; i < width * height; i++) {
@@ -37,24 +37,24 @@ function writeSnapshot(name: string, png: Buffer): void {
 }
 
 describe('compareImages', () => {
-  it('одинаковые кадры совпадают', () => {
+  it('identical frames match', () => {
     expect(compareImages(makePng(10, 10), makePng(10, 10))).toMatchObject({
       status: 'match',
       diffPixels: 0,
     });
   });
 
-  it('отличие в пределах допуска считается совпадением', () => {
+  it('a difference within tolerance counts as a match', () => {
     const result = compareImages(makePng(10, 10), makePng(10, 10, 1), { maxDiffRatio: 0.02 });
     expect(result).toMatchObject({ status: 'match', diffPixels: 1, ratio: 0.01 });
   });
 
-  it('отличие сверх допуска даёт расхождение', () => {
+  it('a difference beyond tolerance is a mismatch', () => {
     const result = compareImages(makePng(10, 10), makePng(10, 10, 5), { maxDiffRatio: 0.02 });
     expect(result).toMatchObject({ status: 'mismatch', diffPixels: 5, ratio: 0.05 });
   });
 
-  it('разный размер даёт size-mismatch', () => {
+  it('a different size gives size-mismatch', () => {
     expect(compareImages(makePng(10, 10), makePng(12, 10))).toEqual({
       status: 'size-mismatch',
       expected: { width: 10, height: 10 },
@@ -64,12 +64,12 @@ describe('compareImages', () => {
 });
 
 describe('matchSnapshot', () => {
-  it('без снимка бросает ошибку и ничего не пишет', () => {
-    expect(() => matchSnapshot('a', makePng(4, 4), options)).toThrow(/Нет снимка/);
+  it('throws without a snapshot and writes nothing', () => {
+    expect(() => matchSnapshot('a', makePng(4, 4), options)).toThrow(/No snapshot/);
     expect(existsSync(join(options.snapshotDir, 'a.png'))).toBe(false);
   });
 
-  it('в режиме обновления перезаписывает снимок', () => {
+  it('overwrites the snapshot in update mode', () => {
     writeSnapshot('a', makePng(4, 4));
     vi.stubEnv('UPDATE_SNAPSHOTS', '1');
     const next = makePng(4, 4, 3);
@@ -77,14 +77,14 @@ describe('matchSnapshot', () => {
     expect(readFileSync(join(options.snapshotDir, 'a.png')).equals(next)).toBe(true);
   });
 
-  it('в CI режим обновления запрещён', () => {
+  it('update mode is forbidden in CI', () => {
     vi.stubEnv('CI', 'true');
     vi.stubEnv('UPDATE_SNAPSHOTS', '1');
     expect(() => isUpdatingSnapshots()).toThrow(/CI/);
     expect(() => matchSnapshot('a', makePng(4, 4), options)).toThrow(/CI/);
   });
 
-  it('при расхождении сохраняет кадр и карту отличий', () => {
+  it('on mismatch saves the frame and the diff map', () => {
     writeSnapshot('a', makePng(10, 10));
     const result = matchSnapshot('a', makePng(10, 10, 50), options);
     expect(result).toMatchObject({ status: 'mismatch', diffPixels: 50 });
@@ -93,7 +93,7 @@ describe('matchSnapshot', () => {
     expect(existsSync(result.diffPath)).toBe(true);
   });
 
-  it('при разном размере сохраняет фактический кадр', () => {
+  it('on size mismatch saves the actual frame', () => {
     writeSnapshot('a', makePng(10, 10));
     const result = matchSnapshot('a', makePng(8, 8), options);
     expect(result.status).toBe('size-mismatch');
@@ -101,7 +101,7 @@ describe('matchSnapshot', () => {
     expect(existsSync(result.actualPath)).toBe(true);
   });
 
-  it('при совпадении удаляет старые файлы отличий', () => {
+  it('on match removes old diff files', () => {
     writeSnapshot('a', makePng(10, 10));
     const failed = matchSnapshot('a', makePng(10, 10, 50), options);
     expect(failed.status).toBe('mismatch');

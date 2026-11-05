@@ -2,13 +2,13 @@ import { Ticker } from '@mascotte/engine';
 import { bindTickerToPage } from '@mascotte/player';
 import { type Example, type ExampleControls, examples } from './examples.ts';
 
-// Один цикл кадров на страницу: стоит, пока вкладка скрыта. Плейграунд — инструмент
-// отладки, поэтому `prefers-reduced-motion` здесь не останавливает анимацию.
+// One frame loop per page: it pauses while the tab is hidden. The playground is a debugging
+// tool, so `prefers-reduced-motion` does not stop the animation here.
 bindTickerToPage(Ticker.shared, { reducedMotion: 'ignore' });
 
 function element<T extends HTMLElement>(id: string): T {
   const node = document.getElementById(id);
-  if (!node) throw new Error(`Нет элемента #${id}`);
+  if (!node) throw new Error(`No element #${id}`);
   return node as T;
 }
 
@@ -18,10 +18,10 @@ const title = element<HTMLHeadingElement>('example-title');
 const animateToggle = element<HTMLInputElement>('animate');
 const fpsLabel = element<HTMLSpanElement>('fps');
 
-/** Показывает ошибку вместо примера и пишет её в консоль. */
+/** Shows an error instead of the example and logs it to the console. */
 function showError(error: unknown): void {
   console.error(error);
-  fpsLabel.textContent = 'ошибка';
+  fpsLabel.textContent = 'error';
   const message = document.createElement('pre');
   message.className = 'error';
   message.textContent = error instanceof Error ? (error.stack ?? error.message) : String(error);
@@ -73,11 +73,11 @@ function show(id: string): void {
 
   const example = examples.find((item) => item.id === id) ?? examples[0];
   if (!example) {
-    title.textContent = 'Примеров нет';
+    title.textContent = 'No examples';
     return;
   }
   if (example.id !== id) {
-    if (id) console.warn(`Пример «${id}» не найден, показан «${example.id}».`);
+    if (id) console.warn(`Example "${id}" not found, showing "${example.id}".`);
     history.replaceState(null, '', `#${example.id}`);
   }
 
