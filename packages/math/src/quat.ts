@@ -127,28 +127,27 @@ export function rotationTo(out: Quat, from: Readonly<Vec3>, to: Readonly<Vec3>):
       (to.x * to.x + to.y * to.y + to.z * to.z),
   );
   if (!(lengths > 0)) return identity(out);
-  const w = lengths + from.x * to.x + from.y * to.y + from.z * to.z;
-  if (w <= lengths * 1e-12) {
+  const cx = from.y * to.z - from.z * to.y;
+  const cy = from.z * to.x - from.x * to.z;
+  const cz = from.x * to.y - from.y * to.x;
+  const sin = Math.sqrt(cx * cx + cy * cy + cz * cz);
+  const cos = from.x * to.x + from.y * to.y + from.z * to.z;
+  if (sin <= lengths * 1e-15) {
+    if (cos > 0) return identity(out);
     // Opposite: any axis perpendicular to `from`, here from crossing it with the axis it is
     // least aligned with.
-    const ax = Math.abs(from.x);
-    const ay = Math.abs(from.y);
-    const az = Math.abs(from.z);
-    if (ax <= ay && ax <= az) set(out, 0, -from.z, from.y, 0);
-    else if (ay <= az) set(out, from.z, 0, -from.x, 0);
+    const x = Math.abs(from.x);
+    const y = Math.abs(from.y);
+    const z = Math.abs(from.z);
+    if (x <= y && x <= z) set(out, 0, -from.z, from.y, 0);
+    else if (y <= z) set(out, from.z, 0, -from.x, 0);
     else set(out, -from.y, from.x, 0, 0);
     return normalize(out, out);
   }
-  // With θ the angle between them, (from × to, |from||to| + from · to) is |from||to| times
-  // (sin θ · axis, 1 + cos θ), which normalizes to (sin(θ/2) · axis, cos(θ/2)).
-  set(
-    out,
-    from.y * to.z - from.z * to.y,
-    from.z * to.x - from.x * to.z,
-    from.x * to.y - from.y * to.x,
-    w,
-  );
-  return normalize(out, out);
+  // The angle from both its sine and cosine stays accurate near 0 and near π.
+  const half = Math.atan2(sin, cos) / 2;
+  const s = Math.sin(half) / sin;
+  return set(out, cx * s, cy * s, cz * s, Math.cos(half));
 }
 
 /** Rotates vector `v` by unit quaternion `q`. */

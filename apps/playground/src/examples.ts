@@ -5,6 +5,7 @@ import {
   CanvasRenderer,
   HitTester,
   Scene,
+  SPRING_MAX_DT,
   Ticker,
   WebGLRenderer,
 } from '@mascotte/engine';
@@ -473,8 +474,10 @@ function clipExampleGL(): Example {
 }
 
 /**
- * The animated mascot on animation layers. Every frame plays the layers and springs up to the
- * example's time; a jump back or a long pause seeks instead, with the springs started at rest.
+ * The animated mascot on animation layers. Every frame plays the layers and springs on by the
+ * step of the example's time. The first frame, or a step back or longer than `SPRING_MAX_DT`,
+ * seeks instead, with the springs at rest; while the animation is paused the step is 0 and
+ * the springs hold still.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
@@ -491,7 +494,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const pose = (time: number) => {
         const dt = time - last;
         last = time;
-        if (dt >= 0 && dt <= 0.25) {
+        if (dt >= 0 && dt <= SPRING_MAX_DT) {
           animator.update(dt);
           return;
         }
