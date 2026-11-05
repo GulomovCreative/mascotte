@@ -1,9 +1,9 @@
 import { clamp } from './common.ts';
 
 /**
- * Colour in sRGB: components and opacity from 0 to 1, not premultiplied by alpha.
- * This is how a colour is stored in the document and passed to canvas. For mixing,
- * colours are converted to OKLab, where interpolation looks perceptually uniform.
+ * Color in sRGB: components and opacity from 0 to 1, not premultiplied by alpha.
+ * This is how a color is stored in the document and passed to canvas. For mixing,
+ * colors are converted to OKLab, where interpolation looks perceptually uniform.
  */
 export interface Color {
   r: number;
@@ -13,8 +13,8 @@ export interface Color {
 }
 
 /**
- * Colour in OKLab: lightness `l` from 0 to 1, axes `a` (green–red) and `b` (blue–yellow).
- * Here `a` is a colour axis and opacity is stored in `alpha`, unlike `Color.a`.
+ * Color in OKLab: lightness `l` from 0 to 1, axes `a` (green–red) and `b` (blue–yellow).
+ * Here `a` is a color axis and opacity is stored in `alpha`, unlike `Color.a`.
  */
 export interface Oklab {
   l: number;
@@ -92,7 +92,7 @@ export function toOklab(out: Oklab, c: Readonly<Color>): Oklab {
   return out;
 }
 
-/** OKLab → sRGB. Colours outside the sRGB gamut are clamped to [0, 1] per component. */
+/** OKLab → sRGB. Colors outside the sRGB gamut are clamped to [0, 1] per component. */
 export function fromOklab(out: Color, lab: Readonly<Oklab>): Color {
   const l = (lab.l + 0.3963377774 * lab.a + 0.2158037573 * lab.b) ** 3;
   const m = (lab.l - 0.1055613458 * lab.a - 0.0638541728 * lab.b) ** 3;
@@ -107,11 +107,11 @@ export function fromOklab(out: Color, lab: Readonly<Oklab>): Color {
 
 /**
  * Interpolation in OKLab with premultiplied alpha, as in CSS `color-mix`.
- * A transition from a transparent colour therefore does not darken or turn grey.
+ * A transition from a transparent color therefore does not darken or turn grey.
  *
  * For `t` outside [0, 1] (undershoot and overshoot of `back`, `elastic`) the components
  * are extrapolated linearly without premultiplication and alpha is clamped to [0, 1]:
- * dividing by a near-zero alpha would blow up the colour.
+ * dividing by a near-zero alpha would blow up the color.
  */
 export function mixOklab(out: Oklab, x: Readonly<Oklab>, y: Readonly<Oklab>, t: number): Oklab {
   const xa = x.alpha;
@@ -136,7 +136,7 @@ const mixX = createOklab();
 const mixY = createOklab();
 
 /**
- * Mixes colours in OKLab. For an animation with fixed endpoints it is cheaper to convert
+ * Mixes colors in OKLab. For an animation with fixed endpoints it is cheaper to convert
  * them once with `toOklab` and call `mixOklab` and `fromOklab`.
  */
 export function mix(out: Color, x: Readonly<Color>, y: Readonly<Color>, t: number): Color {
@@ -151,7 +151,7 @@ const HEX = /^#([0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$/i;
 const FUNCTION = /^(rgba?|hsla?|oklab|oklch)\(\s*(.*?)\s*\)$/i;
 
 /**
- * Parses a CSS colour and returns `null` if the string cannot be parsed. In that case
+ * Parses a CSS color and returns `null` if the string cannot be parsed. In that case
  * `out` is left unchanged.
  *
  * Supported:
@@ -162,7 +162,7 @@ const FUNCTION = /^(rgba?|hsla?|oklab|oklch)\(\s*(.*?)\s*\)$/i;
  *   after `/` and the `none` keyword (treated as zero);
  * - percentages, numbers with exponents, angle units `deg`, `grad`, `rad`, `turn`.
  *
- * Named colours other than `transparent` are not supported: the editor writes hex.
+ * Named colors other than `transparent` are not supported: the editor writes hex.
  */
 export function parse(input: string, out: Color = create()): Color | null {
   const text = input.trim().toLowerCase();
@@ -219,10 +219,10 @@ export function parse(input: string, out: Color = create()): Color | null {
   return fromOklab(out, { l: lightness, a: c * Math.cos(angle), b: c * Math.sin(angle), alpha });
 }
 
-/** Parses a CSS colour and throws if parsing fails. */
+/** Parses a CSS color and throws if parsing fails. */
 export function parseOrThrow(input: string, out: Color = create()): Color {
   const result = parse(input, out);
-  if (!result) throw new SyntaxError(`Cannot parse colour "${input}".`);
+  if (!result) throw new SyntaxError(`Cannot parse color "${input}".`);
   return result;
 }
 
@@ -329,7 +329,7 @@ function hexByte(value: number): string {
   return HEX_DIGITS.charAt(byte >> 4) + HEX_DIGITS.charAt(byte & 15);
 }
 
-/** Colour as `#rrggbb`, or `#rrggbbaa` if alpha rounded to a byte is below `ff`. */
+/** Color as `#rrggbb`, or `#rrggbbaa` if alpha rounded to a byte is below `ff`. */
 export function toHex(c: Readonly<Color>): string {
   const hex = `#${hexByte(c.r)}${hexByte(c.g)}${hexByte(c.b)}`;
   const alpha = hexByte(c.a);

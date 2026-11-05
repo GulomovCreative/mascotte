@@ -4,7 +4,9 @@ export const TAU = Math.PI * 2;
 /** Default tolerance for approximate comparisons. */
 export const EPSILON = 1e-6;
 
-/** Whether numbers are equal within `epsilon` (absolute for small values, relative for large ones). */
+/**
+ * Whether numbers are equal within `epsilon` (absolute for small values, relative for large ones).
+ */
 export function approxEqual(a: number, b: number, epsilon = EPSILON): boolean {
   return Math.abs(a - b) <= epsilon * Math.max(1, Math.abs(a), Math.abs(b));
 }

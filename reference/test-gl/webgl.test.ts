@@ -112,7 +112,7 @@ describe('WebGL pixels', () => {
     expect(half.slice(0, 3)).toEqual([0, 0, 255]);
     expect(Math.abs((half[3] ?? 0) - 128)).toBeLessThanOrEqual(1);
     expect(pixel(canvas, 5, 5)).toEqual([0, 0, 0, 0]);
-    // The ball edge has partial coverage.
+    // The sphere edge has partial coverage.
     const edge = pixel(canvas, 14, 50)[3] ?? 0;
     expect(edge).toBeGreaterThan(0);
     expect(edge).toBeLessThan(255);
@@ -365,7 +365,8 @@ describe('skipping an unchanged frame', () => {
     redraws('another scene', () => {
       scene.root.add(new Sphere({ diameter: 4, position: { x: 30, y: 30, z: 0 } }));
     });
-    // Assigning the same size to the canvas clears it, but the inputs are the same: invalidate() is needed.
+    // Assigning the same size to the canvas clears it, but the inputs are the same: invalidate() is
+    // needed.
     canvas.width = 120;
     expect(render()).toBe(false);
     renderer.invalidate();

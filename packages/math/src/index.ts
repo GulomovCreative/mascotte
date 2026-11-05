@@ -1,4 +1,4 @@
-// Vectors, matrices, quaternions, colour and easing functions. See docs/PLAN.md, section 5.3.
+// Vectors, matrices, quaternions, color and easing functions. See docs/PLAN.md, section 5.3.
 export type { Color, Oklab } from './color.ts';
 export * as color from './color.ts';
 export { approxEqual, clamp, EPSILON, lerp, TAU } from './common.ts';

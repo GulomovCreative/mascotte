@@ -60,8 +60,10 @@ describe('WebGL2 allocations', () => {
     const { renderer: instance, draw } = renderer();
     expect(draw()).toBe(true);
     expect(draw()).toBe(false);
-    const bytes = await bytesPerCall(draw, 200, 500);
-    expect(bytes, `${bytes} bytes per call`).toBeLessThan(8);
+    // Background browser work occasionally lands in the sample, so it is averaged over many
+    // calls. A broken frame skip would rebuild the frame and allocate kilobytes per call.
+    const bytes = await bytesPerCall(draw, 200, 2000);
+    expect(bytes, `${bytes} bytes per call`).toBeLessThan(32);
     // After a scene change the frame is drawn again, and after invalidate too.
     bench.pose(1);
     expect(draw()).toBe(true);

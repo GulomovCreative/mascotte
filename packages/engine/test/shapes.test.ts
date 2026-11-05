@@ -51,17 +51,17 @@ function expectSamePath(ours: Shape, key: string): void {
 }
 
 describe('geometry matches Zdog', () => {
-  it('ellipse, every quarters variant', () => {
+  it('ellipse, all quarter variants', () => {
     for (const quarters of [1, 2, 3, 4]) {
       expectSamePath(
         new Ellipse({ width: 30, height: 18, quarters }),
-        'ellipse, every quarters variant',
+        'ellipse, all quarter variants',
       );
     }
-    expectSamePath(new Ellipse({ diameter: 12 }), 'ellipse, every quarters variant');
-    expectSamePath(new Ellipse({ width: 30 }), 'ellipse, every quarters variant');
-    expectSamePath(new Ellipse({ height: 18 }), 'ellipse, every quarters variant');
-    expectSamePath(new Ellipse({ diameter: 10, height: 4 }), 'ellipse, every quarters variant');
+    expectSamePath(new Ellipse({ diameter: 12 }), 'ellipse, all quarter variants');
+    expectSamePath(new Ellipse({ width: 30 }), 'ellipse, all quarter variants');
+    expectSamePath(new Ellipse({ height: 18 }), 'ellipse, all quarter variants');
+    expectSamePath(new Ellipse({ diameter: 10, height: 4 }), 'ellipse, all quarter variants');
   });
 
   it('rect', () => {

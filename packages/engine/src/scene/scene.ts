@@ -5,7 +5,10 @@ import { Node, nodeInternals } from './node.ts';
  * and not exported from the package, so outside code cannot corrupt the index.
  */
 export let sceneInternals!: {
-  /** Registers the ids of a subtree. First checks all ids and throws on a conflict without changing anything. */
+  /**
+   * Registers the ids of a subtree. First checks all ids and throws on a conflict without changing
+   * anything.
+   */
   attach(scene: Scene, subtree: Node): void;
   /** Unregisters the ids of a subtree. */
   detach(scene: Scene, subtree: Node): void;
@@ -58,7 +61,9 @@ export class Scene {
     return this.#byId.get(id) ?? null;
   }
 
-  /** All scene nodes in depth-first order, starting from the root. After `destroy`, an empty list. */
+  /**
+   * All scene nodes in depth-first order, starting from the root. After `destroy`, an empty list.
+   */
   get nodes(): readonly Node[] {
     if (!this.#destroyed && this.#nodesVersion !== this.#structureVersion) {
       const nodes: Node[] = [];

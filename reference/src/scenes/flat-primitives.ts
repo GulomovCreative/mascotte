@@ -1,7 +1,10 @@
 import { flatPrimitivesEngine } from '../engine/flat-primitives.ts';
 import type { ReferenceScene } from '../scene.ts';
 
-/** Flat primitives: rectangles, ellipses, a polygon, a path with an arc and a Bezier curve, a point, a line. */
+/**
+ * Flat primitives: rectangles, ellipses, a polygon, a path with an arc and a Bezier curve, a point,
+ * a line.
+ */
 export const flatPrimitives: ReferenceScene = {
   id: 'flat-primitives',
   title: 'Flat primitives',

@@ -126,7 +126,8 @@ describe('DisplayList', () => {
 
   it('in perspective shape points are scaled by the depth of its origin', () => {
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
-    // The rect is rotated: its corners are at different depths, but scale uses the origin depth (20).
+    // The rect is rotated: its corners are at different depths, but scale uses the origin depth
+    // (20).
     const rect = new Rect({
       width: 20,
       height: 10,
@@ -297,7 +298,8 @@ describe('CanvasRenderer', () => {
       pixelRatio: 2,
       background: '#fff',
     });
-    // The frame is cleared even with a background: otherwise a translucent background would pile up over past frames.
+    // The frame is cleared even with a background: otherwise a translucent background would pile up
+    // over past frames.
     expect(calls).toEqual([
       'setTransform 1 0 0 1 0 0',
       'clearRect',

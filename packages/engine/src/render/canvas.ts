@@ -59,7 +59,8 @@ export class CanvasRenderer {
     const width = viewport.width * ratio;
     const height = viewport.height * ratio;
     ctx.setTransform(1, 0, 0, 1, 0, 0);
-    // Clearing is required even with a background: otherwise a translucent background would accumulate over previous frames.
+    // Clearing is required even with a background: otherwise a translucent background would
+    // accumulate over previous frames.
     ctx.clearRect(0, 0, width, height);
     if (viewport.background) {
       ctx.fillStyle = viewport.background;

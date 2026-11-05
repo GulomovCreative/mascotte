@@ -113,7 +113,8 @@ describe('attached', () => {
       sortMode: 'attached',
       position: { x: 0, y: 0, z: 1 },
     });
-    // The eye (z = 19) is closer than the ear (z = 5), but a decal is drawn right after the head, not among siblings.
+    // The eye (z = 19) is closer than the ear (z = 5), but a decal is drawn right after the head,
+    // not among siblings.
     eye.add(pupil);
     head.add(eye);
     return {

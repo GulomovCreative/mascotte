@@ -189,7 +189,7 @@ describe('HitTester', () => {
     expect(hit(sceneWith(sphere), 40, 0, new Camera({ zoom: 2 }))?.drawable).toBe(sphere);
     const perspective = new Camera({ projection: 'perspective', distance: 100 });
     sphere.position.z = 50;
-    // At depth 50 with distance 100 the scale is 2: the ball center on screen is at x = 40.
+    // At depth 50 with distance 100 the scale is 2: the sphere center on screen is at x = 40.
     expect(hit(sceneWith(sphere), 40, 0, perspective)?.drawable).toBe(sphere);
     expect(hit(sceneWith(sphere), 20, 0, perspective)).toBeNull();
   });

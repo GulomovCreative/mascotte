@@ -12,9 +12,9 @@ import { type Scene, sceneInternals } from './scene.ts';
 
 export interface NodeOptions {
   /**
-   * Stable identifier. If not given, one is generated automatically with the `~` prefix.
-   * Custom identifiers cannot be empty, start with `~` or contain `/`.
-   * For a node with `owner` this is the key within the owner, and the full `id` is `<owner id>/<key>`.
+   * Stable identifier. If not given, one is generated automatically with the `~` prefix. Custom
+   * identifiers cannot be empty, start with `~` or contain `/`. For a node with `owner` this is the
+   * key within the owner, and the full `id` is `<owner id>/<key>`.
    */
   id?: string;
   /**
@@ -281,7 +281,10 @@ export class Node {
     }
   }
 
-  /** Counter of changes to the node's own appearance (`visible`, `opacity` and shape style), ignoring ancestors. */
+  /**
+   * Counter of changes to the node's own appearance (`visible`, `opacity` and shape style),
+   * ignoring ancestors.
+   */
   get appearanceVersion(): number {
     return this.#appearanceVersion;
   }
@@ -480,7 +483,9 @@ export class Node {
   /** Called when the node's world matrix becomes stale. */
   protected onWorldInvalidated(): void {}
 
-  /** For subclasses with their own appearance parameters (color, stroke): bumps `appearanceVersion`. */
+  /**
+   * For subclasses with their own appearance parameters (color, stroke): bumps `appearanceVersion`.
+   */
   protected markAppearanceChanged(): void {
     this.#appearanceVersion++;
     this.#changed();

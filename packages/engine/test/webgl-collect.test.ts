@@ -136,7 +136,7 @@ describe('scratch buffer growth', () => {
 });
 
 describe('GLCollector', () => {
-  it('a point is a ball, a line is a capsule, a closed rect is four capsules', () => {
+  it('a point is a sphere, a line is a capsule, a closed rect is four capsules', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new PathShape({ position: { x: 5, y: 0, z: 0 }, style: { stroke: 10 } }),
@@ -233,7 +233,7 @@ describe('GLCollector', () => {
     expect(instances(first(frame).transparent[0], 'sphere')[0]?.slice(4)).toEqual([1, 1, 1, 0.5]);
   });
 
-  it('volume primitives: ball, capsule, dome, cylinder side, cone', () => {
+  it('volume primitives: sphere, capsule, dome, cylinder side, cone', () => {
     const frame = new GLCollector().collect(
       sceneWith(
         new Sphere({ diameter: 10 }),
@@ -252,7 +252,7 @@ describe('GLCollector', () => {
     // One capsule; cylinder, cone and hemisphere caps are solid disks without edge tubes.
     expect(counts('capsule')).toBe(1);
     expect(counts('fill')).toBeGreaterThan(0);
-    // Ball radius is half the diameter plus half the stroke.
+    // Sphere radius is half the diameter plus half the stroke.
     expect(instances(first(frame).opaque[0], 'sphere')[0]?.[3]).toBe(5.5);
   });
 

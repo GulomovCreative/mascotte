@@ -23,9 +23,9 @@ import { triangulate } from './triangulate.ts';
 
 /*
  * Frame collection for WebGL2. Everything is converted to "screen 3D": x right and y down in pixels
- * relative to the frame center, z toward the viewer in the same pixels (depth multiplied by the same
- * perspective scale). In this space the view rays are parallel to the z axis, so
- * the shape and depth of balls, capsules and surfaces can be computed exactly per pixel.
+ * relative to the frame center, z toward the viewer in the same pixels (depth multiplied by the
+ * same perspective scale). In this space the view rays are parallel to the z axis, so the shape and
+ * depth of spheres, capsules and surfaces can be computed exactly per pixel.
  */
 
 /** How many numbers an instance of each kind has. The color is the last four (RGBA, 0–1). */
@@ -52,7 +52,10 @@ export const PRIMITIVE_KINDS = Object.keys(STRIDE) as PrimitiveKind[];
  * value and one mode (regular, decal, translucent).
  */
 export class Bucket {
-  /** Decal anchor number in the stencil (1–127): the anchor's own number for an anchor, its anchor's number for a decal, otherwise 0. */
+  /**
+   * Decal anchor number in the stencil (1–127): the anchor's own number for an anchor, its anchor's
+   * number for a decal, otherwise 0.
+   */
   stencil = 0;
   /** Decal: drawn only over the anchor's visible pixels, without a depth test. */
   decal = false;
@@ -339,13 +342,15 @@ export class GLCollector {
   }
 
   /*
-   * From here on floats are not passed to calls or returned from them: if V8 does not
-   * inline a call, each such number is boxed into an object, and there are thousands of calls per frame.
-   * The perspective scale and opacity live in fields, node points are computed directly from
-   * its matrix in camera space (`nodeView`), data is written into the buffer by index.
+   * From here on floats are not passed to calls or returned from them: if V8 does not inline a
+   * call, each such number is boxed into an object, and there are thousands of calls per frame. The
+   * perspective scale and opacity live in fields, node points are computed directly from its matrix
+   * in camera space (`nodeView`), data is written into the buffer by index.
    */
 
-  /** Perspective scale from the reference node into `#s`; `false` if it is behind the camera eye. */
+  /**
+   * Perspective scale from the reference node into `#s`; `false` if it is behind the camera eye.
+   */
   #scale(drawable: Drawable, camera: Camera): boolean {
     camera.toView(scratch, drawable.perspectiveReference.getWorldPosition(scratch));
     if (!camera.isInFront(scratch.z)) return false;
@@ -355,7 +360,7 @@ export class GLCollector {
 
   /**
    * Primitives of one shape into `bucket`, the same as in frame collection: in screen 3D,
-   * accounting for the back face and perspective. Needed by hit testing.
+   * accounting for the back face and perspective. Needed by hit-testing.
    */
   emitDrawable(drawable: Drawable, camera: Camera, bucket: Bucket): void {
     this.#emit(drawable, camera, bucket, 1);
@@ -383,7 +388,7 @@ export class GLCollector {
     d[o + 3] = color[3] * this.#opacity;
   }
 
-  /** A ball centered at `scratch` with radius `#radius`. */
+  /** A sphere centered at `scratch` with radius `#radius`. */
   #pushSphere(bucket: Bucket, css: string): void {
     const out = bucket.data.sphere;
     const o = out.reserve(STRIDE.sphere);
@@ -506,7 +511,8 @@ export class GLCollector {
         const ex = e.x;
         const ey = e.y;
         const ez = e.z;
-        // The number of segments follows the length of the control polygon on screen, about 3 pixels each.
+        // The number of segments follows the length of the control polygon on screen, about 3
+        // pixels each.
         const d1x = c1x - x0;
         const d1y = c1y - y0;
         const d2x = c2x - c1x;
@@ -590,7 +596,9 @@ export class GLCollector {
     line.clear();
   }
 
-  /** Cap of a cylinder, cone or hemisphere: a disk with the base radius plus half the stroke width. */
+  /**
+   * Cap of a cylinder, cone or hemisphere: a disk with the base radius plus half the stroke width.
+   */
   #cap(base: Ellipse, bucket: Bucket, css: string): void {
     const m = nodeView;
     const s = this.#s;

@@ -122,7 +122,7 @@ describe('color: conversions', () => {
     expect(color.srgbToLinear(0.02)).toBeCloseTo(0.02 / 12.92, 12);
   });
 
-  it('OKLab for reference colours', () => {
+  it('OKLab for reference colors', () => {
     const lab = color.createOklab();
     expectClose(color.toOklab(lab, color.create(1, 1, 1)), { l: 1, a: 0, b: 0, alpha: 1 }, 5);
     expectClose(
@@ -137,18 +137,18 @@ describe('color: conversions', () => {
     );
   });
 
-  it('OKLab round trip preserves the colour', () => {
+  it('OKLab round trip preserves the color', () => {
     const next = random(11);
     const lab = color.createOklab();
     for (let i = 0; i < 200; i++) {
       const c = color.create(next(), next(), next(), next());
-      // OKLab matrix coefficients have 10 digits. For dark colours the sRGB curve
+      // OKLab matrix coefficients have 10 digits. For dark colors the sRGB curve
       // amplifies this error 12.92 times, to ~1e-6: far below the 1/255 step.
       expectClose(color.fromOklab(color.create(), color.toOklab(lab, c)), c, 5);
     }
   });
 
-  it('fromOklab clamps colours outside the sRGB gamut', () => {
+  it('fromOklab clamps colors outside the sRGB gamut', () => {
     const out = color.fromOklab(color.create(), { l: 0.9, a: 0.4, b: 0.4, alpha: 2 });
     for (const value of [out.r, out.g, out.b, out.a]) {
       expect(value).toBeGreaterThanOrEqual(0);
@@ -167,13 +167,13 @@ describe('color: mixing', () => {
     expect(color.toHex(color.mix(color.create(), black, white, 0.5))).toBe('#636363');
   });
 
-  it('colour does not darken when mixing from transparent', () => {
+  it('color does not darken when mixing from transparent', () => {
     const red = parsed('#ff0000');
     const half = color.mix(color.create(), parsed('transparent'), red, 0.5);
     expect(color.toHex(half)).toBe('#ff000080');
   });
 
-  it('fully transparent ends give a transparent colour without NaN', () => {
+  it('fully transparent ends give a transparent color without NaN', () => {
     const out = color.mix(color.create(), color.create(1, 0, 0, 0), color.create(0, 0, 1, 0), 0.5);
     expect(out.a).toBe(0);
     expect(Number.isNaN(out.r)).toBe(false);
@@ -186,7 +186,7 @@ describe('color: mixing', () => {
     expect(color.mix(a, a, b, 0.3)).toEqual(expected);
   });
 
-  it('mixOklab outside [0, 1] extrapolates linearly and does not blow up the colour', () => {
+  it('mixOklab outside [0, 1] extrapolates linearly and does not blow up the color', () => {
     const x = color.createOklab(0.2, 0, 0, 1);
     const y = color.createOklab(0.6, 0, 0, 1);
     expect(color.mixOklab(color.createOklab(), x, y, 1.5).l).toBeCloseTo(0.8, 12);

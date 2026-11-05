@@ -60,7 +60,7 @@ describe('Ticker', () => {
     expect(() => new Ticker({ maxDelta: 0 })).toThrow(RangeError);
   });
 
-  it('no frames are requested when idle: no subscriptions, paused, all subscriptions paused', () => {
+  it('no frames are requested at rest: no subscriptions, paused, all subscriptions paused', () => {
     const clock = manualScheduler();
     const ticker = new Ticker({ scheduler: clock.scheduler });
     expect(ticker.running).toBe(false);

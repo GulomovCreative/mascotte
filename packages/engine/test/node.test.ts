@@ -42,7 +42,8 @@ describe('Node: construction', () => {
     expect(new Node({ scale: { x: 1, y: 2, z: 3 } }).scale.z).toBe(3);
     const back = node.getRotationEuler(euler.create());
     expect(back.z).toBeCloseTo(Math.PI / 2, 12);
-    // pivot (0, 1, 0) stays in place under a 90° rotation around Z, then the position offset applies.
+    // pivot (0, 1, 0) stays in place under a 90° rotation around Z, then the position offset
+    // applies.
     expectVec(node.localToWorld(vec3.create(), { x: 0, y: 1, z: 0 }), { x: 1, y: 3, z: 3 });
   });
 });

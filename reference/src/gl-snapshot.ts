@@ -8,8 +8,9 @@ export const glSnapshotDir = join(snapshotDir, 'gl');
 export const glDiffDir = join(diffDir, 'gl');
 
 /**
- * Compares a frame from the browser (a PNG data URL) with the snapshot `reference/snapshots/gl/<name>.png`.
- * As with other snapshots, it is updated only in `UPDATE_SNAPSHOTS=1` mode.
+ * Compares a frame from the browser (a PNG data URL) with the snapshot
+ * `reference/snapshots/gl/<name>.png`. As with other snapshots, it is updated only in
+ * `UPDATE_SNAPSHOTS=1` mode.
  */
 export const matchGLSnapshot: BrowserCommand<[name: string, dataUrl: string]> = (
   _context,

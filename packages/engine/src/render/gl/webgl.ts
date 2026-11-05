@@ -47,26 +47,26 @@ const ORDER: readonly PrimitiveKind[] = [
 
 export interface WebGLRendererOptions {
   /**
-   * How many times larger the internal frame is than the canvas along each axis (supersampling), from 1
-   * to 4. Depth is written for the whole pixel, so shape intersection lines are smoothed
+   * How many times larger the internal frame is than the canvas along each axis (supersampling),
+   * from 1 to 4. Depth is written for the whole pixel, so shape intersection lines are antialiased
    * only this way. Defaults to 2: together with 4 MSAA samples this gives 16 samples per pixel.
-   * This is an upper bound: on large canvases the factor is lowered so that the internal frame
-   * fits the GPU limits and `PIXEL_BUDGET`, see `supersample`.
+   * This is an upper bound: on large canvases the factor is lowered so that the internal frame fits
+   * the GPU limits and `PIXEL_BUDGET`, see `supersample`.
    */
   supersample?: number;
 }
 
 /**
  * Largest number of pixels in the internal frame. Each pixel is 4 samples of 8 bytes
- * (color, depth and stencil), that is, about 256 MB of video memory.
+ * (color, depth and stencil): about 256 MB of video memory.
  */
 export const PIXEL_BUDGET = 2 ** 23;
 
 /*
  * Stencil: the lower 7 bits are the decal anchor number in the layer (and for translucent shapes,
- * the shape number), the high bit means "opaque here". At the end of the frame it is used to set the alpha
- * of covered samples to 1: opaque passes do not write alpha, otherwise alpha-to-coverage
- * coverage would be counted in it a second time.
+ * the shape number), the high bit means "opaque here". At the end of the frame it is used to set
+ * the alpha of covered samples to 1: opaque passes do not write alpha, otherwise the
+ * alpha-to-coverage coverage would be counted twice.
  */
 const COVERED = 0x80;
 const ID_BITS = 0x7f;
@@ -87,26 +87,26 @@ interface Resources {
   programs: Record<PrimitiveKind, Program>;
   corners: WebGLBuffer;
   emptyVao: WebGLVertexArrayObject;
-  /** Alpha fill of covered samples. */
+  /** Program that sets alpha to 1 in covered samples. */
   cover: WebGLProgram;
-  /** Frame downsampling programs by factor, created as needed. */
+  /** Downsampling programs keyed by factor, created as needed. */
   downsample: Map<number, { program: WebGLProgram; color: WebGLUniformLocation }>;
   shaders: WebGLShader[];
   targets: Targets | null;
 }
 
 /**
- * Scene rendering through WebGL2 with per-pixel depth: occlusions and intersections
- * of shapes are exact and continuous. Balls, capsules and surfaces are impostor rectangles
- * whose shape and depth are computed per pixel; fills are triangles.
+ * Scene rendering through WebGL2 with per-pixel depth: occlusions and intersections of shapes are
+ * exact and continuous. Spheres, capsules and surfaces are impostor rectangles whose shape and
+ * depth are computed per pixel; fills are triangles.
  *
- * The frame is drawn into an internal multisampled buffer `supersample` times larger than the canvas
- * (edges are smoothed with alpha-to-coverage and MSAA, intersection lines with supersampling),
- * then downsampled with averaging. Sort layers are drawn one after another, depth
+ * The frame is drawn into an internal multisampled buffer `supersample` times larger than the
+ * canvas (edges are antialiased with alpha-to-coverage and MSAA, intersection lines with
+ * supersampling), then downsampled with averaging. Sort layers are drawn one after another, depth
  * is tested only within a layer. The stencil keeps decals on the visible pixels of their anchor.
  *
- * After a context loss frames are skipped; after restoration the WebGL objects
- * are created again. When rendering is no longer needed, call `destroy()`.
+ * After a context loss frames are skipped; after restoration the WebGL objects are created again.
+ * When rendering is no longer needed, call `destroy()`.
  */
 export class WebGLRenderer {
   readonly gl: WebGL2RenderingContext;
@@ -212,14 +212,15 @@ export class WebGLRenderer {
   }
 
   /**
-   * Draws a frame. Without a background the frame is transparent: alpha reflects shape coverage exactly.
+   * Draws a frame. Without a background the frame is transparent: alpha reflects shape coverage
+   * exactly.
    *
-   * If since the previous frame neither the scene (`Scene.changeVersion`), nor
-   * the camera, nor the frame and canvas size, nor the background color has changed, does nothing: the canvas
-   * keeps the previous frame. This way there is no work and no memory allocation when idle. Assigning
-   * the same size to the canvas clears it but does not change the inputs, so after such an assignment
-   * `invalidate()` is needed. Also does nothing while the context is lost. Returns
-   * `true` if the frame was drawn.
+   * If since the previous frame neither the scene (`Scene.changeVersion`), nor the camera, nor the
+   * frame and canvas size, nor the background color has changed, does nothing: the canvas keeps the
+   * previous frame. This way there is no work and no memory allocation at rest. Assigning the same
+   * size to the canvas clears it but does not change the inputs, so after such an assignment
+   * `invalidate()` is needed. Also does nothing while the context is lost. Returns `true` if the
+   * frame was drawn.
    */
   render(scene: Scene, camera: Camera, viewport: Viewport): boolean {
     if (this.#destroyed) throw new Error('Renderer is destroyed.');
@@ -254,7 +255,8 @@ export class WebGLRenderer {
     gl.depthFunc(gl.LESS);
     // Translucent content is blended with the already premultiplied frame.
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    // Half of the frame and the pixel density are in fields, so as not to create an array per frame.
+    // Half of the frame and the pixel density are in fields, so as not to create an array per
+    // frame.
     this.#halfX = viewport.width / 2;
     this.#halfY = viewport.height / 2;
     this.#px = px;
@@ -371,7 +373,9 @@ export class WebGLRenderer {
     return true;
   }
 
-  /** Background color as RGBA 0–1; without a background or with an unparsable color, transparent. */
+  /**
+   * Background color as RGBA 0–1; without a background or with an unparsable color, transparent.
+   */
   #background(css: string | undefined): Float64Array {
     const out = this.#backgroundRgba;
     if (!this.#backgroundParsed || css !== this.#backgroundCss) {
@@ -619,8 +623,8 @@ export class WebGLRenderer {
 }
 
 /**
- * Supersampling factor for a `width × height` canvas: the largest one no larger than `max`
- * at which the sides of the internal frame do not exceed `limit` and the pixel count does not exceed
+ * Supersampling factor for a `width × height` canvas: the largest one no larger than `max` at which
+ * the sides of the internal frame do not exceed `limit` and the pixel count does not exceed
  * `PIXEL_BUDGET`.
  */
 export function supersampleFor(width: number, height: number, max: number, limit: number): number {

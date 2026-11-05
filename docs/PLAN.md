@@ -28,7 +28,7 @@ The main requirement: one engine must produce **different mascots**. Different i
 
 ## 4. What we take from Zdog
 
-A copy of the Zdog core lived in `src/core/` as a reference for behavior and images, not as a code base. After parity it was removed (#15); what remains are frozen references: frame snapshots of the reference scenes in `reference/snapshots/zdog/` and numbers for unit tests in `packages/*/test/fixtures/zdog/`. They cannot be regenerated and are compared with the new core as is.
+A copy of the Zdog core lived in `src/core/` as a reference and the ground truth for images, not as a code base. After parity it was removed (#15); what remains are frozen references: frame snapshots of the reference scenes in `reference/snapshots/zdog/` and numbers for unit tests in `packages/*/test/fixtures/zdog/`. They cannot be regenerated and are compared with the new core as is.
 
 We take:
 - the style: thick rounded strokes, a point as a sphere, fill together with stroke;
@@ -145,7 +145,7 @@ How it works (`DepthSorter`):
 - The structure is rebuilt only when the tree, modes or layers change. `zBias` and visibility are applied every frame and need no rebuild, so animating them and blinking by hiding create no objects. Lists are re-sorted with insertion sort, since the order barely changes between frames.
 
 **Partial occlusion.** A single depth per shape does not let part of an ear go behind the head while another part stays visible. So a stroke that passes behind a solid occluder and covers it on screen is split into the part behind it (drawn before the occluder) and the part in front of it (drawn after). A stroke that lies entirely on the wrong side in the draw order is moved.
-- A sphere (`Sphere` and a path point with a thick stroke, the Zdog-style head) cuts with its front surface: a point is hidden if on screen it is inside the silhouette and deeper than the front surface. This is exact also for shapes that enter the sphere, such as an ear growing out of the head. The seam is found along the stroke axis, so the sphere is inflated by half the stroke width: the visible part starts where the edge of the stroke touches the surface.
+- A sphere (`Sphere` and a path point with a thick stroke, the Zdog-style head) cuts with its front surface: a point is hidden if on screen it is inside the silhouette and deeper than the front surface. This is also exact for shapes that enter the sphere, such as an ear growing out of the head. The seam is found along the stroke axis, so the sphere is inflated by half the stroke width: the visible part starts where the edge of the stroke touches the surface.
 - Decals on a sphere (eyes, mouth: nodes in `attached` mode and everything inside them) are not cut by the sphere but clipped to its silhouette: when the head turns, the eye slides smoothly past the edge instead of sticking out beyond it or disappearing abruptly. A regular child lying inside the sphere is hidden by it, so details on the head surface should be made as decals.
 - A capsule cuts with a plane perpendicular to the view through the middle of its axis; when the capsule tilts toward the view this is an approximation. A capsule is itself cut by larger occluders; a cut capsule occludes nothing.
 - Strokes without fill are cut: paths and capsules. Segments and Bezier curves are cut at the roots of the cutting surface equation. Each stroke is cut by at most one occluder: the first in draw order that it intersects on screen.
@@ -154,7 +154,7 @@ How it works (`DepthSorter`):
 
 ### 5.7. Rendering
 
-**WebGL2 (main, #51).** A stroke with rounded caps is a tube of capsules along the path, a point and a sphere are a ball, a fill is a flat polygon in its own plane, and the hemisphere and the cylinder and cone sides are their own surfaces. Balls, capsules and surfaces are drawn as proxy rectangles: shape and depth are computed per pixel. Edges are antialiased with alpha-to-coverage and MSAA, intersection lines with supersampling (2×2 by default, less on large canvases). Sort layers (`layer`) are drawn one after another, and depth is tested only within a layer. Decals are drawn in order only over the visible pixels of their opaque anchor (stencil); with a semi-transparent anchor they are drawn as regular semi-transparent shapes. Semi-transparent shapes are drawn after the opaque ones of their layer, in sort order, and each shape is blended into a pixel once. Without a background the frame is transparent, and alpha reflects coverage exactly.
+**WebGL2 (main, #51).** A stroke with rounded caps is a tube of capsules along the path, a point and a sphere are drawn as spheres, a fill is a flat polygon in its own plane, and the hemisphere and the cylinder and cone sides are their own surfaces. Spheres, capsules and surfaces are drawn as impostor rectangles: shape and depth are computed per pixel. Edges are antialiased with alpha-to-coverage and MSAA, intersection lines with supersampling (2×2 by default, lower on large canvases). Sort layers (`layer`) are drawn one after another, and depth is tested only within a layer. Decals are drawn in order only over the visible pixels of their opaque anchor (stencil); with a translucent anchor they are drawn as regular translucent shapes. Translucent shapes are drawn after the opaque ones of their layer, in sort order, and each shape is blended into a pixel once. Without a background the frame is transparent, and alpha reflects coverage exactly.
 
 **Canvas 2D (fallback).** Described below: draw order, cuts by occluders.
 
@@ -291,7 +291,7 @@ Status: **done**, except the 60 fps check on an average laptop · [milestone](ht
 - [x] Benchmark and allocation checks ([#14](https://github.com/GulomovCreative/mascotte/issues/14))
 - [x] Remove the Zdog copy from src/core ([#15](https://github.com/GulomovCreative/mascotte/issues/15))
 
-**Done when** the reference scenes visually match Zdog, there are no allocations at idle, and the benchmark runs 20 mascots with 300 primitives each at 60 fps on an average laptop.
+**Done when** the reference scenes visually match Zdog, there are no allocations at rest, and the benchmark runs 20 mascots with 300 primitives each at 60 fps on an average laptop.
 
 ### Stage 2. Animation
 
@@ -338,7 +338,7 @@ Status: **not started** · [milestone](https://github.com/GulomovCreative/mascot
 - [ ] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
 - [ ] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 
-**Done when** the reference mascots look solid and the export matches the in-browser render.
+**Done when** the reference mascots look three-dimensional and the export matches the in-browser render.
 
 ### Stage 6. Editor
 
