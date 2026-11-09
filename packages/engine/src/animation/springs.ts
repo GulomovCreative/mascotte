@@ -1,5 +1,5 @@
 import { type Mat3x4, mat3x4, type Quat, quat, type Vec3, vec3 } from '@mascotte/math';
-import { type Target, targetName } from '../rig/rig.ts';
+import { copyTarget, type Target, targetName } from '../rig/rig.ts';
 import type { Node } from '../scene/node.ts';
 
 /*
@@ -120,7 +120,7 @@ export class Spring {
     if (tip.x === node.pivot.x && tip.y === node.pivot.y && tip.z === node.pivot.z) {
       fail(target, 'tip must differ from the pivot.');
     }
-    this.target = target;
+    this.target = copyTarget(target);
     this.#node = node;
     this.tip = vec3.clone(tip);
     this.#frequency = checkFrequency(target, options.frequency ?? 2);
