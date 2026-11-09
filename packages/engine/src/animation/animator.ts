@@ -1,4 +1,5 @@
 import {
+  copyTarget,
   lookupTarget,
   type Rig,
   resolveTarget,
@@ -67,10 +68,11 @@ export interface LayerOptions {
   readonly weight?: number;
   /**
    * The node whose subtree the layer affects, by id or rig slot; the whole scene by default.
-   * Membership is taken from the hierarchy when the mask is set, when clips add channels and
-   * when the rig's slots change; after reparenting nodes, assign `layer.mask` again to refresh
-   * it. A mask that no longer resolves to a node (a destroyed node, a removed slot) lets the
-   * layer affect nothing.
+   * The target is resolved when the mask is set and whenever the layer plays a motion, like the
+   * motion's own targets, so after the rig's slots change the mask moves together with the
+   * motions on their next `play`. Membership is taken from the hierarchy when the mask is
+   * resolved and when clips add channels; after reparenting nodes, assign `layer.mask` again
+   * to refresh it. While the masked node is destroyed, the layer affects nothing.
    */
   readonly mask?: Target | null;
 }
@@ -114,8 +116,13 @@ interface CompiledMotion {
   sample(time: number, out: Float64Array, touched?: Uint8Array): void;
 }
 
+/** `Rig.version` of `rig`, or -1 without a rig. */
+function rigVersionOf(rig: Rig | null): number {
+  return rig ? rig.version : -1;
+}
+
 function compileMotion(motion: Motion, scope: TargetScope, channels: ChannelSet): CompiledMotion {
-  const rigVersion = scope.rig?.version ?? -1;
+  const rigVersion = rigVersionOf(scope.rig);
   if ('behaviors' in motion) {
     const compiled = compileBehaviors(motion, scope, channels);
     return {
@@ -202,10 +209,10 @@ export class AnimationLayer {
   readonly mode: BlendMode;
   readonly #animator: Animator;
   #weight: number;
-  #mask: Target | null;
+  #mask: Target | null = null;
+  /** The node the mask resolved to last. */
+  #maskRoot: Node | null = null;
   #maskFlags: Uint8Array | null = null;
-  /** `Rig.version` when the mask flags were computed. */
-  #maskRigVersion = -1;
   readonly #entries: Entry[] = [];
 
   constructor(animator: Animator, options: LayerOptions) {
@@ -217,9 +224,7 @@ export class AnimationLayer {
     }
     this.mode = mode;
     this.#weight = checkWeight(options.weight ?? 1);
-    const mask = options.mask ?? null;
-    if (mask !== null) this.#maskNode(mask);
-    this.#mask = mask;
+    this.mask = options.mask ?? null;
   }
 
   get weight(): number {
@@ -230,16 +235,15 @@ export class AnimationLayer {
   }
 
   /**
-   * The masked subtree root (an id or a rig slot), or `null` for the whole scene. Throws for a
-   * target that does not resolve to a node now; one that stops resolving later masks
-   * everything out.
+   * The masked subtree root (an id or a rig slot, as a copy), or `null` for the whole scene.
+   * Throws for a target that does not resolve to a node.
    */
   get mask(): Target | null {
     return this.#mask;
   }
   set mask(target: Target | null) {
-    if (target !== null) this.#maskNode(target);
-    this.#mask = target;
+    this.#maskRoot = target === null ? null : this.#maskNode(target);
+    this.#mask = target === null ? null : copyTarget(target);
     this.#maskFlags = null;
   }
 
@@ -280,7 +284,13 @@ export class AnimationLayer {
   play(motion: Motion, options: PlayOptions = {}): void {
     const fade = checkFade(options.fade ?? 0);
     const time = checkTime(options.time ?? 0, 'Start time');
+    // The mask is resolved again with the motion's targets, and kept if either fails.
+    const root = this.#mask === null ? null : this.#maskNode(this.#mask);
     const playing = animatorInternals.playing(this.#animator, motion);
+    if (root !== this.#maskRoot) {
+      this.#maskRoot = root;
+      this.#maskFlags = null;
+    }
     playing.time = time;
     this.#push({ playing, fade, elapsed: 0, share: 0 });
   }
@@ -328,19 +338,16 @@ export class AnimationLayer {
   }
 
   /**
-   * 1 for channels inside the mask, 0 outside (all 0 when the mask no longer resolves);
-   * recomputed when channels are added or the rig's slots change.
+   * 1 for channels inside the mask, 0 outside; recomputed when the mask is resolved to another
+   * node and when channels are added.
    */
   #flags(channels: readonly Channel[]): Uint8Array | null {
-    if (this.#mask === null) return null;
+    const root = this.#maskRoot;
+    if (root === null) return null;
     let flags = this.#maskFlags;
-    const animator = this.#animator;
-    const version = animator.rig?.version ?? -1;
-    if (!flags || flags.length !== channels.length || this.#maskRigVersion !== version) {
-      const root = resolveTarget(this.#mask, animator);
-      this.#maskRigVersion = version;
+    if (!flags || flags.length !== channels.length) {
       flags = new Uint8Array(channels.length);
-      for (let i = 0; root && i < channels.length; i++) {
+      for (let i = 0; i < channels.length; i++) {
         for (let n: Node | null = (channels[i] as Channel).node; n; n = n.parent) {
           if (n === root) {
             flags[i] = 1;
@@ -425,7 +432,7 @@ let animatorInternals!: {
 export interface AnimatorOptions {
   /**
    * The rig that resolves slot targets of clips, behaviors, masks and springs; without one, a
-   * slot target is an error.
+   * slot target is an error. Its root may join the scene later; slots resolve once it has.
    */
   readonly rig?: Rig | null;
 }
@@ -438,6 +445,9 @@ export class Animator implements TargetScope {
   readonly #layers: AnimationLayer[] = [];
   readonly #compiled = new Map<Motion, CompiledMotion>();
   readonly #springs: Spring[] = [];
+  /** `Scene.structureVersion` and `Rig.version` when springs last looked for replacements. */
+  #rebindStructure = -1;
+  #rebindRig = -1;
   #springsEnabled = true;
   #rest = new Float64Array(0);
   #pose = new Float64Array(0);
@@ -486,7 +496,7 @@ export class Animator implements TargetScope {
       throw new Error(`Spring ${name}: the node already has a spring.`);
     }
     const spring = new Spring(node, options);
-    this.#own(node);
+    this.#own(node, name);
     this.#springs.push(spring);
     this.#sortSprings();
     return spring;
@@ -501,27 +511,42 @@ export class Animator implements TargetScope {
     if (index >= 0) this.#springs.splice(index, 1);
   }
 
-  /** Makes the rotation of `node` a channel, reading its rest value. */
-  #own(node: Node): void {
+  /** Makes the rotation of `node` a channel, reading its rest value; `name` names the spring. */
+  #own(node: Node, name: string): void {
     const rotation = findProperty(node, 'rotation');
-    if (!rotation) throw new Error(`Spring ${node.id}: the node has no rotation.`);
+    if (!rotation) throw new Error(`Spring ${name}: the node has no rotation.`);
     const before = this.#channels.channels.length;
     this.#channels.channel(node, rotation);
     this.#grow(before);
   }
 
-  /** Moves springs off destroyed nodes and puts parents before children. */
+  /**
+   * Moves springs off destroyed nodes and puts parents before children. A replacement can only
+   * appear with a change of the tree or of the slots, so it is looked for only then; a spring
+   * that finds none stays on its destroyed node and does nothing.
+   */
   #prepareSprings(): void {
+    const structure = this.scene.structureVersion;
+    const rig = rigVersionOf(this.rig);
+    if (structure !== this.#rebindStructure || rig !== this.#rebindRig) {
+      this.#rebindStructure = structure;
+      this.#rebindRig = rig;
+      this.#rebindSprings();
+    }
+    this.#sortSprings();
+  }
+
+  #rebindSprings(): void {
     const springs = this.#springs;
     for (let i = 0; i < springs.length; i++) {
       const spring = springs[i] as Spring;
       if (!spring.node.destroyed) continue;
       const node = resolveTarget(spring.target, this);
-      if (!node || springs.some((other) => other.node === node)) continue;
-      this.#own(node);
+      if (!node || !findProperty(node, 'rotation')) continue;
+      if (springs.some((other) => other.node === node)) continue;
+      this.#own(node, targetName(spring.target));
       bindSpring(spring, node);
     }
-    this.#sortSprings();
   }
 
   /** Stable insertion sort by depth: the hierarchy may have changed since the last frame. */
@@ -606,7 +631,7 @@ export class Animator implements TargetScope {
     let compiled = this.#compiled.get(motion);
     if (
       !compiled ||
-      compiled.rigVersion !== (this.rig?.version ?? -1) ||
+      compiled.rigVersion !== rigVersionOf(this.rig) ||
       compiled.tracks.some((track) => track.channel.node.destroyed)
     ) {
       const before = this.#channels.channels.length;

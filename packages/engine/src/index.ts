@@ -84,15 +84,7 @@ export {
 export { type Hit, HitTester, type HitViewport } from './render/hit-test.ts';
 export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
-export {
-  lookupTarget,
-  Rig,
-  SLOT_NAME_PATTERN,
-  type SlotRef,
-  type Target,
-  type TargetScope,
-  targetName,
-} from './rig/rig.ts';
+export { Rig, SLOT_NAME_PATTERN, type SlotRef, type Target } from './rig/rig.ts';
 export {
   Camera,
   type CameraOptions,

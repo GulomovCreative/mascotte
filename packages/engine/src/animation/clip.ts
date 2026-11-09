@@ -8,8 +8,9 @@ export { segmentAt } from './channels.ts';
 /*
  * Clips: keyed animation of node properties. A clip is plain data (it is saved in the
  * document as is): a duration, a loop mode and tracks. A track targets a node (by id, or a
- * rig slot) and one of its registered properties, and holds keys `{ time, value, easing }`. The value at time `t` depends only on `t`, so seeking gives
- * exactly the frame playback would show.
+ * rig slot) and one of its registered properties, and holds keys `{ time, value, easing }`.
+ * The value at time `t` depends only on `t`, so seeking gives exactly the frame playback
+ * would show.
  *
  * `bindClip` resolves nodes and properties once, validates the keys and converts their
  * values into flat arrays; `ClipBinding.apply(t)` then writes the values. Vectors and
@@ -137,11 +138,11 @@ export interface BindOptions {
 
 /**
  * Binds a clip to the nodes of `scene`: finds every track's node (through `options.rig` for
- * a slot) and property, checks the keys and their values, and prepares them for `apply`. Throws a RangeError for an invalid
- * duration or loop mode, and an error naming the track if a node or property is missing,
- * the property is not animatable, the track has no keys, keys are unsorted or outside the
- * clip, an easing is unknown, or a value does not fit the property (its type, range, or
- * integer constraint).
+ * a slot) and property, checks the keys and their values, and prepares them for `apply`.
+ * Throws a RangeError for an invalid duration or loop mode, and an error naming the track
+ * if a node or property is missing, the property is not animatable, the track has no keys,
+ * keys are unsorted or outside the clip, an easing is unknown, or a value does not fit the
+ * property (its type, range, or integer constraint).
  *
  * Interpolated numbers are clamped into the property range and rounded for integer
  * properties, so easings that overshoot never produce invalid values. The binding keeps
