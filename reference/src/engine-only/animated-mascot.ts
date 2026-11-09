@@ -5,15 +5,20 @@ import {
   type Clip,
   Node,
   PathShape,
+  Rig,
   Sphere,
 } from '@mascotte/engine';
 import { euler, quat } from '@mascotte/math';
 
 /*
- * The example mascot of stage 2: it waves (a clip), breathes and sways (additive behaviors),
- * blinks at random (behaviors on a layer masked to the head), now and then tilts its head,
- * and its ears swing after the head on springs. The layers depend only on time, so with
- * springs off, setting the layer times gives the same frame as playing up to them.
+ * The example mascot: it waves (a clip), breathes and sways (additive behaviors), blinks at
+ * random (behaviors on a layer masked to the head), now and then tilts its head, and its ears
+ * swing after the head on springs. The layers depend only on time, so with springs off,
+ * setting the layer times gives the same frame as playing up to them.
+ *
+ * Its skeleton (the root, body, head, shoulders and ears) is marked as bones, and its rig
+ * binds slots to its nodes; every clip, behavior, mask and spring addresses slots, not node
+ * ids.
  */
 
 function rotation(x: number, y: number, z: number) {
@@ -40,16 +45,20 @@ function earTip(side: number) {
 
 /**
  * Builds the mascot: `head` with `eyes`, closed `lids` and ears `ear-left` and `ear-right`,
- * `body`, and an arm on `shoulder`.
+ * `body`, and arms on `shoulder-left` and `shoulder-right`; and its rig with the slots
+ * `root`, `body`, `head`, `eyes`, `lids`, `ear.L`, `ear.R`, `arm.L` and `arm.R`.
  */
-function build(): { root: Node; camera: Camera } {
+function build(): { root: Node; camera: Camera; rig: Rig } {
   const root = new Node({
+    id: 'mascot',
+    bone: true,
     position: { x: 0, y: -22, z: 0 },
     rotation: euler.create(-0.1, 0.35, 0),
   });
   const camera = new Camera({ zoom: 1.4 });
   const head = new Sphere({
     id: 'head',
+    bone: true,
     diameter: radius * 2,
     style: { color: '#f6a623', stroke: 0 },
   });
@@ -57,7 +66,11 @@ function build(): { root: Node; camera: Camera } {
   const lids = new Node({ id: 'lids', visible: false });
   for (const side of [-1, 1]) {
     // An ear on its own node at its base, so a spring can swing it.
-    const ear = new Node({ id: side < 0 ? 'ear-left' : 'ear-right', position: earBase(side) });
+    const ear = new Node({
+      id: side < 0 ? 'ear-left' : 'ear-right',
+      bone: true,
+      position: earBase(side),
+    });
     ear.add(
       new PathShape({
         path: [
@@ -109,6 +122,7 @@ function build(): { root: Node; camera: Camera } {
   root.add(head);
   const body = new Sphere({
     id: 'body',
+    bone: true,
     diameter: 56,
     position: { x: 0, y: 72, z: 0 },
     style: { color: '#e0861a', stroke: 0 },
@@ -116,7 +130,8 @@ function build(): { root: Node; camera: Camera } {
   for (const side of [-1, 1]) {
     // The arm hangs from a shoulder node, which the clip turns.
     const shoulder = new Node({
-      ...(side > 0 ? { id: 'shoulder' } : {}),
+      id: side < 0 ? 'shoulder-left' : 'shoulder-right',
+      bone: true,
       position: { x: side * 24, y: -10, z: 0 },
     });
     shoulder.add(
@@ -132,7 +147,18 @@ function build(): { root: Node; camera: Camera } {
     body.add(shoulder);
   }
   root.add(body);
-  return { root, camera };
+  const rig = new Rig(root, {
+    root: 'mascot',
+    body: 'body',
+    head: 'head',
+    eyes: 'eyes',
+    lids: 'lids',
+    'ear.L': 'ear-left',
+    'ear.R': 'ear-right',
+    'arm.L': 'shoulder-left',
+    'arm.R': 'shoulder-right',
+  });
+  return { root, camera, rig };
 }
 
 /** The right arm goes up and waves. */
@@ -141,7 +167,7 @@ const waveClip: Clip = {
   loop: 'pingpong',
   tracks: [
     {
-      target: 'shoulder',
+      target: { slot: 'arm.R' },
       property: 'rotation',
       keys: [
         { time: 0, value: rotation(0, 0, -1.9), easing: 'sineInOut' },
@@ -156,7 +182,7 @@ const idle: BehaviorSet = {
   behaviors: [
     {
       kind: 'oscillate',
-      target: 'body',
+      target: { slot: 'body' },
       property: 'scale',
       from: { x: 1, y: 1, z: 1 },
       to: { x: 1.05, y: 1.05, z: 1.05 },
@@ -164,7 +190,7 @@ const idle: BehaviorSet = {
     },
     {
       kind: 'oscillate',
-      target: 'head',
+      target: { slot: 'head' },
       property: 'position',
       from: { x: 0, y: 0, z: 0 },
       to: { x: 0, y: -2.5, z: 0 },
@@ -172,7 +198,7 @@ const idle: BehaviorSet = {
     },
     {
       kind: 'noise',
-      target: 'head',
+      target: { slot: 'head' },
       property: 'rotation',
       from: rotation(0.06, -0.25, -0.05),
       to: rotation(-0.06, 0.25, 0.05),
@@ -187,7 +213,7 @@ const tilt: BehaviorSet = {
   behaviors: [
     {
       kind: 'blink',
-      target: 'head',
+      target: { slot: 'head' },
       property: 'rotation',
       from: rotation(0, 0, 0),
       to: rotation(0, 0, 0.22),
@@ -204,7 +230,7 @@ const blink: BehaviorSet = {
   behaviors: [
     {
       kind: 'blink',
-      target: 'eyes',
+      target: { slot: 'eyes' },
       property: 'visible',
       from: true,
       to: false,
@@ -215,7 +241,7 @@ const blink: BehaviorSet = {
     },
     {
       kind: 'blink',
-      target: 'lids',
+      target: { slot: 'lids' },
       property: 'visible',
       from: false,
       to: true,
@@ -229,16 +255,16 @@ const blink: BehaviorSet = {
 
 /**
  * Sets up the mascot's layers and springs on `animator`, whose scene holds a mascot from
- * `build`.
+ * `build` and whose rig is that mascot's rig.
  */
 function animate(animator: Animator): void {
   animator.addLayer({ name: 'body' }).play(waveClip);
   animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
   animator.addLayer({ name: 'tilt', mode: 'additive' }).play(tilt);
-  animator.addLayer({ name: 'face', mask: 'head' }).play(blink);
+  animator.addLayer({ name: 'face', mask: { slot: 'head' } }).play(blink);
   for (const side of [-1, 1]) {
     animator.addSpring({
-      target: side < 0 ? 'ear-left' : 'ear-right',
+      target: { slot: side < 0 ? 'ear.L' : 'ear.R' },
       tip: earTip(side),
       frequency: 1.8,
       damping: 0.15,

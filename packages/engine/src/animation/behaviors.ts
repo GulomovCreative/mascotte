@@ -1,5 +1,5 @@
 import { random } from '@mascotte/math';
-import type { Scene } from '../scene/scene.ts';
+import { type Target, type TargetScope, targetName } from '../rig/rig.ts';
 import { type ChannelSet, compileTrack, type SampledTrack, sampleBetween } from './channels.ts';
 
 /*
@@ -31,8 +31,8 @@ export const BEHAVIOR_KINDS = ['oscillate', 'blink', 'noise'] as const;
 export type BehaviorKind = (typeof BEHAVIOR_KINDS)[number];
 
 interface BehaviorBase {
-  /** Id of the target node. */
-  readonly target: string;
+  /** The target node: its id, or a rig slot `{ slot: 'head' }`. */
+  readonly target: Target;
   /** Property name from the registry. */
   readonly property: string;
   /** The neutral value. */
@@ -174,10 +174,14 @@ function seedOf(behavior: Blink | Noise): number {
 }
 
 function fail(behavior: Behavior, message: string): never {
-  throw new RangeError(`Behavior ${behavior.target}.${behavior.property}: ${message}`);
+  throw new RangeError(`Behavior ${targetName(behavior.target)}.${behavior.property}: ${message}`);
 }
 
-function compileBehavior(behavior: Behavior, scene: Scene, set: ChannelSet): CompiledBehavior {
+function compileBehavior(
+  behavior: Behavior,
+  scope: TargetScope,
+  set: ChannelSet,
+): CompiledBehavior {
   const kind = behavior.kind;
   if (!(BEHAVIOR_KINDS as readonly string[]).includes(kind)) {
     fail(behavior, `unknown kind "${kind}".`);
@@ -219,7 +223,7 @@ function compileBehavior(behavior: Behavior, scene: Scene, set: ChannelSet): Com
       ],
     },
     1,
-    scene,
+    scope,
     set,
     { what: 'Behavior', key: (k) => VALUE_NAMES[k] ?? `value ${k}` },
   );
@@ -227,15 +231,15 @@ function compileBehavior(behavior: Behavior, scene: Scene, set: ChannelSet): Com
 }
 
 /**
- * Compiles a behavior set against `scene` with channels from `channels`: checks every
+ * Compiles a behavior set against `scope` with channels from `channels`: checks every
  * behavior's kind and parameters (RangeError) and its node, property and values (an error
  * naming the behavior, as for clip tracks). Adds the behaviors' channels to `channels`.
  */
 export function compileBehaviors(
   set: BehaviorSet,
-  scene: Scene,
+  scope: TargetScope,
   channels: ChannelSet,
 ): CompiledBehaviors {
-  const behaviors = set.behaviors.map((behavior) => compileBehavior(behavior, scene, channels));
+  const behaviors = set.behaviors.map((behavior) => compileBehavior(behavior, scope, channels));
   return { set, tracks: behaviors.map((behavior) => behavior.track), behaviors };
 }

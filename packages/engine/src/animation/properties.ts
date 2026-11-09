@@ -26,8 +26,9 @@ interface BaseProperty {
   readonly type: PropertyType;
   /**
    * Whether animation may change it every frame. Structural settings (`sortMode`, `layer`,
-   * camera `projection`) are edited only in the inspector, because changing them is
-   * expensive: a sort rebuild or a projection switch.
+   * `bone`, camera `projection`) are edited only in the inspector, because changing them is
+   * expensive (a sort rebuild or a projection switch) or because they describe the rig, not
+   * a pose.
    */
   readonly animatable: boolean;
 }
@@ -349,6 +350,16 @@ registerProperties(Node, [
     get: (node) => node.layer,
     set: (node, value) => {
       node.layer = value;
+    },
+  },
+  {
+    name: 'bone',
+    type: 'bool',
+    animatable: false,
+    default: false,
+    get: (node) => node.bone,
+    set: (node, value) => {
+      node.bone = value;
     },
   },
 ]);

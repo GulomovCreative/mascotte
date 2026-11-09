@@ -44,17 +44,42 @@ describe('demo clips', () => {
     expect(head?.position.y).toBeCloseTo(0, 9);
   });
 
+  it('the animated mascot is rigged: its motions follow slots bound to other nodes', async () => {
+    const { Animator, Scene } = await import('@mascotte/engine');
+    const { animatedMascot } = await import('../src/index.ts');
+    const { root, rig } = animatedMascot.build();
+    expect(rig.bones.map((node) => node.id)).toEqual([
+      'mascot',
+      'head',
+      'ear-left',
+      'ear-right',
+      'body',
+      'shoulder-left',
+      'shoulder-right',
+    ]);
+    for (const [slot, id] of rig.slots) expect(rig.node(slot)?.id, slot).toBe(id);
+    // The wave is written for the slot `arm.R`; bound to the left shoulder, that arm waves.
+    rig.setSlot('arm.R', 'shoulder-left');
+    const world = new Scene(root);
+    const animator = new Animator(world, { rig });
+    animatedMascot.animate(animator);
+    animator.update(0.5);
+    expect(world.getById('shoulder-left')?.rotation.z).not.toBe(0);
+    expect(world.getById('shoulder-right')?.rotation.z).toBe(0);
+  });
+
   it('the animated mascot waves, breathes, blinks and swings its ears, and seeking matches playback', async () => {
     const { Animator, Scene } = await import('@mascotte/engine');
     const { animatedMascot } = await import('../src/index.ts');
     const make = () => {
-      const world = new Scene(animatedMascot.build().root);
-      const animator = new Animator(world);
+      const { root, rig } = animatedMascot.build();
+      const world = new Scene(root);
+      const animator = new Animator(world, { rig });
       animatedMascot.animate(animator);
-      return { world, animator };
+      return { world, animator, rig };
     };
     const played = make();
-    const shoulder = played.world.getById('shoulder');
+    const shoulder = played.world.getById('shoulder-right');
     const body = played.world.getById('body');
     const eyes = played.world.getById('eyes');
     const lids = played.world.getById('lids');
@@ -77,7 +102,7 @@ describe('demo clips', () => {
     expect(Math.max(...ears.map(Math.abs))).toBeGreaterThan(0.05);
     const sought = make();
     const state = ({ world }: { world: InstanceType<typeof Scene> }) =>
-      ['shoulder', 'body', 'head', 'eyes'].map((id) => {
+      ['shoulder-right', 'body', 'head', 'eyes'].map((id) => {
         const node = world.getById(id);
         return [node?.rotation.z, node?.scale.x, node?.position.y, node?.visible];
       });

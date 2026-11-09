@@ -8,6 +8,7 @@ import {
   GLCollector,
   HitTester,
   Node,
+  Rig,
   Scene,
 } from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
@@ -272,5 +273,28 @@ describe('allocations in the frame loop', () => {
     // The pose and the spring both write the rotation, each like a steady clip track (boxed
     // numbers at polymorphic calls; about 57 to 74 bytes per spring, depending on the JIT).
     expect(bytes, `${Math.round(bytes)} bytes for 20 springs`).toBeLessThan(20 * 2 * 75);
+  }, 60_000);
+
+  it('springs whose nodes were destroyed and not replaced', async () => {
+    const world = new Scene();
+    const root = new Node({ id: 'mascot' });
+    world.root.add(root);
+    const rig = new Rig(root);
+    const animator = new Animator(world, { rig });
+    for (let i = 0; i < 20; i++) {
+      root.add(new Node({ id: `ear${i}` }));
+      rig.setSlot(`ear.${i}`, `ear${i}`);
+      // Half by id, half by slot: each way of looking for a replacement is measured.
+      const target = i % 2 ? `ear${i}` : { slot: `ear.${i}` };
+      animator.addSpring({ target, tip: { x: 0, y: 5, z: 0 } });
+    }
+    for (let i = 0; i < 20; i++) world.getById(`ear${i}`)?.destroy();
+    const bytes = await allocatedBytesPerCall(() => animator.update(1 / 60), {
+      warmup: 3000,
+      runs: 300,
+    });
+    // Only the owned rotations are written (boxed numbers, about 95 bytes per spring): looking
+    // for a replacement every frame builds no error messages, which took about 100 more.
+    expect(bytes, `${Math.round(bytes)} bytes for 20 orphaned springs`).toBeLessThan(20 * 140);
   }, 60_000);
 });

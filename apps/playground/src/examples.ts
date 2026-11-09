@@ -486,9 +486,9 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
     title: scene.title,
     group: backend === 'gl' ? 'WebGL2' : 'Canvas 2D',
     mount(container, controls) {
-      const { root, camera } = scene.build();
+      const { root, camera, rig } = scene.build();
       const world = new Scene(root);
-      const animator = new Animator(world);
+      const animator = new Animator(world, { rig });
       scene.animate(animator);
       let last = Number.NaN;
       const pose = (time: number) => {
