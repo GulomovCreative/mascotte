@@ -1,4 +1,5 @@
 import { type Mat3x4, mat3x4, type Quat, quat, type Vec3, vec3 } from '@mascotte/math';
+import { type Target, targetName } from '../rig/rig.ts';
 import type { Node } from '../scene/node.ts';
 
 /*
@@ -34,8 +35,8 @@ export const SPRING_MAX_DT = 0.25;
 export const SPRING_MAX_FREQUENCY = 20;
 
 export interface SpringOptions {
-  /** Id of the node the spring turns. */
-  readonly target: string;
+  /** The node the spring turns: its id, or a rig slot `{ slot: 'ear.L' }`. */
+  readonly target: Target;
   /** The point of the node, in its own coordinates, that lags behind; not the pivot. */
   readonly tip: Readonly<Vec3>;
   /**
@@ -52,25 +53,25 @@ export interface SpringOptions {
   readonly maxAngle?: number;
 }
 
-function fail(target: string, message: string): never {
-  throw new RangeError(`Spring ${target}: ${message}`);
+function fail(target: Target, message: string): never {
+  throw new RangeError(`Spring ${targetName(target)}: ${message}`);
 }
 
-function checkFrequency(target: string, value: number): number {
+function checkFrequency(target: Target, value: number): number {
   if (!(value > 0 && value <= SPRING_MAX_FREQUENCY)) {
     fail(target, `frequency must be above 0 and at most ${SPRING_MAX_FREQUENCY}, got ${value}.`);
   }
   return value;
 }
 
-function checkDamping(target: string, value: number): number {
+function checkDamping(target: Target, value: number): number {
   if (!(value >= 0 && Number.isFinite(value))) {
     fail(target, `damping must be a finite non-negative number, got ${value}.`);
   }
   return value;
 }
 
-function checkMaxAngle(target: string, value: number): number {
+function checkMaxAngle(target: Target, value: number): number {
   if (!(value > 0 && value <= Math.PI)) {
     fail(target, `maxAngle must be above 0 and at most π, got ${value}.`);
   }
@@ -94,8 +95,8 @@ let springInternals!: {
 
 /** A spring on a node. Created by `Animator.addSpring`. */
 export class Spring {
-  /** Id of the node the spring turns. */
-  readonly target: string;
+  /** The node the spring turns: its id, or a rig slot. */
+  readonly target: Target;
   readonly tip: Readonly<Vec3>;
   #node: Node;
   #frequency: number;
@@ -128,8 +129,9 @@ export class Spring {
   }
 
   /**
-   * The node the spring turns: the node with id `target` when the spring was added, or the
-   * one that replaced it after it was destroyed.
+   * The node the spring turns: the node `target` resolved to when the spring was added, or
+   * the one it resolves to after that node was destroyed (the node that replaced it under
+   * the same id, or the one its slot is bound to by then).
    */
   get node(): Node {
     return this.#node;

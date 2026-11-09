@@ -1,3 +1,11 @@
+import {
+  lookupTarget,
+  type Rig,
+  resolveTarget,
+  type Target,
+  type TargetScope,
+  targetName,
+} from '../rig/rig.ts';
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
 import { type BehaviorSet, compileBehaviors, sampleBehaviors } from './behaviors.ts';
@@ -24,20 +32,25 @@ import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from 
  * - an override layer moves the pose towards its clips by its weight;
  * - an additive layer adds how far its clips are from their value at time 0, scaled by its
  *   weight (rotations compose). Booleans, enums and `null` colors are not additive.
- * A mask limits a layer to a node and its descendants. Playing a clip with a fade fades it in
- * over what the layer showed before, even in the middle of another fade. The result is
- * written to the nodes once per frame.
+ * A mask limits a layer to a node and its descendants. Clips, behaviors, masks and springs
+ * address nodes by id or by a slot of the animator's rig (see rig.ts). Playing a clip with a
+ * fade fades it in over what the layer showed before, even in the middle of another fade.
+ * The result is written to the nodes once per frame.
  *
  * The animator owns every property any of its clips has animated, for its whole lifetime: it
  * writes them every frame, so other code should not set them directly, and properties that no
  * layer animates at the moment return to rest. A motion is compiled once per object, so an
- * edited one must be a new object; it is recompiled when one of its nodes was destroyed.
+ * edited one must be a new object. It is compiled again the next time it is played after one
+ * of its nodes was destroyed or the rig's slots changed (`Rig.version`); until then a playing
+ * motion keeps the nodes it was compiled for, and nodes it no longer animates return to rest.
  *
  * Springs (see springs.ts) run after the layers: each frame they turn their nodes from the
  * blended pose, parents before children (ordered by the current hierarchy every frame). The
  * animator owns the rotation of a spring's node like an animated property, so the spring's
  * turn does not build up from frame to frame. A spring whose node was destroyed moves to the
- * node that replaced it under the same id, if any, and starts there at rest.
+ * node its target resolves to now (the one that replaced it under the same id, or the one
+ * its slot is bound to), if any, and starts there at rest. Rebinding a slot alone does not
+ * move a spring whose node is still there.
  */
 
 /** All layer blend modes. */
@@ -53,11 +66,13 @@ export interface LayerOptions {
   /** From 0 to 1, default 1. */
   readonly weight?: number;
   /**
-   * Id of the node whose subtree the layer affects; the whole scene by default. Membership is
-   * taken from the hierarchy when the mask is set and when clips add channels; after
-   * reparenting nodes, assign `layer.mask` again to refresh it.
+   * The node whose subtree the layer affects, by id or rig slot; the whole scene by default.
+   * Membership is taken from the hierarchy when the mask is set, when clips add channels and
+   * when the rig's slots change; after reparenting nodes, assign `layer.mask` again to refresh
+   * it. A mask that no longer resolves to a node (a destroyed node, a removed slot) lets the
+   * layer affect nothing.
    */
-  readonly mask?: string | null;
+  readonly mask?: Target | null;
 }
 
 export interface PlayOptions {
@@ -89,27 +104,32 @@ function checkTime(value: number, what: string): number {
 /** What a layer plays: a keyed clip or a set of procedural behaviors. */
 export type Motion = Clip | BehaviorSet;
 
-/** A motion compiled against the animator's scene and channels. */
+/** A motion compiled against the animator's scene, rig and channels. */
 interface CompiledMotion {
   readonly motion: Motion;
+  /** `Rig.version` when compiled, -1 without a rig. */
+  readonly rigVersion: number;
   readonly tracks: readonly SampledTrack[];
   /** Samples the motion at `time` (seconds, before a clip's loop mode). */
   sample(time: number, out: Float64Array, touched?: Uint8Array): void;
 }
 
-function compileMotion(motion: Motion, scene: Scene, channels: ChannelSet): CompiledMotion {
+function compileMotion(motion: Motion, scope: TargetScope, channels: ChannelSet): CompiledMotion {
+  const rigVersion = scope.rig?.version ?? -1;
   if ('behaviors' in motion) {
-    const compiled = compileBehaviors(motion, scene, channels);
+    const compiled = compileBehaviors(motion, scope, channels);
     return {
       motion,
+      rigVersion,
       tracks: compiled.tracks,
       sample: (time, out, touched) => sampleBehaviors(compiled, time, out, touched),
     };
   }
-  const { tracks } = compileClip(motion, scene, channels);
+  const { tracks } = compileClip(motion, scope, channels);
   const { duration, loop } = motion;
   return {
     motion,
+    rigVersion,
     tracks,
     sample: (time, out, touched) =>
       sampleTracks(tracks, clipTime(duration, loop, time), out, touched),
@@ -182,8 +202,10 @@ export class AnimationLayer {
   readonly mode: BlendMode;
   readonly #animator: Animator;
   #weight: number;
-  #mask: string | null;
+  #mask: Target | null;
   #maskFlags: Uint8Array | null = null;
+  /** `Rig.version` when the mask flags were computed. */
+  #maskRigVersion = -1;
   readonly #entries: Entry[] = [];
 
   constructor(animator: Animator, options: LayerOptions) {
@@ -207,13 +229,17 @@ export class AnimationLayer {
     this.#weight = checkWeight(value);
   }
 
-  /** Id of the masked subtree root, or `null` for the whole scene. Throws for an unknown id. */
-  get mask(): string | null {
+  /**
+   * The masked subtree root (an id or a rig slot), or `null` for the whole scene. Throws for a
+   * target that does not resolve to a node now; one that stops resolving later masks
+   * everything out.
+   */
+  get mask(): Target | null {
     return this.#mask;
   }
-  set mask(id: string | null) {
-    if (id !== null) this.#maskNode(id);
-    this.#mask = id;
+  set mask(target: Target | null) {
+    if (target !== null) this.#maskNode(target);
+    this.#mask = target;
     this.#maskFlags = null;
   }
 
@@ -295,20 +321,26 @@ export class AnimationLayer {
     this.#prune();
   }
 
-  #maskNode(id: string): Node {
-    const node = animatorInternals.scene(this.#animator).getById(id);
-    if (!node) throw new Error(`Layer mask: no node with id "${id}" in the scene.`);
+  #maskNode(target: Target): Node {
+    const node = lookupTarget(target, this.#animator);
+    if (typeof node === 'string') throw new Error(`Layer mask ${targetName(target)}: ${node}`);
     return node;
   }
 
-  /** 1 for channels inside the mask, 0 outside; recomputed when channels are added. */
+  /**
+   * 1 for channels inside the mask, 0 outside (all 0 when the mask no longer resolves);
+   * recomputed when channels are added or the rig's slots change.
+   */
   #flags(channels: readonly Channel[]): Uint8Array | null {
     if (this.#mask === null) return null;
     let flags = this.#maskFlags;
-    if (!flags || flags.length !== channels.length) {
-      const root = this.#maskNode(this.#mask);
+    const animator = this.#animator;
+    const version = animator.rig?.version ?? -1;
+    if (!flags || flags.length !== channels.length || this.#maskRigVersion !== version) {
+      const root = resolveTarget(this.#mask, animator);
+      this.#maskRigVersion = version;
       flags = new Uint8Array(channels.length);
-      for (let i = 0; i < channels.length; i++) {
+      for (let i = 0; root && i < channels.length; i++) {
         for (let n: Node | null = (channels[i] as Channel).node; n; n = n.parent) {
           if (n === root) {
             flags[i] = 1;
@@ -388,12 +420,20 @@ function depthOf(node: Node): number {
 
 let animatorInternals!: {
   playing(animator: Animator, motion: Motion): Playing;
-  scene(animator: Animator): Scene;
 };
 
+export interface AnimatorOptions {
+  /**
+   * The rig that resolves slot targets of clips, behaviors, masks and springs; without one, a
+   * slot target is an error.
+   */
+  readonly rig?: Rig | null;
+}
+
 /** Animation layers over one scene. Call `update(dt)` once per frame. */
-export class Animator {
+export class Animator implements TargetScope {
   readonly scene: Scene;
+  readonly rig: Rig | null;
   readonly #channels = new ChannelSet();
   readonly #layers: AnimationLayer[] = [];
   readonly #compiled = new Map<Motion, CompiledMotion>();
@@ -404,8 +444,9 @@ export class Animator {
   /** The layer target while a layer blends. */
   #target = new Float64Array(0);
 
-  constructor(scene: Scene) {
+  constructor(scene: Scene, options: AnimatorOptions = {}) {
     this.scene = scene;
+    this.rig = options.rig ?? null;
   }
 
   /** Layers in blend order. */
@@ -431,17 +472,18 @@ export class Animator {
   }
 
   /**
-   * Adds a spring on the node with id `options.target`. Throws for an unknown id, for a node
-   * that already has a spring and for invalid parameters (RangeError). From now on the
-   * animator writes the node's rotation every frame, so other code should not set it: the
-   * spring turns the node from its blended pose, which is the rotation the node had when the
-   * spring was added unless a clip animates it.
+   * Adds a spring on the node `options.target` (an id or a rig slot, resolved now). Throws for
+   * a target that does not resolve to a node, for a node that already has a spring and for
+   * invalid parameters (RangeError). From now on the animator writes the node's rotation every
+   * frame, so other code should not set it: the spring turns the node from its blended pose,
+   * which is the rotation the node had when the spring was added unless a clip animates it.
    */
   addSpring(options: SpringOptions): Spring {
-    const node = this.scene.getById(options.target);
-    if (!node) throw new Error(`Spring: no node with id "${options.target}" in the scene.`);
+    const name = targetName(options.target);
+    const node = lookupTarget(options.target, this);
+    if (typeof node === 'string') throw new Error(`Spring ${name}: ${node}`);
     if (this.#springs.some((spring) => spring.node === node)) {
-      throw new Error(`Spring ${options.target}: the node already has a spring.`);
+      throw new Error(`Spring ${name}: the node already has a spring.`);
     }
     const spring = new Spring(node, options);
     this.#own(node);
@@ -474,7 +516,7 @@ export class Animator {
     for (let i = 0; i < springs.length; i++) {
       const spring = springs[i] as Spring;
       if (!spring.node.destroyed) continue;
-      const node = this.scene.getById(spring.target);
+      const node = resolveTarget(spring.target, this);
       if (!node || springs.some((other) => other.node === node)) continue;
       this.#own(node);
       bindSpring(spring, node);
@@ -556,13 +598,20 @@ export class Animator {
     for (let i = 0; i < channels.length; i++) this.#channels.write(channels[i] as Channel, pose);
   }
 
-  /** Compiles `motion` once (again if a node of it was destroyed) and gives a new playing state. */
+  /**
+   * Compiles `motion` once (again if a node of it was destroyed or the rig's slots changed)
+   * and gives a new playing state.
+   */
   #playingOf(motion: Motion): Playing {
     let compiled = this.#compiled.get(motion);
-    if (!compiled || compiled.tracks.some((track) => track.channel.node.destroyed)) {
+    if (
+      !compiled ||
+      compiled.rigVersion !== (this.rig?.version ?? -1) ||
+      compiled.tracks.some((track) => track.channel.node.destroyed)
+    ) {
       const before = this.#channels.channels.length;
       try {
-        compiled = compileMotion(motion, this.scene, this.#channels);
+        compiled = compileMotion(motion, this, this.#channels);
       } finally {
         // Channels of the tracks compiled before a failing one stay in the set: they need
         // rest values too.
@@ -598,7 +647,6 @@ export class Animator {
   static {
     animatorInternals = {
       playing: (animator, motion) => animator.#playingOf(motion),
-      scene: (animator) => animator.scene,
     };
   }
 }

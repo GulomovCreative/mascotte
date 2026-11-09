@@ -46,7 +46,7 @@ export class Scene {
 
   /**
    * Counter of any scene change: structure, transforms, visibility, opacity,
-   * style, shape geometry and parameters, sort mode, layer and `zBias`. If it,
+   * style, shape geometry and parameters, sort mode, layer, `zBias` and the `bone` flag. If it,
    * the camera and the frame size have not changed, the frame is the same and need not be rebuilt.
    */
   get changeVersion(): number {

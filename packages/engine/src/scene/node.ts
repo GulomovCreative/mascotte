@@ -24,6 +24,8 @@ export interface NodeOptions {
    */
   owner?: Node;
   name?: string;
+  /** Whether the node is a bone of a rig (see `Rig`). Default `false`. */
+  bone?: boolean;
   position?: Readonly<Vec3>;
   /** Rotation as Euler angles; stored internally as a quaternion. */
   rotation?: Readonly<Euler>;
@@ -161,6 +163,7 @@ export class Node {
   #sortMode: SortMode;
   #zBias: number;
   #layer: number;
+  #bone: boolean;
 
   #parent: Node | null = null;
   readonly #children: Node[] = [];
@@ -179,6 +182,7 @@ export class Node {
     this.owner = options.owner ?? null;
     this.id = this.owner ? `${this.owner.id}${OWNER_SEPARATOR}${key}` : key;
     this.name = options.name ?? '';
+    this.#bone = options.bone ?? false;
     const invalidate = () => this.#invalidateLocal();
     const { position, scale, pivot } = options;
     this.position = new ObservedVec3(invalidate, position?.x, position?.y, position?.z);
@@ -239,6 +243,21 @@ export class Node {
     const bias = checkBias(value);
     if (bias !== this.#zBias) {
       this.#zBias = bias;
+      this.#changed();
+    }
+  }
+
+  /**
+   * Whether the node is a bone of the mascot's skeleton; `Rig.bones` lists the bones of its
+   * subtree. The flag changes neither drawing nor animation or slot resolution; changing it
+   * counts as a scene change (`Scene.changeVersion`).
+   */
+  get bone(): boolean {
+    return this.#bone;
+  }
+  set bone(value: boolean) {
+    if (value !== this.#bone) {
+      this.#bone = value;
       this.#changed();
     }
   }

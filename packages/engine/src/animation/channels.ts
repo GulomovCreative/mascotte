@@ -6,8 +6,8 @@ import {
   quat,
   type Vec3,
 } from '@mascotte/math';
+import { lookupTarget, type Target, type TargetScope, targetName } from '../rig/rig.ts';
 import type { Node } from '../scene/node.ts';
-import type { Scene } from '../scene/scene.ts';
 import { findProperty, type Property } from './properties.ts';
 
 /*
@@ -408,8 +408,8 @@ function localChannel(channel: Channel): Channel {
   return found;
 }
 
-function fail(what: string, track: { target: string; property: string }, message: string): never {
-  throw new Error(`${what} ${track.target}.${track.property}: ${message}`);
+function fail(what: string, track: { target: Target; property: string }, message: string): never {
+  throw new Error(`${what} ${targetName(track.target)}.${track.property}: ${message}`);
 }
 
 function isVec3(value: unknown): value is Vec3 {
@@ -425,7 +425,7 @@ function isVec3(value: unknown): value is Vec3 {
 
 /** What `compileTrack` needs to know about a track. */
 export interface TrackSource {
-  readonly target: string;
+  readonly target: Target;
   readonly property: string;
   readonly keys: readonly {
     readonly time: number;
@@ -436,7 +436,7 @@ export interface TrackSource {
 
 /** How `compileTrack` errors name the source and its keys. */
 export interface Naming {
-  /** `Track`: errors start with `Track head.rotation:`. */
+  /** `Track`: errors start with `Track head.rotation:` (`Track [eye.L].rotation:` for a slot). */
   readonly what: string;
   /** How errors name key `index`, e.g. `key 2` or `from`. */
   key(index: number): string;
@@ -445,20 +445,20 @@ export interface Naming {
 const TRACK_NAMING: Naming = { what: 'Track', key: (k) => `key ${k}` };
 
 /**
- * Compiles a track for sampling: finds its node and property, validates the keys against
- * the clip duration and the property, and encodes the values. Errors name the track. Adds
- * the track's channel to `set`.
+ * Compiles a track for sampling: finds its node in `scope` (by id or rig slot) and its
+ * property, validates the keys against the clip duration and the property, and encodes the
+ * values. Errors name the track. Adds the track's channel to `set`.
  */
 export function compileTrack(
   track: TrackSource,
   duration: number,
-  scene: Scene,
+  scope: TargetScope,
   set: ChannelSet,
   naming: Naming = TRACK_NAMING,
 ): SampledTrack {
   const what = naming.what;
-  const node = scene.getById(track.target);
-  if (!node) fail(what, track, `no node with id "${track.target}" in the scene.`);
+  const node = lookupTarget(track.target, scope);
+  if (typeof node === 'string') fail(what, track, node);
   const property = findProperty(node, track.property);
   if (!property) fail(what, track, `${node.typeName} has no property "${track.property}".`);
   if (!property.animatable) fail(what, track, 'the property is not animatable.');

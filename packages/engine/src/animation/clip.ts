@@ -1,4 +1,5 @@
 import type { EasingSpec } from '@mascotte/math';
+import type { Rig, Target, TargetScope } from '../rig/rig.ts';
 import type { Scene } from '../scene/scene.ts';
 import { ChannelSet, compileTrack, type SampledTrack, sampleTracks } from './channels.ts';
 
@@ -6,15 +7,14 @@ export { segmentAt } from './channels.ts';
 
 /*
  * Clips: keyed animation of node properties. A clip is plain data (it is saved in the
- * document as is): a duration, a loop mode and tracks. A track targets a node by id and one
- * of its registered properties, and holds keys `{ time, value, easing }`. The value at time
- * `t` depends only on `t`, so seeking gives exactly the frame playback would show.
+ * document as is): a duration, a loop mode and tracks. A track targets a node (by id, or a
+ * rig slot) and one of its registered properties, and holds keys `{ time, value, easing }`. The value at time `t` depends only on `t`, so seeking gives
+ * exactly the frame playback would show.
  *
  * `bindClip` resolves nodes and properties once, validates the keys and converts their
  * values into flat arrays; `ClipBinding.apply(t)` then writes the values. Vectors and
  * quaternions need no allocation; the only per-frame allocations are numbers boxed at
- * polymorphic calls (the easing result and number setters) and color strings. Rig slots as
- * targets come with the rig (#22).
+ * polymorphic calls (the easing result and number setters) and color strings.
  */
 
 /** All loop modes. */
@@ -35,8 +35,8 @@ export interface Key<V = unknown> {
 
 /** Keys of one property of one node. */
 export interface Track {
-  /** Id of the target node. */
-  readonly target: string;
+  /** The target node: its id, or a rig slot `{ slot: 'head' }`. */
+  readonly target: Target;
   /** Property name from the registry: `rotation`, `style.color`, `width`. */
   readonly property: string;
   /** Keys sorted by time, within the clip duration. */
@@ -79,11 +79,11 @@ export interface CompiledClip {
 }
 
 /**
- * Compiles a clip against `scene` with channels from `channels`: validates it and its
+ * Compiles a clip against `scope` with channels from `channels`: validates it and its
  * tracks (see `bindClip`) and encodes the keys. Used by `bindClip` and by animation layers.
  * Adds the tracks' channels to `channels`, also those compiled before a track that fails.
  */
-export function compileClip(clip: Clip, scene: Scene, channels: ChannelSet): CompiledClip {
+export function compileClip(clip: Clip, scope: TargetScope, channels: ChannelSet): CompiledClip {
   if (!(clip.duration >= 0 && Number.isFinite(clip.duration))) {
     throw new RangeError(
       `Clip duration must be a finite non-negative number, got ${clip.duration}.`,
@@ -92,7 +92,7 @@ export function compileClip(clip: Clip, scene: Scene, channels: ChannelSet): Com
   if (!(LOOP_MODES as readonly string[]).includes(clip.loop)) {
     throw new RangeError(`Unknown loop mode "${clip.loop}".`);
   }
-  const tracks = clip.tracks.map((track) => compileTrack(track, clip.duration, scene, channels));
+  const tracks = clip.tracks.map((track) => compileTrack(track, clip.duration, scope, channels));
   return { clip, tracks };
 }
 
@@ -130,9 +130,14 @@ class Binding implements ClipBinding {
   }
 }
 
+export interface BindOptions {
+  /** The rig that resolves slot targets; without one, a slot target is an error. */
+  readonly rig?: Rig | null;
+}
+
 /**
- * Binds a clip to the nodes of `scene`: finds every track's node and property, checks the
- * keys and their values, and prepares them for `apply`. Throws a RangeError for an invalid
+ * Binds a clip to the nodes of `scene`: finds every track's node (through `options.rig` for
+ * a slot) and property, checks the keys and their values, and prepares them for `apply`. Throws a RangeError for an invalid
  * duration or loop mode, and an error naming the track if a node or property is missing,
  * the property is not animatable, the track has no keys, keys are unsorted or outside the
  * clip, an easing is unknown, or a value does not fit the property (its type, range, or
@@ -141,9 +146,10 @@ class Binding implements ClipBinding {
  * Interpolated numbers are clamped into the property range and rounded for integer
  * properties, so easings that overshoot never produce invalid values. The binding keeps
  * references to the nodes: a node destroyed later is skipped, and a changed scene needs a
- * new binding.
+ * new binding, as does a change of the rig's slots (the binding does not follow it).
  */
-export function bindClip(clip: Clip, scene: Scene): ClipBinding {
+export function bindClip(clip: Clip, scene: Scene, options: BindOptions = {}): ClipBinding {
   const channels = new ChannelSet();
-  return new Binding(compileClip(clip, scene, channels), channels);
+  const scope = { scene, rig: options.rig ?? null };
+  return new Binding(compileClip(clip, scope, channels), channels);
 }
