@@ -11,10 +11,11 @@ import type { Scene } from '../scene/scene.ts';
  * Wherever a node is targeted, a `Target` is either a node id or `{ slot }`. Slots are
  * resolved through the animator's rig (or the rig passed to `bindClip`) at the moments ids are
  * looked up: when a motion is played (it is compiled then), a layer mask is set or its layer
- * plays a motion, a spring is added, and while a spring's node is destroyed (to find the node
- * that replaced it). An id resolves anywhere in the scene, a slot only to a node of the rig's
- * subtree, and only while the rig's root is in that scene. A node moved out of the subtree
- * after it was resolved stays where it was resolved until it is resolved again.
+ * plays a motion, a spring or a constraint is added, and while a node of a spring or a
+ * constraint is gone (to find the node that replaced it, after the tree or the slots
+ * change). An id resolves anywhere in the scene, a slot only to a node of the rig's subtree,
+ * and only while the rig's root is in that scene. A node moved out of the subtree after it
+ * was resolved stays where it was resolved until it is resolved again.
  */
 
 /** A reference to a rig slot by name. */

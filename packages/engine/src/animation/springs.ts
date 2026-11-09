@@ -1,5 +1,6 @@
-import { type Mat3x4, mat3x4, type Quat, quat, type Vec3, vec3 } from '@mascotte/math';
+import { type Vec3, vec3 } from '@mascotte/math';
 import { copyTarget, type Target, targetName } from '../rig/rig.ts';
+import { pivotOf, turnNode } from '../rig/turn.ts';
 import type { Node } from '../scene/node.ts';
 
 /*
@@ -83,9 +84,6 @@ const center = vec3.create();
 const shown = vec3.create();
 const toGoal = vec3.create();
 const toShown = vec3.create();
-const inverse: Mat3x4 = mat3x4.create();
-const turn: Quat = quat.create();
-const IDENTITY: Readonly<Quat> = quat.create();
 
 let springInternals!: {
   step(spring: Spring, dt: number): void;
@@ -217,22 +215,10 @@ export class Spring {
       return;
     }
     vec3.scaleAndAdd(shown, this.#position, this.#velocity, this.#lag);
-    node.localToWorld(center, node.pivot);
+    pivotOf(center, node);
     vec3.sub(toGoal, goal, center);
     vec3.sub(toShown, shown, center);
-    // The turn is found in the parent's space, where the node's rotation applies.
-    const parent = node.parent;
-    if (parent) {
-      if (!mat3x4.invert(inverse, parent.worldMatrix)) return;
-      mat3x4.transformDirection(toGoal, inverse, toGoal);
-      mat3x4.transformDirection(toShown, inverse, toShown);
-    }
-    quat.rotationTo(turn, toGoal, toShown);
-    const angle = quat.angleBetween(turn, IDENTITY);
-    if (angle > this.#maxAngle) quat.slerp(turn, IDENTITY, turn, this.#maxAngle / angle);
-    if (angle === 0) return;
-    quat.multiply(turn, turn, node.rotation);
-    node.rotation.copy(turn);
+    turnNode(node, toGoal, toShown, this.#maxAngle);
   }
 
   static {

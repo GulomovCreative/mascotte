@@ -84,6 +84,23 @@ export {
 export { type Hit, HitTester, type HitViewport } from './render/hit-test.ts';
 export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
+export {
+  type AimConstraint,
+  type AimSpec,
+  CONSTRAINT_KINDS,
+  type Constraint,
+  type ConstraintKind,
+  type ConstraintOf,
+  type ConstraintSpec,
+  type CopyTransformConstraint,
+  type CopyTransformSpec,
+  type LimitRotationConstraint,
+  type LimitRotationSpec,
+  type LookAtConstraint,
+  type LookAtSpec,
+  type TwoBoneIKConstraint,
+  type TwoBoneIKSpec,
+} from './rig/constraints.ts';
 export { Rig, SLOT_NAME_PATTERN, type SlotRef, type Target } from './rig/rig.ts';
 export {
   Camera,

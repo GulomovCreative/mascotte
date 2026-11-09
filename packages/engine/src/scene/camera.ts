@@ -204,9 +204,27 @@ export class Camera extends Node {
   toView(out: Vec3, world: Readonly<Vec3>): Vec3 {
     return mat3x4.transformPoint(out, this.viewMatrix, world);
   }
+
+  /**
+   * The world point that projects to frame point (`x`, `y`) at camera-space depth `depth`: the
+   * inverse of `project` for a point that is its own reference. `x` and `y` are in the units
+   * of `ProjectedPoint` (relative to the frame center, y down, before devicePixelRatio).
+   * Returns `null` and leaves `out` untouched when that depth is not visible.
+   */
+  unproject(out: Vec3, x: number, y: number, depth: number): Vec3 | null {
+    if (!this.isInFront(depth)) return null;
+    const scale = this.scaleAt(depth);
+    viewScratch.x = x / scale;
+    viewScratch.y = y / scale;
+    viewScratch.z = depth;
+    // The view matrix is rigid, so its inverse always exists.
+    mat3x4.invert(inverseScratch, this.viewMatrix);
+    return mat3x4.transformPoint(out, inverseScratch, viewScratch);
+  }
 }
 
 const viewScratch: Vec3 = { x: 0, y: 0, z: 0 };
+const inverseScratch: Mat3x4 = mat3x4.create();
 
 /**
  * Inverse of the rigid part of matrix `m`: the columns of the linear part are orthonormalized

@@ -68,6 +68,38 @@ describe('demo clips', () => {
     expect(world.getById('shoulder-right')?.rotation.z).toBe(0);
   });
 
+  it('the animated mascot turns its head to a gaze point, by at most its limit', async () => {
+    const { Animator, Scene } = await import('@mascotte/engine');
+    const { mat3x4, vec3 } = await import('@mascotte/math');
+    const { animatedMascot } = await import('../src/index.ts');
+    const { root, rig } = animatedMascot.build();
+    const world = new Scene(root);
+    const animator = new Animator(world, { rig });
+    const { gaze } = animatedMascot.animate(animator);
+    const head = rig.node('head');
+    if (!head) throw new Error('no head');
+    const face = () => {
+      const axis = mat3x4.transformDirection(vec3.create(), head.worldMatrix, { x: 0, y: 0, z: 1 });
+      return vec3.normalize(axis, axis);
+    };
+    animator.evaluate();
+    const before = face();
+    expect(gaze.weight).toBe(0);
+    const center = head.localToWorld(vec3.create(), head.pivot);
+    // A point slightly to the side of where the face looks: the head turns all the way to it.
+    const near = vec3.scaleAndAdd(vec3.create(), center, before, 100);
+    near.x += 20;
+    gaze.point = near;
+    gaze.weight = 1;
+    animator.evaluate();
+    const toNear = vec3.normalize(vec3.create(), vec3.sub(vec3.create(), near, center));
+    expect(vec3.dot(face(), toNear)).toBeCloseTo(1, 9);
+    // Far to the side, the turn stops at the limit.
+    gaze.point = vec3.scaleAndAdd(vec3.create(), center, { x: 1, y: 0, z: 0 }, 500);
+    animator.evaluate();
+    expect(Math.acos(Math.min(1, vec3.dot(face(), before)))).toBeCloseTo(gaze.maxAngle, 9);
+  });
+
   it('the animated mascot waves, breathes, blinks and swings its ears, and seeking matches playback', async () => {
     const { Animator, Scene } = await import('@mascotte/engine');
     const { animatedMascot } = await import('../src/index.ts');
