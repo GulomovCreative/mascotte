@@ -1,4 +1,13 @@
 import {
+  applyConstraint,
+  type Constraint,
+  type ConstraintOf,
+  type ConstraintSpec,
+  createConstraint,
+  rebindConstraint,
+  writtenBy,
+} from '../rig/constraints.ts';
+import {
   copyTarget,
   lookupTarget,
   type Rig,
@@ -33,10 +42,10 @@ import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from 
  * - an override layer moves the pose towards its clips by its weight;
  * - an additive layer adds how far its clips are from their value at time 0, scaled by its
  *   weight (rotations compose). Booleans, enums and `null` colors are not additive.
- * A mask limits a layer to a node and its descendants. Clips, behaviors, masks and springs
- * address nodes by id or by a slot of the animator's rig (see rig.ts). Playing a clip with a
- * fade fades it in over what the layer showed before, even in the middle of another fade.
- * The result is written to the nodes once per frame.
+ * A mask limits a layer to a node and its descendants. Clips, behaviors, masks, constraints
+ * and springs address nodes by id or by a slot of the animator's rig (see rig.ts). Playing a
+ * clip with a fade fades it in over what the layer showed before, even in the middle of
+ * another fade. The result is written to the nodes once per frame.
  *
  * The animator owns every property any of its clips has animated, for its whole lifetime: it
  * writes them every frame, so other code should not set them directly, and properties that no
@@ -45,13 +54,17 @@ import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from 
  * of its nodes was destroyed or the rig's slots changed (`Rig.version`); until then a playing
  * motion keeps the nodes it was compiled for, and nodes it no longer animates return to rest.
  *
- * Springs (see springs.ts) run after the layers: each frame they turn their nodes from the
- * blended pose, parents before children (ordered by the current hierarchy every frame). The
- * animator owns the rotation of a spring's node like an animated property, so the spring's
- * turn does not build up from frame to frame. A spring whose node was destroyed moves to the
- * node its target resolves to now (the one that replaced it under the same id, or the one
- * its slot is bound to), if any, and starts there at rest. Rebinding a slot alone does not
- * move a spring whose node is still there.
+ * Constraints (see rig/constraints.ts) run after the layers, in the order of
+ * `animator.constraints`, and adjust the blended pose: aim, look at, two-bone IK, copy and
+ * limit. The animator owns the properties they write, like animated ones.
+ *
+ * Springs (see springs.ts) run after the layers and constraints: each frame they turn their
+ * nodes from the pose so far, parents before children (ordered by the current hierarchy every
+ * frame). The animator owns the rotation of a spring's node like an animated property, so the
+ * spring's turn does not build up from frame to frame. A spring whose node was destroyed
+ * moves to the node its target resolves to now (the one that replaced it under the same id,
+ * or the one its slot is bound to), if any, and starts there at rest. Rebinding a slot alone
+ * does not move a spring whose node is still there. Constraints move the same way.
  */
 
 /** All layer blend modes. */
@@ -96,6 +109,12 @@ function checkFade(value: number): number {
     throw new RangeError(`Fade must be a finite non-negative number, got ${value}.`);
   }
   return value;
+}
+
+function checkIndex(index: number, last: number): void {
+  if (!(Number.isInteger(index) && index >= 0 && index <= last)) {
+    throw new RangeError(`Constraint index must be an integer from 0 to ${last}, got ${index}.`);
+  }
 }
 
 function checkTime(value: number, what: string): number {
@@ -445,9 +464,13 @@ export class Animator implements TargetScope {
   readonly #layers: AnimationLayer[] = [];
   readonly #compiled = new Map<Motion, CompiledMotion>();
   readonly #springs: Spring[] = [];
+  readonly #constraints: Constraint[] = [];
   /** `Scene.structureVersion` and `Rig.version` when springs last looked for replacements. */
   #rebindStructure = -1;
   #rebindRig = -1;
+  /** The same versions when constraints last looked for replacements. */
+  #constraintStructure = -1;
+  #constraintRig = -1;
   #springsEnabled = true;
   #rest = new Float64Array(0);
   #pose = new Float64Array(0);
@@ -496,7 +519,7 @@ export class Animator implements TargetScope {
       throw new Error(`Spring ${name}: the node already has a spring.`);
     }
     const spring = new Spring(node, options);
-    this.#own(node, name);
+    this.#own(node, `Spring ${name}`);
     this.#springs.push(spring);
     this.#sortSprings();
     return spring;
@@ -511,13 +534,68 @@ export class Animator implements TargetScope {
     if (index >= 0) this.#springs.splice(index, 1);
   }
 
-  /** Makes the rotation of `node` a channel, reading its rest value; `name` names the spring. */
-  #own(node: Node, name: string): void {
-    const rotation = findProperty(node, 'rotation');
-    if (!rotation) throw new Error(`Spring ${name}: the node has no rotation.`);
+  /**
+   * Makes property `name` of `node` a channel, reading its rest value; `owner` names what
+   * needs it in the error for a node without it.
+   */
+  #own(node: Node, owner: string, name = 'rotation'): void {
+    const property = findProperty(node, name);
+    if (!property) throw new Error(`${owner}: the node has no ${name}.`);
     const before = this.#channels.channels.length;
-    this.#channels.channel(node, rotation);
+    this.#channels.channel(node, property);
     this.#grow(before);
+  }
+
+  /** Constraints in evaluation order. */
+  get constraints(): readonly Constraint[] {
+    return this.#constraints;
+  }
+
+  /**
+   * Adds a constraint from `spec` at `index` of the evaluation order (the end by default) and
+   * returns it. Its targets are resolved now (ids or rig slots). Throws a RangeError for an
+   * index out of range, and the errors of `createConstraint` (in rig/constraints.ts) for a
+   * spec that is not valid or does not resolve; then nothing changes. From now on the animator
+   * owns the properties the constraint writes, like a spring's rotation.
+   */
+  addConstraint<S extends ConstraintSpec>(
+    spec: S,
+    index = this.#constraints.length,
+  ): ConstraintOf<S> {
+    checkIndex(index, this.#constraints.length);
+    const constraint = createConstraint(spec, this);
+    this.#ownWritten(constraint);
+    this.#constraints.splice(index, 0, constraint);
+    return constraint as ConstraintOf<S>;
+  }
+
+  /** Owns the properties `constraint` writes, checking them all before owning any. */
+  #ownWritten(constraint: Constraint): void {
+    const written = writtenBy(constraint);
+    const owner = `Constraint ${constraint.kind} ${targetName(constraint.target)}`;
+    for (const { node, property } of written) {
+      if (!findProperty(node, property)) throw new Error(`${owner}: the node has no ${property}.`);
+    }
+    for (const { node, property } of written) this.#own(node, owner, property);
+  }
+
+  /**
+   * Removes `constraint`; whether it was on this animator. From the next frame its nodes show
+   * the pose; the animator still owns their properties.
+   */
+  removeConstraint(constraint: Constraint): boolean {
+    const index = this.#constraints.indexOf(constraint);
+    if (index >= 0) this.#constraints.splice(index, 1);
+    return index >= 0;
+  }
+
+  /** Moves `constraint` to `index` of the evaluation order. Throws for one not on this animator. */
+  moveConstraint(constraint: Constraint, index: number): void {
+    const from = this.#constraints.indexOf(constraint);
+    if (from < 0) throw new Error('The constraint is not on this animator.');
+    checkIndex(index, this.#constraints.length - 1);
+    this.#constraints.splice(from, 1);
+    this.#constraints.splice(index, 0, constraint);
   }
 
   /**
@@ -536,6 +614,23 @@ export class Animator implements TargetScope {
     this.#sortSprings();
   }
 
+  /**
+   * Moves constraints whose nodes are gone to the nodes their targets name now, after a change
+   * of the tree or of the slots (the only times one can appear).
+   */
+  #prepareConstraints(): void {
+    const structure = this.scene.structureVersion;
+    const rig = rigVersionOf(this.rig);
+    if (structure === this.#constraintStructure && rig === this.#constraintRig) return;
+    this.#constraintStructure = structure;
+    this.#constraintRig = rig;
+    const constraints = this.#constraints;
+    for (let i = 0; i < constraints.length; i++) {
+      const constraint = constraints[i] as Constraint;
+      if (rebindConstraint(constraint, this)) this.#ownWritten(constraint);
+    }
+  }
+
   #rebindSprings(): void {
     const springs = this.#springs;
     for (let i = 0; i < springs.length; i++) {
@@ -544,7 +639,7 @@ export class Animator implements TargetScope {
       const node = resolveTarget(spring.target, this);
       if (!node || !findProperty(node, 'rotation')) continue;
       if (springs.some((other) => other.node === node)) continue;
-      this.#own(node, targetName(spring.target));
+      this.#own(node, `Spring ${targetName(spring.target)}`);
       bindSpring(spring, node);
     }
   }
@@ -594,7 +689,9 @@ export class Animator implements TargetScope {
     checkTime(dt, 'Animator dt');
     for (const layer of this.#layers) layerInternals.advance(layer, dt);
     if (this.#springsEnabled) this.#prepareSprings();
+    this.#prepareConstraints();
     this.#writePose();
+    this.#applyConstraints();
     if (!this.#springsEnabled) return;
     for (const spring of this.#springs) {
       stepSpring(spring, dt);
@@ -610,9 +707,16 @@ export class Animator implements TargetScope {
    */
   evaluate(): void {
     if (this.#springsEnabled) this.#prepareSprings();
+    this.#prepareConstraints();
     this.#writePose();
+    this.#applyConstraints();
     if (!this.#springsEnabled) return;
     for (const spring of this.#springs) applySpring(spring);
+  }
+
+  #applyConstraints(): void {
+    const constraints = this.#constraints;
+    for (let i = 0; i < constraints.length; i++) applyConstraint(constraints[i] as Constraint);
   }
 
   #writePose(): void {

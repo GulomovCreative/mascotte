@@ -69,6 +69,7 @@ describe('internal access is closed', () => {
         'bindClip',
         'clipTime',
         'Rig',
+        'CONSTRAINT_KINDS',
         'SLOT_NAME_PATTERN',
         'segmentAt',
         'LOOP_MODES',

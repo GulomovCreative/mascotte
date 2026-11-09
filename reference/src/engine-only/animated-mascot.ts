@@ -1,4 +1,5 @@
 import {
+  type AimConstraint,
   type Animator,
   type BehaviorSet,
   Camera,
@@ -13,12 +14,14 @@ import { euler, quat } from '@mascotte/math';
 /*
  * The example mascot: it waves (a clip), breathes and sways (additive behaviors), blinks at
  * random (behaviors on a layer masked to the head), now and then tilts its head, and its ears
- * swing after the head on springs. The layers depend only on time, so with springs off,
- * setting the layer times gives the same frame as playing up to them.
+ * swing after the head on springs. Its head can follow a point (the pointer, in the
+ * playground) through an `aim` constraint. The layers depend only on time and constraints
+ * keep no state, so with springs off and the same gaze point and weight, setting the layer
+ * times gives the same frame as playing up to them.
  *
  * Its skeleton (the root, body, head, shoulders and ears) is marked as bones, and its rig
- * binds slots to its nodes; every clip, behavior, mask and spring addresses slots, not node
- * ids.
+ * binds slots to its nodes; every clip, behavior, mask, constraint and spring addresses
+ * slots, not node ids.
  */
 
 function rotation(x: number, y: number, z: number) {
@@ -254,14 +257,23 @@ const blink: BehaviorSet = {
 };
 
 /**
- * Sets up the mascot's layers and springs on `animator`, whose scene holds a mascot from
- * `build` and whose rig is that mascot's rig.
+ * Sets up the mascot's layers, constraints and springs on `animator`, whose scene holds a
+ * mascot from `build` and whose rig is that mascot's rig. Returns the `gaze`: an aim of the
+ * head at `gaze.point`, off (weight 0, no point) until the page sets its point and raises its
+ * weight.
  */
-function animate(animator: Animator): void {
+function animate(animator: Animator): { gaze: AimConstraint } {
   animator.addLayer({ name: 'body' }).play(waveClip);
   animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
   animator.addLayer({ name: 'tilt', mode: 'additive' }).play(tilt);
   animator.addLayer({ name: 'face', mask: { slot: 'head' } }).play(blink);
+  // The head turns its face (z) towards the gaze point, at most about 30°.
+  const gaze = animator.addConstraint({
+    kind: 'aim',
+    target: { slot: 'head' },
+    maxAngle: 0.55,
+    weight: 0,
+  });
   for (const side of [-1, 1]) {
     animator.addSpring({
       target: { slot: side < 0 ? 'ear.L' : 'ear.R' },
@@ -271,9 +283,10 @@ function animate(animator: Animator): void {
       maxAngle: 0.6,
     });
   }
+  return { gaze };
 }
 
-/** The animated mascot: builds the scene and sets up its layers and springs. */
+/** The animated mascot: builds the scene and sets up its layers, gaze constraint and springs. */
 export const animatedMascot = {
   id: 'engine-animated-mascot',
   title: 'Mascot: waves, breathes, blinks, swings its ears',

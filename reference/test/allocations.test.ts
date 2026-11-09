@@ -297,4 +297,48 @@ describe('allocations in the frame loop', () => {
     // for a replacement every frame builds no error messages, which took about 100 more.
     expect(bytes, `${Math.round(bytes)} bytes for 20 orphaned springs`).toBeLessThan(20 * 140);
   }, 60_000);
+
+  it('constraints: aim, lookAt, two-bone IK, copy and limit', async () => {
+    const world = new Scene();
+    const head = new Node({ id: 'head' });
+    const twin = new Node({ id: 'twin' });
+    const upper = new Node({ id: 'upper', position: { x: 0, y: -10, z: 0 } });
+    const lower = new Node({ id: 'lower', position: { x: 0, y: 10, z: 0 } });
+    upper.add(lower);
+    world.root.add(head);
+    world.root.add(twin);
+    world.root.add(upper);
+    const animator = new Animator(world);
+    const aim = animator.addConstraint({
+      kind: 'aim',
+      target: 'head',
+      point: { x: 1, y: 0, z: 5 },
+    });
+    animator.addConstraint({ kind: 'limitRotation', target: 'head', max: { y: 0.3 } });
+    animator.addConstraint({ kind: 'lookAt', target: 'twin', point: { x: -3, y: 2, z: 5 } });
+    const ik = animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip: { x: 0, y: 8, z: 0 },
+      point: { x: 9, y: 0, z: 4 },
+    });
+    animator.addConstraint({ kind: 'copyTransform', target: 'twin', from: 'head', scale: false });
+    const goal = { x: 0, y: 0, z: 5 };
+    let time = 0;
+    const bytes = await allocatedBytesPerCall(
+      () => {
+        time += 1 / 60;
+        goal.x = Math.sin(time) * 5;
+        aim.point = goal;
+        ik.point = goal;
+        animator.update(1 / 60);
+      },
+      { warmup: 3000, runs: 300 },
+    );
+    // About 1300 bytes: an update with one owned rotation and no constraint at work already
+    // takes about 300 (boxed numbers at polymorphic calls when channels are written), and each
+    // constraint adds its written channels and a few boxed numbers more, 50 to 200 bytes.
+    expect(bytes, `${Math.round(bytes)} bytes for 5 constraints`).toBeLessThan(2000);
+  }, 60_000);
 });

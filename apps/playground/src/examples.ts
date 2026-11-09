@@ -474,7 +474,8 @@ function clipExampleGL(): Example {
 }
 
 /**
- * The animated mascot on animation layers. Every frame plays the layers and springs on by the
+ * The animated mascot on animation layers; its head follows the pointer over the canvas (the
+ * gaze eases in and out). Every frame plays the layers, the gaze and springs on by the
  * step of the example's time. The first frame, or a step back or longer than `SPRING_MAX_DT`,
  * seeks instead, with the springs at rest; while the animation is paused the step is 0 and
  * the springs hold still.
@@ -489,11 +490,51 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const { root, camera, rig } = scene.build();
       const world = new Scene(root);
       const animator = new Animator(world, { rig });
-      scene.animate(animator);
+      const { gaze } = scene.animate(animator);
+      const head = rig.node('head');
+      // The pointer over the canvas in frame units from the center, or null elsewhere.
+      let pointer: { x: number; y: number } | null = null;
+      const center = { x: 0, y: 0, z: 0 };
+      const view = { x: 0, y: 0, z: 0 };
+      const target = { x: 0, y: 0, z: 0 };
+      const looked = { x: 0, y: 0, z: 0 };
+      const follow = (dt: number) => {
+        // Ease towards the pointer, or back to the pose (time constant 1/6 s); a seek snaps.
+        const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
+        gaze.weight += ((pointer ? 1 : 0) - gaze.weight) * ease;
+        if (!pointer || !head) return;
+        // The point under the pointer, 120 units in front of the head.
+        camera.toView(view, head.localToWorld(center, head.pivot));
+        if (!camera.unproject(target, pointer.x, pointer.y, view.z + 120)) return;
+        const k = gaze.point ? ease : 1;
+        looked.x += (target.x - looked.x) * k;
+        looked.y += (target.y - looked.y) * k;
+        looked.z += (target.z - looked.z) * k;
+        gaze.point = looked;
+      };
+      const move = (event: PointerEvent) => {
+        const canvas = event.target;
+        if (!(canvas instanceof HTMLCanvasElement && canvas.clientWidth > 0)) {
+          pointer = null;
+          return;
+        }
+        // The canvas may be shrunk in width: convert to frame units.
+        const unit = scene.width / canvas.clientWidth;
+        pointer = {
+          x: event.offsetX * unit - scene.width / 2,
+          y: event.offsetY * unit - scene.height / 2,
+        };
+      };
+      const leave = () => {
+        pointer = null;
+      };
+      container.addEventListener('pointermove', move);
+      container.addEventListener('pointerleave', leave);
       let last = Number.NaN;
       const pose = (time: number) => {
         const dt = time - last;
         last = time;
+        follow(dt);
         if (dt >= 0 && dt <= SPRING_MAX_DT) {
           animator.update(dt);
           return;
@@ -508,8 +549,9 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         pixelRatio,
         background: scene.background,
       });
+      let unmount: () => void;
       if (backend === 'gl') {
-        return mountGL(
+        unmount = mountGL(
           container,
           controls,
           scene,
@@ -519,12 +561,18 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
           },
           { scene: world, camera },
         );
+      } else {
+        const renderer = new CanvasRenderer();
+        unmount = mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
+          pose(time);
+          renderer.render(ctx, world, camera, options(pixelRatio));
+        });
       }
-      const renderer = new CanvasRenderer();
-      return mountCanvas(container, controls, scene, (ctx, pixelRatio, time) => {
-        pose(time);
-        renderer.render(ctx, world, camera, options(pixelRatio));
-      });
+      return () => {
+        container.removeEventListener('pointermove', move);
+        container.removeEventListener('pointerleave', leave);
+        unmount();
+      };
     },
   };
 }
