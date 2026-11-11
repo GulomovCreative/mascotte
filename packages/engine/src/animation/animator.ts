@@ -64,7 +64,9 @@ import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from 
  * spring's turn does not build up from frame to frame. A spring whose node was destroyed
  * moves to the node its target resolves to now (the one that replaced it under the same id,
  * or the one its slot is bound to), if any, and starts there at rest. Rebinding a slot alone
- * does not move a spring whose node is still there. Constraints move the same way.
+ * does not move a spring whose node is still there. Constraints move the same way when any
+ * of their nodes is gone or their nodes no longer hold together (they keep no state, so there
+ * is nothing to reset).
  */
 
 /** All layer blend modes. */
@@ -113,7 +115,9 @@ function checkFade(value: number): number {
 
 function checkIndex(index: number, last: number): void {
   if (!(Number.isInteger(index) && index >= 0 && index <= last)) {
-    throw new RangeError(`Constraint index must be an integer from 0 to ${last}, got ${index}.`);
+    throw new RangeError(
+      `Constraint index must be an integer from 0 to ${last}, got ${String(index)}.`,
+    );
   }
 }
 
@@ -508,8 +512,9 @@ export class Animator implements TargetScope {
    * Adds a spring on the node `options.target` (an id or a rig slot, resolved now). Throws for
    * a target that does not resolve to a node, for a node that already has a spring and for
    * invalid parameters (RangeError). From now on the animator writes the node's rotation every
-   * frame, so other code should not set it: the spring turns the node from its blended pose,
-   * which is the rotation the node had when the spring was added unless a clip animates it.
+   * frame, so other code should not set it: the spring turns the node from the pose after the
+   * layers and constraints, which is the rotation the node had when the spring was added
+   * unless a clip or a constraint changes it.
    */
   addSpring(options: SpringOptions): Spring {
     const name = targetName(options.target);
@@ -526,12 +531,13 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Removes `spring` (nothing happens for a spring not on this animator). From the next frame
-   * its node shows the plain pose; the animator still owns the node's rotation.
+   * Removes `spring`; whether it was on this animator. From the next frame its node shows the
+   * plain pose; the animator still owns the node's rotation.
    */
-  removeSpring(spring: Spring): void {
+  removeSpring(spring: Spring): boolean {
     const index = this.#springs.indexOf(spring);
     if (index >= 0) this.#springs.splice(index, 1);
+    return index >= 0;
   }
 
   /**
@@ -554,9 +560,10 @@ export class Animator implements TargetScope {
   /**
    * Adds a constraint from `spec` at `index` of the evaluation order (the end by default) and
    * returns it. Its targets are resolved now (ids or rig slots). Throws a RangeError for an
-   * index out of range, and the errors of `createConstraint` (in rig/constraints.ts) for a
-   * spec that is not valid or does not resolve; then nothing changes. From now on the animator
-   * owns the properties the constraint writes, like a spring's rotation.
+   * index out of range, the errors of `createConstraint` (in rig/constraints.ts) for a spec
+   * that is not valid or does not resolve, and an Error for a node without a property the
+   * constraint writes; then nothing changes. From now on the animator owns the properties the
+   * constraint writes, like a spring's rotation.
    */
   addConstraint<S extends ConstraintSpec>(
     spec: S,
@@ -569,7 +576,10 @@ export class Animator implements TargetScope {
     return constraint as ConstraintOf<S>;
   }
 
-  /** Owns the properties `constraint` writes, checking them all before owning any. */
+  /**
+   * Owns the properties `constraint` writes, checking them all before owning any. Every node
+   * has position, rotation and scale, so after a rebind (mid-frame) this cannot throw.
+   */
   #ownWritten(constraint: Constraint): void {
     const written = writtenBy(constraint);
     const owner = `Constraint ${constraint.kind} ${targetName(constraint.target)}`;
@@ -589,7 +599,24 @@ export class Animator implements TargetScope {
     return index >= 0;
   }
 
-  /** Moves `constraint` to `index` of the evaluation order. Throws for one not on this animator. */
+  /**
+   * Replaces `constraint` with a new one made from `spec`, at the same place in the order, and
+   * returns it: how an edited spec takes effect. Throws like `addConstraint`, and for a
+   * constraint not on this animator; then nothing changes.
+   */
+  replaceConstraint<S extends ConstraintSpec>(constraint: Constraint, spec: S): ConstraintOf<S> {
+    const index = this.#constraints.indexOf(constraint);
+    if (index < 0) throw new Error('The constraint is not on this animator.');
+    const replacement = createConstraint(spec, this);
+    this.#ownWritten(replacement);
+    this.#constraints[index] = replacement;
+    return replacement as ConstraintOf<S>;
+  }
+
+  /**
+   * Moves `constraint` to `index` of the evaluation order. Throws an Error for one not on this
+   * animator and a RangeError for an index out of range.
+   */
   moveConstraint(constraint: Constraint, index: number): void {
     const from = this.#constraints.indexOf(constraint);
     if (from < 0) throw new Error('The constraint is not on this animator.');
@@ -615,8 +642,9 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Moves constraints whose nodes are gone to the nodes their targets name now, after a change
-   * of the tree or of the slots (the only times one can appear).
+   * Moves constraints whose nodes are gone or no longer hold together to the nodes their
+   * targets name now, after a change of the tree or of the slots (the only times one can
+   * appear).
    */
   #prepareConstraints(): void {
     const structure = this.scene.structureVersion;
@@ -682,8 +710,8 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Advances every layer by `dt` seconds, writes the blended pose to the nodes and simulates
-   * the springs for `dt` from it.
+   * Advances every layer by `dt` seconds, writes the blended pose to the nodes, applies the
+   * constraints and simulates the springs for `dt` from the result.
    */
   update(dt: number): void {
     checkTime(dt, 'Animator dt');
@@ -700,10 +728,11 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Writes the blended pose for the layers' current times without advancing them, with the
-   * springs in their current state (after `resetSprings`, the plain pose). Outside fades and
-   * with springs off, setting layer times and evaluating gives the same frame as playing up
-   * to them; fade progress and spring motion are not seekable.
+   * Writes the blended pose for the layers' current times without advancing them, applies the
+   * constraints, and shows the springs in their current state (after `resetSprings`, the plain
+   * pose). Outside fades, with springs off and the same constraint settings (`point`,
+   * `weight`, `enabled`), setting layer times and evaluating gives the same frame as playing
+   * up to them; fade progress and spring motion are not seekable.
    */
   evaluate(): void {
     if (this.#springsEnabled) this.#prepareSprings();

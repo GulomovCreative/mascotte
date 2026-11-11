@@ -475,10 +475,10 @@ function clipExampleGL(): Example {
 
 /**
  * The animated mascot on animation layers; its head follows the pointer over the canvas (the
- * gaze eases in and out). Every frame plays the layers, the gaze and springs on by the
- * step of the example's time. The first frame, or a step back or longer than `SPRING_MAX_DT`,
- * seeks instead, with the springs at rest; while the animation is paused the step is 0 and
- * the springs hold still.
+ * gaze eases in and out; over other elements it lets go). Every frame advances the layers, the
+ * gaze and the springs by the step of the example's time. The first frame, or a step back or
+ * longer than `SPRING_MAX_DT`, seeks instead, with the springs at rest; while the animation is
+ * paused the step is 0 and the springs hold still.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
@@ -492,6 +492,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const animator = new Animator(world, { rig });
       const { gaze } = scene.animate(animator);
       const head = rig.node('head');
+      if (!head) throw new Error('The animated mascot has no node in its head slot.');
       // The pointer over the canvas in frame units from the center, or null elsewhere.
       let pointer: { x: number; y: number } | null = null;
       const center = { x: 0, y: 0, z: 0 };
@@ -501,8 +502,9 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const follow = (dt: number) => {
         // Ease towards the pointer, or back to the pose (time constant 1/6 s); a seek snaps.
         const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
-        gaze.weight += ((pointer ? 1 : 0) - gaze.weight) * ease;
-        if (!pointer || !head) return;
+        const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
+        gaze.weight = Math.min(1, Math.max(0, weight));
+        if (!pointer) return;
         // The point under the pointer, 120 units in front of the head.
         camera.toView(view, head.localToWorld(center, head.pivot));
         if (!camera.unproject(target, pointer.x, pointer.y, view.z + 120)) return;

@@ -209,9 +209,11 @@ export class Camera extends Node {
    * The world point that projects to frame point (`x`, `y`) at camera-space depth `depth`: the
    * inverse of `project` for a point that is its own reference. `x` and `y` are in the units
    * of `ProjectedPoint` (relative to the frame center, y down, before devicePixelRatio).
-   * Returns `null` and leaves `out` untouched when that depth is not visible.
+   * A larger depth is closer to the viewer, as in `ProjectedPoint.depth`. Returns `null` and
+   * leaves `out` untouched when that depth is not visible or an argument is not finite.
    */
   unproject(out: Vec3, x: number, y: number, depth: number): Vec3 | null {
+    if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(depth))) return null;
     if (!this.isInFront(depth)) return null;
     const scale = this.scaleAt(depth);
     viewScratch.x = x / scale;
