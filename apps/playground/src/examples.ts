@@ -478,10 +478,11 @@ function clipExampleGL(): Example {
  * gaze eases in and out; over other elements it lets go), it smiles wider while the pointer is
  * over the canvas (the `mood` input follows the gaze weight) and a click on the canvas pokes
  * it (the `poke` trigger: it hops and gasps; not while the animation is paused, when the
- * machines could switch states but not play them). Every frame advances the layers, the machines, the gaze and the springs by
- * the step of the example's time. The first frame, or a step back or longer than
- * `SPRING_MAX_DT`, seeks instead: the machines start again from their initial states and the
- * springs rest; while the animation is paused the step is 0 and the springs hold still.
+ * machines could switch states but not play them). Every frame advances the layers, the
+ * machines, the gaze and the springs by the step of the example's time. The first frame, or a
+ * step back or longer than `SPRING_MAX_DT`, seeks instead: the machines start again from their
+ * initial states and the springs rest; while the animation is paused the step is 0 and the
+ * springs hold still.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
