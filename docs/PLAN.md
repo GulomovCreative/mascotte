@@ -217,10 +217,11 @@ A behavior is data: it moves one property of one node between two values, `from`
 
 ### 5.12. State machine
 
-- **Inputs:** `bool`, `number`, `trigger`. They are set by pointer events or by page code (`player.setInput('happy', true)`).
-- **States:** a clip or a blend of clips by a numeric input (blend 1D).
-- **Transitions:** conditions on inputs, blend duration, waiting for the clip to end.
-- Several machines can run in parallel on different layers (body, face).
+- **Inputs:** `bool`, `number`, `trigger`. They are set by pointer events or by page code (`player.setInput('happy', true)`). An animator has one set of inputs (`animator.inputs`: `define`, `set`, `fire`, `get`) that all its machines and blends read, so one input drives the body and the face at once. Machines declare the inputs they use; declaring an existing one with the same type keeps its value, another type is an error. A trigger is fired, not set: it holds for the next `update` only, so every machine sees it in that frame, and it is cleared afterwards whether a transition used it or not.
+- **States:** a motion (a clip or a behavior set), a blend of motions by a number input (blend 1D), or nothing (the layer stops). A blend (`{ input, blend: [{ at, motion }] }`) is a kind of motion, so any layer can play one: between two points the neighbors mix linearly (like crossfades: slerp, OKLab, stepped values half way), outside the points the end motion holds, all motions play at the layer time with their own loop modes, and a motion that does not animate a channel the blend animates gives it its rest value, so the blend changes continuously as the input moves.
+- **Transitions:** from a state or from any state (`'*'`) to another, when all their conditions on inputs hold (a trigger fired; a bool `==` or `!=` a value; a number compared with `== != < <= > >=`), fading the new motion in over `duration` seconds. `exitTime` waits for the leaving state's clip: a clip played once can leave at that point or any time after; a looping or ping-pong one only as it passes that point of a cycle, and the new state starts as far into its motion as the clip went past it. A transition needs a condition or an exit time. Transitions from any state are checked first and never fire into the current state; at most one transition fires per update.
+- Several machines can run in parallel on different layers (body, face), one per layer. A machine is made from data (`{ name, layer, inputs, states, initial, transitions }`, the plain data the document will save; unknown options and values of the wrong type are rejected with an error naming the machine and the part) by `animator.addStateMachine(spec)`, which compiles the motions of all its states (so a target that does not resolve fails there) and enters the initial state at once. Machines step in `update` after the layers advance and before constraints and springs. They keep state, so they are not seekable, like springs: `reset()` starts one again, and `setState(name, { fade })` jumps to a state whatever the conditions. `toSpec()` gives the spec it was made from.
+- The playground mascot has two machines: the body waves and hops on a `poke` (a click), going back to waving once the hop has landed (an exit time); the face smiles wider with `mood` (a blend: the pointer over the mascot raises it) and gasps on the same `poke`.
 
 ## 6. How different mascots are made
 
@@ -319,7 +320,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 
 - [x] Bones and rig slots ([#22](https://github.com/GulomovCreative/mascotte/issues/22))
 - [x] Rig constraints ([#23](https://github.com/GulomovCreative/mascotte/issues/23))
-- [ ] State machine and inputs ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
+- [x] State machine and inputs ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
 - [ ] Pointer events and mouse rotation ([#25](https://github.com/GulomovCreative/mascotte/issues/25))
 
 **Done when** the mascot follows the cursor, reacts to hover and click, and switches emotions.

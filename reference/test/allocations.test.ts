@@ -341,4 +341,70 @@ describe('allocations in the frame loop', () => {
     // constraint adds its written channels and a few boxed numbers more, 50 to 200 bytes.
     expect(bytes, `${Math.round(bytes)} bytes for 5 constraints`).toBeLessThan(2000);
   }, 60_000);
+
+  it('state machines with a blend, stepping and changing states', async () => {
+    const world = new Scene();
+    for (let i = 0; i < 4; i++) world.root.add(new Node({ id: `n${i}` }));
+    const animator = new Animator(world);
+    animator.addLayer({ name: 'body' });
+    animator.addLayer({ name: 'face' });
+    const hold = (id: string, x: number, duration: number): Clip => ({
+      duration,
+      loop: 'loop',
+      tracks: [
+        {
+          target: id,
+          property: 'position',
+          keys: [
+            { time: 0, value: { x: 0, y: 0, z: 0 } },
+            { time: duration, value: { x, y: 0, z: 0 } },
+          ],
+        },
+      ],
+    });
+    animator.addStateMachine({
+      layer: 'body',
+      inputs: [{ name: 'poke', type: 'trigger' }],
+      states: [
+        { name: 'a', motion: hold('n0', 5, 1) },
+        { name: 'b', motion: hold('n1', 5, 0.5) },
+      ],
+      transitions: [
+        { from: 'a', to: 'b', conditions: [{ input: 'poke' }], duration: 0.2 },
+        { from: 'b', to: 'a', exitTime: 1, duration: 0.2 },
+      ],
+    });
+    animator.addStateMachine({
+      layer: 'face',
+      inputs: [
+        { name: 'mood', type: 'number' },
+        { name: 'level', type: 'number' },
+      ],
+      states: [
+        {
+          name: 'calm',
+          motion: {
+            input: 'mood',
+            blend: [
+              { at: 0, motion: hold('n2', 1, 1) },
+              { at: 1, motion: hold('n3', 2, 1) },
+            ],
+          },
+        },
+      ],
+    });
+    let frame = 0;
+    const bytes = await allocatedBytesPerCall(
+      () => {
+        frame++;
+        animator.inputs.set('mood', (frame % 100) / 100);
+        if (frame % 90 === 0) animator.inputs.fire('poke');
+        animator.update(1 / 60);
+      },
+      { warmup: 3000, runs: 300 },
+    );
+    // Writing the four position channels (boxed numbers) and, now and then, a transition that
+    // pushes a fade entry and a playing state with its buffers.
+    expect(bytes, `${Math.round(bytes)} bytes for 2 machines`).toBeLessThan(1500);
+  }, 60_000);
 });
