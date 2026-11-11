@@ -19,6 +19,10 @@ export {
   type Noise,
   type Oscillate,
 } from './animation/behaviors.ts';
+export type {
+  Blend1D,
+  BlendPoint,
+} from './animation/blend.ts';
 export {
   type BindOptions,
   bindClip,
@@ -31,6 +35,13 @@ export {
   segmentAt,
   type Track,
 } from './animation/clip.ts';
+export {
+  INPUT_NAME_PATTERN,
+  INPUT_TYPES,
+  type InputSpec,
+  Inputs,
+  type InputType,
+} from './animation/inputs.ts';
 export {
   type BoolProperty,
   type ColorProperty,
@@ -51,6 +62,16 @@ export {
   type Spring,
   type SpringOptions,
 } from './animation/springs.ts';
+export {
+  ANY_STATE,
+  CONDITION_OPS,
+  type ConditionOp,
+  type ConditionSpec,
+  type StateMachine,
+  type StateMachineSpec,
+  type StateSpec,
+  type TransitionSpec,
+} from './animation/state-machine.ts';
 export {
   defaultScheduler,
   type FrameScheduler,

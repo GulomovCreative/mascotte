@@ -8,6 +8,8 @@ import {
   PathShape,
   Rig,
   Sphere,
+  type StateMachine,
+  type StateMachineSpec,
 } from '@mascotte/engine';
 import { euler, quat } from '@mascotte/math';
 
@@ -15,9 +17,11 @@ import { euler, quat } from '@mascotte/math';
  * The example mascot: it waves (a clip), breathes and sways (additive behaviors), blinks at
  * random (behaviors on a layer masked to the head), now and then tilts its head, and its ears
  * swing after the head on springs. Its head can follow a point (the pointer, in the
- * playground) through an `aim` constraint. The layers depend only on time and constraints
- * keep no state, so with springs off and the same gaze point and weight, setting the layer
- * times gives the same frame as playing up to them.
+ * playground) through an `aim` constraint. Two state machines read its inputs: its smile
+ * widens with `mood`, and a `poke` makes it hop and gasp. The layers depend only on time and
+ * constraints keep no state, so with springs off, the machines in their initial states and the
+ * same gaze point, weight and mood, setting the layer times gives the same frame as playing up
+ * to them.
  *
  * Its skeleton (the root, body, head, shoulders and ears) is marked as bones, and its rig
  * binds slots to its nodes; every clip, behavior, mask, constraint and spring addresses
@@ -49,7 +53,7 @@ function earTip(side: number) {
 /**
  * Builds the mascot: `head` with `eyes`, closed `lids` and ears `ear-left` and `ear-right`,
  * `body`, and arms on `shoulder-left` and `shoulder-right`; and its rig with the slots
- * `root`, `body`, `head`, `eyes`, `lids`, `ear.L`, `ear.R`, `arm.L` and `arm.R`.
+ * `root`, `body`, `head`, `eyes`, `lids`, `mouth`, `ear.L`, `ear.R`, `arm.L` and `arm.R`.
  */
 function build(): { root: Node; camera: Camera; rig: Rig } {
   const root = new Node({
@@ -112,16 +116,21 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   }
   head.add(eyes);
   head.add(lids);
-  const mouth = [];
+  // The smile on its own node at its middle, so scaling it widens, deepens or turns it over.
+  const middle = onSphere(0, 14.5, radius, radius + 2.5);
+  const mouth = new Node({ id: 'mouth', position: middle });
+  const smile = [];
   for (let i = 0; i <= 8; i++) {
     const x = -9 + (18 * i) / 8;
     const y = 12 + (1 - (x / 9) ** 2) * 5;
-    mouth.push({
+    const point = onSphere(x, y, radius, radius + 2.5);
+    smile.push({
       type: i === 0 ? ('move' as const) : ('line' as const),
-      point: onSphere(x, y, radius, radius + 2.5),
+      point: { x: point.x - middle.x, y: point.y - middle.y, z: point.z - middle.z },
     });
   }
-  head.add(new PathShape({ path: mouth, closed: false, style: { stroke: 4, color: '#8a3b12' } }));
+  mouth.add(new PathShape({ path: smile, closed: false, style: { stroke: 4, color: '#8a3b12' } }));
+  head.add(mouth);
   root.add(head);
   const body = new Sphere({
     id: 'body',
@@ -156,6 +165,7 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
     head: 'head',
     eyes: 'eyes',
     lids: 'lids',
+    mouth: 'mouth',
     'ear.L': 'ear-left',
     'ear.R': 'ear-right',
     'arm.L': 'shoulder-left',
@@ -228,6 +238,97 @@ const tilt: BehaviorSet = {
   ],
 };
 
+/** A hop: the whole mascot jumps up and lands. */
+const hopClip: Clip = {
+  duration: 0.5,
+  loop: 'once',
+  tracks: [
+    {
+      target: { slot: 'root' },
+      property: 'position',
+      keys: [
+        { time: 0, value: { x: 0, y: -22, z: 0 }, easing: 'quadOut' },
+        { time: 0.25, value: { x: 0, y: -36, z: 0 }, easing: 'quadIn' },
+        { time: 0.5, value: { x: 0, y: -22, z: 0 } },
+      ],
+    },
+  ],
+};
+
+/** The mouth scaled by `x` (width) and `y` (depth of the smile), held. */
+function mouthShape(x: number, y: number): Clip {
+  return {
+    duration: 0,
+    loop: 'once',
+    tracks: [
+      { target: { slot: 'mouth' }, property: 'scale', keys: [{ time: 0, value: { x, y, z: 1 } }] },
+    ],
+  };
+}
+
+/** A gasp: the mouth turns into a small, round-down "oh" for a moment. */
+const gaspClip: Clip = {
+  duration: 0.8,
+  loop: 'once',
+  tracks: [
+    {
+      target: { slot: 'mouth' },
+      property: 'scale',
+      keys: [
+        { time: 0, value: { x: 0.6, y: -1.4, z: 1 } },
+        { time: 0.5, value: { x: 0.6, y: -1.4, z: 1 } },
+      ],
+    },
+  ],
+};
+
+/**
+ * The body: it waves, and a `poke` makes it hop, then wave again once the hop has landed.
+ */
+const bodyMachine: StateMachineSpec = {
+  name: 'body',
+  layer: 'body',
+  inputs: [{ name: 'poke', type: 'trigger' }],
+  states: [
+    { name: 'wave', motion: waveClip },
+    { name: 'hop', motion: hopClip },
+  ],
+  transitions: [
+    { from: 'wave', to: 'hop', conditions: [{ input: 'poke' }], duration: 0.1 },
+    { from: 'hop', to: 'wave', exitTime: 1, duration: 0.3 },
+  ],
+};
+
+/**
+ * The face: its smile widens with the `mood` input (0 calm, 1 happy), and a `poke` makes it
+ * gasp, then calm down again.
+ */
+const faceMachine: StateMachineSpec = {
+  name: 'face',
+  layer: 'mood',
+  inputs: [
+    { name: 'mood', type: 'number' },
+    { name: 'poke', type: 'trigger' },
+  ],
+  states: [
+    {
+      name: 'calm',
+      motion: {
+        input: 'mood',
+        blend: [
+          { at: 0, motion: mouthShape(1, 1) },
+          { at: 1, motion: mouthShape(1.3, 1.7) },
+        ],
+      },
+    },
+    { name: 'gasp', motion: gaspClip },
+  ],
+  transitions: [
+    { from: 'calm', to: 'gasp', conditions: [{ input: 'poke' }], duration: 0.08 },
+    { from: 'gasp', to: 'calm', exitTime: 1, duration: 0.25 },
+  ],
+};
+
 /** Blinking: the eyes hide and the closed lids show for a moment. */
 const blink: BehaviorSet = {
   behaviors: [
@@ -257,16 +358,24 @@ const blink: BehaviorSet = {
 };
 
 /**
- * Sets up the mascot's layers, constraints and springs on `animator`, whose scene holds a
- * mascot from `build` and whose rig is that mascot's rig. Returns the `gaze`: an aim of the
- * head at `gaze.point`, off (weight 0, no point) until the page sets its point and raises its
- * weight.
+ * Sets up the mascot's layers, state machines, constraints and springs on `animator`, whose
+ * scene holds a mascot from `build` and whose rig is that mascot's rig. Returns the `gaze`: an
+ * aim of the head at `gaze.point`, off (weight 0, no point) until the page sets its point and
+ * raises its weight; and the `body` and `face` machines, which the inputs `mood` (a number
+ * from 0 to 1) and `poke` (a trigger) on `animator.inputs` drive.
  */
-function animate(animator: Animator): { gaze: AimConstraint } {
-  animator.addLayer({ name: 'body' }).play(waveClip);
+function animate(animator: Animator): {
+  gaze: AimConstraint;
+  body: StateMachine;
+  face: StateMachine;
+} {
+  animator.addLayer({ name: 'body' });
   animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
   animator.addLayer({ name: 'tilt', mode: 'additive' }).play(tilt);
   animator.addLayer({ name: 'face', mask: { slot: 'head' } }).play(blink);
+  animator.addLayer({ name: 'mood', mask: { slot: 'head' } });
+  const body = animator.addStateMachine(bodyMachine);
+  const face = animator.addStateMachine(faceMachine);
   // The head turns its face (z) towards the gaze point, at most about 30°.
   const gaze = animator.addConstraint({
     kind: 'aim',
@@ -283,13 +392,16 @@ function animate(animator: Animator): { gaze: AimConstraint } {
       maxAngle: 0.6,
     });
   }
-  return { gaze };
+  return { gaze, body, face };
 }
 
-/** The animated mascot: builds the scene and sets up its layers, gaze constraint and springs. */
+/**
+ * The animated mascot: builds the scene and sets up its layers, state machines, gaze
+ * constraint and springs.
+ */
 export const animatedMascot = {
   id: 'engine-animated-mascot',
-  title: 'Mascot: waves, breathes, blinks, swings its ears, follows the pointer',
+  title: 'Mascot: waves, blinks, swings its ears, follows the pointer, smiles and hops on a click',
   width: 240,
   height: 280,
   background: '#e8f1f2',

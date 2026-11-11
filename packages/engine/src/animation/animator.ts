@@ -19,17 +19,13 @@ import {
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
 import { type BehaviorSet, compileBehaviors, sampleBehaviors } from './behaviors.ts';
-import {
-  addChannel,
-  type Channel,
-  ChannelSet,
-  mixChannel,
-  type SampledTrack,
-  sampleTracks,
-} from './channels.ts';
+import { type Blend1D, blendSampler, checkBlend, type Sampler } from './blend.ts';
+import { addChannel, type Channel, ChannelSet, mixChannel, sampleTracks } from './channels.ts';
 import { type Clip, clipTime, compileClip } from './clip.ts';
+import { clearTriggers, Inputs } from './inputs.ts';
 import { findProperty } from './properties.ts';
 import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
+import { StateMachine, type StateMachineSpec, stepMachine } from './state-machine.ts';
 
 /*
  * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
@@ -126,17 +122,24 @@ function checkTime(value: number, what: string): number {
   return value;
 }
 
-/** What a layer plays: a keyed clip or a set of procedural behaviors. */
-export type Motion = Clip | BehaviorSet;
+/**
+ * What a layer plays: a keyed clip, a set of procedural behaviors, or a blend of those by a
+ * number input (see blend.ts).
+ */
+export type Motion = Clip | BehaviorSet | Blend1D;
 
 /** A motion compiled against the animator's scene, rig and channels. */
-interface CompiledMotion {
+interface CompiledMotion extends Sampler {
   readonly motion: Motion;
   /** `Rig.version` when compiled, -1 without a rig. */
   readonly rigVersion: number;
-  readonly tracks: readonly SampledTrack[];
-  /** Samples the motion at `time` (seconds, before a clip's loop mode). */
-  sample(time: number, out: Float64Array, touched?: Uint8Array): void;
+}
+
+/** What compiling a blend needs beyond the scene and the rig. */
+interface BlendContext {
+  readonly inputs: Inputs;
+  /** The rest pose, for channels a motion of a blend does not animate. */
+  rest(): Float64Array;
 }
 
 /** `Rig.version` of `rig`, or -1 without a rig. */
@@ -144,8 +147,24 @@ function rigVersionOf(rig: Rig | null): number {
   return rig ? rig.version : -1;
 }
 
-function compileMotion(motion: Motion, scope: TargetScope, channels: ChannelSet): CompiledMotion {
+function compileMotion(
+  motion: Motion,
+  scope: TargetScope,
+  channels: ChannelSet,
+  context: BlendContext,
+): CompiledMotion {
   const rigVersion = rigVersionOf(scope.rig);
+  if ('blend' in motion) {
+    const input = checkBlend(motion, context.inputs);
+    const children = motion.blend.map((point) =>
+      compileMotion(point.motion, scope, channels, context),
+    );
+    return {
+      motion,
+      rigVersion,
+      ...blendSampler(motion.blend, children, input, channels, context.rest),
+    };
+  }
   if ('behaviors' in motion) {
     const compiled = compileBehaviors(motion, scope, channels);
     return {
@@ -469,6 +488,13 @@ export class Animator implements TargetScope {
   readonly #compiled = new Map<Motion, CompiledMotion>();
   readonly #springs: Spring[] = [];
   readonly #constraints: Constraint[] = [];
+  readonly #machines: StateMachine[] = [];
+  /** The inputs that state machines and blends read; triggers hold for one update. */
+  readonly inputs = new Inputs();
+  readonly #blendContext: BlendContext = {
+    inputs: this.inputs,
+    rest: () => this.#rest,
+  };
   /** `Scene.structureVersion` and `Rig.version` when springs last looked for replacements. */
   #rebindStructure = -1;
   #rebindRig = -1;
@@ -501,6 +527,43 @@ export class Animator implements TargetScope {
   /** The first layer named `name`, or `null`. */
   layer(name: string): AnimationLayer | null {
     return this.#layers.find((layer) => layer.name === name) ?? null;
+  }
+
+  /** State machines in the order they were added (the order they step in). */
+  get stateMachines(): readonly StateMachine[] {
+    return this.#machines;
+  }
+
+  /**
+   * Adds a state machine (see state-machine.ts) that drives the layer named `spec.layer`. Its
+   * inputs are declared on `animator.inputs` first, the motions of all its states are compiled
+   * (so a target that does not resolve fails here, naming it), and the machine enters its
+   * initial state at once. Throws when there is no such layer, the layer already has a
+   * machine, or the spec is not valid.
+   */
+  addStateMachine(spec: StateMachineSpec): StateMachine {
+    const name = spec?.layer;
+    const layer = typeof name === 'string' ? this.layer(name) : null;
+    if (!layer) throw new Error(`State machine: no layer ${JSON.stringify(name) ?? String(name)}.`);
+    if (this.#machines.some((machine) => machine.layer === layer)) {
+      throw new Error(`State machine: layer "${layer.name}" already has a machine.`);
+    }
+    for (const input of spec.inputs ?? []) this.inputs.define(input);
+    const machine = new StateMachine(spec, layer, this.inputs, (motion) => {
+      this.#compile(motion);
+    });
+    this.#machines.push(machine);
+    return machine;
+  }
+
+  /**
+   * Removes `machine`; its layer keeps playing what it plays. Returns whether it was on this
+   * animator.
+   */
+  removeStateMachine(machine: StateMachine): boolean {
+    const index = this.#machines.indexOf(machine);
+    if (index >= 0) this.#machines.splice(index, 1);
+    return index >= 0;
   }
 
   /** Springs in the order they ran in the last frame: parents before children. */
@@ -716,6 +779,9 @@ export class Animator implements TargetScope {
   update(dt: number): void {
     checkTime(dt, 'Animator dt');
     for (const layer of this.#layers) layerInternals.advance(layer, dt);
+    const machines = this.#machines;
+    for (let i = 0; i < machines.length; i++) stepMachine(machines[i] as StateMachine, dt);
+    clearTriggers(this.inputs);
     if (this.#springsEnabled) this.#prepareSprings();
     this.#prepareConstraints();
     this.#writePose();
@@ -761,22 +827,7 @@ export class Animator implements TargetScope {
    * and gives a new playing state.
    */
   #playingOf(motion: Motion): Playing {
-    let compiled = this.#compiled.get(motion);
-    if (
-      !compiled ||
-      compiled.rigVersion !== rigVersionOf(this.rig) ||
-      compiled.tracks.some((track) => track.channel.node.destroyed)
-    ) {
-      const before = this.#channels.channels.length;
-      try {
-        compiled = compileMotion(motion, this, this.#channels);
-      } finally {
-        // Channels of the tracks compiled before a failing one stay in the set: they need
-        // rest values too.
-        this.#grow(before);
-      }
-      this.#compiled.set(motion, compiled);
-    }
+    const compiled = this.#compile(motion);
     const size = this.#channels.size;
     const playing: Playing = {
       compiled,
@@ -787,6 +838,30 @@ export class Animator implements TargetScope {
     };
     compiled.sample(0, playing.reference);
     return playing;
+  }
+
+  /**
+   * `motion` compiled against the scene, the rig and the channels; compiled again if a node
+   * of it was destroyed or the rig's slots changed since.
+   */
+  #compile(motion: Motion): CompiledMotion {
+    let compiled = this.#compiled.get(motion);
+    if (
+      !compiled ||
+      compiled.rigVersion !== rigVersionOf(this.rig) ||
+      compiled.tracks.some((track) => track.channel.node.destroyed)
+    ) {
+      const before = this.#channels.channels.length;
+      try {
+        compiled = compileMotion(motion, this, this.#channels, this.#blendContext);
+      } finally {
+        // Channels of the tracks compiled before a failing one stay in the set: they need
+        // rest values too.
+        this.#grow(before);
+      }
+      this.#compiled.set(motion, compiled);
+    }
+    return compiled;
   }
 
   /** Grows buffers for channels added from index `from`, reading their rest values. */

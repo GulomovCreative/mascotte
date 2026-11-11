@@ -475,10 +475,12 @@ function clipExampleGL(): Example {
 
 /**
  * The animated mascot on animation layers; its head follows the pointer over the canvas (the
- * gaze eases in and out; over other elements it lets go). Every frame advances the layers, the
- * gaze and the springs by the step of the example's time. The first frame, or a step back or
- * longer than `SPRING_MAX_DT`, seeks instead, with the springs at rest; while the animation is
- * paused the step is 0 and the springs hold still.
+ * gaze eases in and out; over other elements it lets go), it smiles wider while the pointer is
+ * over it (the `mood` input eases the same way) and a click pokes it (the `poke` trigger: it
+ * hops and gasps). Every frame advances the layers, the machines, the gaze and the springs by
+ * the step of the example's time. The first frame, or a step back or longer than
+ * `SPRING_MAX_DT`, seeks instead: the machines start again from their initial states and the
+ * springs rest; while the animation is paused the step is 0 and the springs hold still.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
@@ -504,6 +506,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
         const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
         gaze.weight = Math.min(1, Math.max(0, weight));
+        animator.inputs.set('mood', gaze.weight);
         if (!pointer) return;
         // The point under the pointer, 120 units in front of the head.
         camera.toView(view, head.localToWorld(center, head.pivot));
@@ -530,8 +533,12 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const leave = () => {
         pointer = null;
       };
+      const poke = (event: PointerEvent) => {
+        if (event.target instanceof HTMLCanvasElement) animator.inputs.fire('poke');
+      };
       container.addEventListener('pointermove', move);
       container.addEventListener('pointerleave', leave);
+      container.addEventListener('pointerdown', poke);
       let last = Number.NaN;
       const pose = (time: number) => {
         const dt = time - last;
@@ -541,6 +548,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
           animator.update(dt);
           return;
         }
+        for (const machine of animator.stateMachines) machine.reset();
         for (const layer of animator.layers) layer.time = time;
         animator.resetSprings();
         animator.evaluate();
@@ -573,6 +581,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       return () => {
         container.removeEventListener('pointermove', move);
         container.removeEventListener('pointerleave', leave);
+        container.removeEventListener('pointerdown', poke);
         unmount();
       };
     },

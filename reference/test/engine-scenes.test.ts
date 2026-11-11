@@ -156,4 +156,42 @@ describe('demo clips', () => {
     }
     expect(again).toEqual(ears);
   });
+
+  it('the animated mascot smiles wider with its mood, and a poke makes it hop and gasp', async () => {
+    const { Animator, Scene } = await import('@mascotte/engine');
+    const { animatedMascot } = await import('../src/index.ts');
+    const { root, rig } = animatedMascot.build();
+    const world = new Scene(root);
+    const animator = new Animator(world, { rig });
+    const { body, face } = animatedMascot.animate(animator);
+    const mouth = rig.node('mouth');
+    if (!mouth) throw new Error('no mouth');
+    expect([body.state, face.state]).toEqual(['wave', 'calm']);
+    animator.update(1 / 60);
+    expect(mouth.scale.x).toBeCloseTo(1);
+    animator.inputs.set('mood', 1);
+    animator.update(1 / 60);
+    expect(mouth.scale.x).toBeCloseTo(1.3);
+    expect(mouth.scale.y).toBeCloseTo(1.7);
+    animator.inputs.fire('poke');
+    animator.update(1 / 60);
+    expect([body.state, face.state]).toEqual(['hop', 'gasp']);
+    let highest = 0;
+    let narrowest = Infinity;
+    let lowest = Infinity;
+    for (let frame = 0; frame < 60; frame++) {
+      animator.update(1 / 60);
+      highest = Math.max(highest, -22 - root.position.y);
+      narrowest = Math.min(narrowest, mouth.scale.x);
+      lowest = Math.min(lowest, mouth.scale.y);
+    }
+    expect(highest).toBeGreaterThan(12);
+    expect(narrowest).toBeCloseTo(0.6);
+    expect(lowest).toBeCloseTo(-1.4);
+    // After a second both have played out and gone back.
+    expect([body.state, face.state]).toEqual(['wave', 'calm']);
+    for (let frame = 0; frame < 30; frame++) animator.update(1 / 60);
+    expect(root.position.y).toBeCloseTo(-22);
+    expect(mouth.scale.x).toBeCloseTo(1.3);
+  });
 });
