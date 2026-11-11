@@ -907,6 +907,48 @@ describe('StateMachine', () => {
     expect(body.opacity).toBeCloseTo(0.7);
   });
 
+  it('a failed add takes back its inputs from blends compiled before the failure', () => {
+    const { body, animator } = setup();
+    const walk: Blend1D = {
+      input: 'speed',
+      blend: [
+        { at: 0, motion: hold('body', 'opacity', 0) },
+        { at: 1, motion: hold('body', 'opacity', 1) },
+      ],
+    };
+    const spec = (lost: boolean): StateMachineSpec => ({
+      layer: 'body',
+      inputs: [{ name: 'speed', type: 'number' }],
+      states: [
+        { name: 'walk', motion: walk },
+        { name: 'other', motion: lost ? hold('nobody', 'opacity', 1) : idle },
+      ],
+    });
+    expect(() => animator.addStateMachine(spec(true))).toThrow(/state "other"/);
+    animator.addStateMachine(spec(false));
+    animator.inputs.set('speed', 1);
+    animator.update(0);
+    expect(body.opacity).toBeCloseTo(1);
+  });
+
+  it('a failure entering the initial state takes back the inputs too', () => {
+    const { scene, animator } = setup();
+    const arm = new Node({ id: 'arm' });
+    scene.root.add(arm);
+    const layer = layerOf(animator, 'body');
+    layer.mask = 'arm';
+    arm.destroy();
+    expect(() =>
+      animator.addStateMachine({
+        name: 'masked',
+        layer: 'body',
+        inputs: [{ name: 'go', type: 'bool' }],
+        states: [{ name: 'a', motion: idle }],
+      }),
+    ).toThrow(/State machine "masked": initial state "a": .*arm/);
+    expect(animator.inputs.has('go')).toBe(false);
+  });
+
   it('allows one machine per layer', () => {
     const { animator } = setup();
     animator.addStateMachine(moodMachine());

@@ -382,25 +382,25 @@ export class StateMachine {
       addInput(inputs, record);
       added.push(record.name);
     }
-    for (const state of states) {
-      if (!state.motion) continue;
-      try {
-        prepare(state.motion);
-      } catch (error) {
-        for (const name of added) removeInput(inputs, name);
-        throw new Error(`${this.#label}: state "${state.name}": ${messageOf(error)}`, {
-          cause: error,
-        });
-      }
-    }
-
     this.#byName = byName;
     this.#any = any;
     this.#initial = initial as State;
     this.#state = initial as State;
     this.#names = Object.freeze(states.map((state) => state.name));
+    let current: State | null = null;
+    try {
+      for (const state of states) {
+        current = state;
+        if (state.motion) prepare(state.motion);
+      }
+      current = null;
+      this.#enter(this.#initial, 0, 0);
+    } catch (error) {
+      for (const name of added) removeInput(inputs, name);
+      const where = current ? `state "${current.name}"` : `initial state "${initialName}"`;
+      throw new Error(`${this.#label}: ${where}: ${messageOf(error)}`, { cause: error });
+    }
     this.#spec = snapshot(spec);
-    this.#enter(this.#initial, 0, 0);
   }
 
   /** The name of the current state. */
