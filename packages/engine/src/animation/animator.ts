@@ -22,7 +22,7 @@ import { type BehaviorSet, compileBehaviors, sampleBehaviors } from './behaviors
 import { type Blend1D, blendSampler, checkBlend, type Sampler } from './blend.ts';
 import { addChannel, type Channel, ChannelSet, mixChannel, sampleTracks } from './channels.ts';
 import { type Clip, clipTime, compileClip } from './clip.ts';
-import { clearTriggers, Inputs } from './inputs.ts';
+import { clearTriggers, Inputs, inputRecord } from './inputs.ts';
 import { type Motion, motionKind } from './motion.ts';
 import { findProperty } from './properties.ts';
 import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
@@ -140,6 +140,8 @@ interface CompiledMotion extends Sampler {
   readonly motion: Motion;
   /** `Rig.version` when compiled, -1 without a rig. */
   readonly rigVersion: number;
+  /** Whether it must be compiled again for another reason: a blend's input was taken back. */
+  stale?(): boolean;
 }
 
 /** What compiling a blend needs beyond the scene and the rig. */
@@ -180,6 +182,7 @@ function compileMotion(
       motion,
       rigVersion,
       ...blendSampler(blend.blend, children, input, channels, context.rest),
+      stale: () => inputRecord(context.inputs, input.name) !== input,
     };
   }
   if (kind === 'behaviors') {
@@ -881,7 +884,8 @@ export class Animator implements TargetScope {
     if (
       !compiled ||
       compiled.rigVersion !== rigVersionOf(this.rig) ||
-      compiled.tracks.some((track) => track.channel.node.destroyed)
+      compiled.tracks.some((track) => track.channel.node.destroyed) ||
+      compiled.stale?.()
     ) {
       const before = this.#channels.channels.length;
       try {
