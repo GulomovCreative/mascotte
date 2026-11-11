@@ -289,7 +289,7 @@ function animate(animator: Animator): { gaze: AimConstraint } {
 /** The animated mascot: builds the scene and sets up its layers, gaze constraint and springs. */
 export const animatedMascot = {
   id: 'engine-animated-mascot',
-  title: 'Mascot: waves, breathes, blinks, swings its ears',
+  title: 'Mascot: waves, breathes, blinks, swings its ears, follows the pointer',
   width: 240,
   height: 280,
   background: '#e8f1f2',

@@ -31,7 +31,18 @@ export function turnNode(
     mat3x4.transformDirection(from, inverse, from);
     mat3x4.transformDirection(to, inverse, to);
   }
-  quat.rotationTo(turn, from, to);
+  turnInParent(node, from, to, maxAngle, weight);
+}
+
+/** `turnNode` with the directions already in the parent's space (the world for a root). */
+export function turnInParent(
+  node: Node,
+  fromParent: Readonly<Vec3>,
+  toParent: Readonly<Vec3>,
+  maxAngle = Math.PI,
+  weight = 1,
+): void {
+  quat.rotationTo(turn, fromParent, toParent);
   const angle = quat.angleBetween(turn, IDENTITY);
   const limited = Math.min(angle, maxAngle) * weight;
   if (!(limited > 0)) return;

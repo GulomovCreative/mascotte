@@ -12,12 +12,12 @@ import {
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
 import { copyTarget, lookupTarget, type Target, type TargetScope, targetName } from './rig.ts';
-import { pivotOf, turnNode } from './turn.ts';
+import { pivotOf, turnInParent, turnNode } from './turn.ts';
 
 /*
  * Constraints: rules that adjust the animated pose of rig nodes every frame, after the layers
- * and before springs, in the order the animator lists them (an explicit order, saved with the
- * mascot): a later constraint sees what earlier ones did.
+ * and before springs, in the order the animator lists them (an explicit order, which the
+ * document will save): a later constraint sees what earlier ones did.
  * - `aim` turns a node by the smallest rotation that points one of its axes at a goal (eyes,
  *   a head following the pointer); the roll of the pose is kept;
  * - `lookAt` points an axis at the goal and keeps another axis as upright as it can, so the
@@ -28,21 +28,26 @@ import { pivotOf, turnNode } from './turn.ts';
  * - `limitRotation` keeps the node's local rotation, as Euler angles, within ranges.
  *
  * A goal is a node (`at`, its pivot) or a world point (`point`, in the spec or set later, e.g.
- * from the pointer); a constraint without one leaves the pose alone. Each constraint has a
+ * from the pointer); the choice between the two is fixed when the constraint is made. An
+ * `aim`, `lookAt` or `twoBoneIK` without one leaves the pose alone. Each constraint has a
  * `weight` (0 shows the pose, 1 the constraint): `aim` and `lookAt` turn that fraction of
- * their angle, which they also limit (`maxAngle`, from the rotation they receive), and the
- * others blend the local values they write from the pose. Constraints keep no state, so
- * seeking stays exact, and create no objects per frame. They leave the pose alone where it
- * has no answer: a goal at the node's pivot, an ancestor with scale 0, a bone of no length.
+ * their angle, which they also limit (`maxAngle`, from the rotation the node has when the
+ * constraint runs), and the others blend the local values they write from the pose.
+ * Constraints keep no state, so seeking stays exact; they use shared scratch vectors, and
+ * writing their properties only boxes a few numbers, which the allocation test bounds. They
+ * leave the pose alone where it has no answer: a goal at the node's pivot, an ancestor with
+ * scale 0, a bone of no length.
  *
- * A constraint is described by plain data (a spec, as the document saves it) and created by
+ * A constraint is made from plain data (a spec, which the document will save) by
  * `Animator.addConstraint`, which resolves its nodes (ids or rig slots) and owns the
- * properties it writes, so it starts from the pose every frame. Only `weight`, `enabled`,
- * `point` and `maxAngle` change at run time; other changes mean a new constraint from an
- * edited spec (`toSpec`). While one of its nodes is destroyed or out of the scene (or a
- * chain's second bone has left the first one's subtree) a constraint does nothing; after the
- * tree or the rig's slots change it resolves its targets again and moves to the nodes they
- * name now, like a spring.
+ * properties it writes, so it starts from the pose every frame. `weight`, `enabled`, `point`
+ * and `maxAngle` change at run time and are not part of the spec: `toSpec()` gives the spec
+ * the constraint was made from. Other edits go through an edited spec and
+ * `Animator.replaceConstraint`. While one of its nodes is destroyed or out of the scene, or its
+ * nodes no longer hold together (a chain's second bone has left the first one's subtree, a
+ * goal or pole node has moved under the target), a constraint does nothing and says why in
+ * `problem`; after the tree or the rig's slots change it resolves its targets again and moves
+ * to the nodes they name now, like a spring.
  */
 
 /** All constraint kinds. */
@@ -102,7 +107,9 @@ export interface LookAtSpec extends SpecBase, GoalOptions {
  * Bends the chain `target` (the first bone) → `mid` (the second, a descendant of the first)
  * so that point `tip` of `mid` reaches the goal. The distance to the goal is kept within what
  * the bones span (from the difference of their lengths to their sum); the bones keep their
- * lengths and the twist of the pose.
+ * lengths and the twist of the pose. The chain is solved in the space of the target's parent,
+ * so any scale above the chain is fine; scale that is not uniform inside the chain (on the
+ * target or between it and `mid`) makes the tip miss.
  */
 export interface TwoBoneIKSpec extends SpecBase, GoalOptions {
   readonly kind: 'twoBoneIK';
@@ -111,9 +118,9 @@ export interface TwoBoneIKSpec extends SpecBase, GoalOptions {
   /** The end of the chain in `mid`'s coordinates (a hand, a foot); not its pivot. */
   readonly tip: Readonly<Vec3>;
   /**
-   * A node the middle joint bends towards. Without it, or when it lies on the line from the
-   * root to the goal, the joint bends the way it sticks out of the line from the root to the
-   * tip in the pose.
+   * A node whose pivot the middle joint bends towards. Without it, or when it lies on the line
+   * from the root to the goal, the joint bends the way it sticks out of the line from the root
+   * to the tip in the pose; a straight limb bends in the plane of the limb and the goal.
    */
   readonly pole?: Target | null;
 }
@@ -133,8 +140,11 @@ export interface CopyTransformSpec extends SpecBase {
 
 /**
  * Keeps the local rotation, as Euler angles in `order`, between `min` and `max` (radians).
- * The middle axis of the order spans only [−π/2, π/2], so its bounds lie there; a rotation is
- * clamped to the nearer of its two Euler forms, so poses near ±π/2 on it do not jump.
+ * The middle axis of the order spans only [−π/2, π/2], so its bounds lie there. Both Euler
+ * forms of a rotation are clamped and the result nearer the pose is kept, and an angle out of
+ * its range goes to the nearer bound around the circle, so poses near ±π/2 on the middle axis
+ * or ±π on the others do not jump. Far out of range the nearest allowed rotation can switch
+ * to another one, as with any limit that is not convex.
  */
 export interface LimitRotationSpec extends SpecBase {
   readonly kind: 'limitRotation';
@@ -159,14 +169,34 @@ export interface Written {
   readonly property: 'position' | 'rotation' | 'scale';
 }
 
-const COMMON_KEYS = ['kind', 'target', 'weight', 'enabled'];
-const KEYS: Record<ConstraintKind, readonly string[]> = {
-  aim: [...COMMON_KEYS, 'at', 'point', 'axis', 'maxAngle'],
-  lookAt: [...COMMON_KEYS, 'at', 'point', 'axis', 'up', 'worldUp', 'maxAngle'],
-  twoBoneIK: [...COMMON_KEYS, 'at', 'point', 'mid', 'tip', 'pole'],
-  copyTransform: [...COMMON_KEYS, 'from', 'position', 'rotation', 'scale'],
-  limitRotation: [...COMMON_KEYS, 'min', 'max', 'order'],
-};
+type SpecOf<K extends ConstraintKind> = Extract<ConstraintSpec, { kind: K }>;
+
+/** The options of each kind, checked against the spec types both ways by the compiler. */
+const KEYS = {
+  aim: ['kind', 'target', 'weight', 'enabled', 'at', 'point', 'axis', 'maxAngle'],
+  lookAt: [
+    'kind',
+    'target',
+    'weight',
+    'enabled',
+    'at',
+    'point',
+    'axis',
+    'up',
+    'worldUp',
+    'maxAngle',
+  ],
+  twoBoneIK: ['kind', 'target', 'weight', 'enabled', 'at', 'point', 'mid', 'tip', 'pole'],
+  copyTransform: ['kind', 'target', 'weight', 'enabled', 'from', 'position', 'rotation', 'scale'],
+  limitRotation: ['kind', 'target', 'weight', 'enabled', 'min', 'max', 'order'],
+} as const satisfies { readonly [K in ConstraintKind]: readonly (keyof SpecOf<K>)[] };
+
+// Fails to compile when a spec gains an option the table above does not list.
+type Unlisted = {
+  [K in ConstraintKind]: Exclude<keyof SpecOf<K>, (typeof KEYS)[K][number]>;
+}[ConstraintKind];
+const everyOptionListed: [Unlisted] extends [never] ? true : never = true;
+void everyOptionListed;
 
 /** Names a constraint in messages: `Constraint aim [head]:`. */
 interface Named {
@@ -192,8 +222,13 @@ function checkMaxAngle(named: Named, value: unknown): number {
   return value;
 }
 
+/*
+ * In specs, a missing option and `null` both mean the default, as JSON writes it. Values
+ * are checked for their type, not converted.
+ */
+
 function checkBoolean(named: Named, name: string, value: unknown, fallback: boolean): boolean {
-  if (value === undefined) return fallback;
+  if (value === undefined || value === null) return fallback;
   if (typeof value !== 'boolean') {
     fail(named, `${name} must be true or false, got ${String(value)}.`);
   }
@@ -225,30 +260,74 @@ function direction(
   y: number,
   z: number,
 ): Readonly<Vec3> {
-  if (value === undefined) return Object.freeze(vec3.create(x, y, z));
-  if (!isFiniteVec(value) || vec3.length(value) === 0) {
+  if (value === undefined || value === null) return Object.freeze(vec3.create(x, y, z));
+  const length = isFiniteVec(value) ? vec3.length(value) : 0;
+  if (!(length > 0 && Number.isFinite(length))) {
     fail(named, `${name} must be a non-zero vector {x, y, z} of finite numbers.`);
   }
-  return Object.freeze(vec3.normalize(vec3.create(), value));
+  return Object.freeze(vec3.normalize(vec3.create(), value as Readonly<Vec3>));
+}
+
+function isTarget(value: unknown): value is Target {
+  if (typeof value === 'string') return true;
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    typeof (value as { slot?: unknown }).slot === 'string'
+  );
 }
 
 /** `value` as a required target named `name`, or a RangeError naming the constraint. */
 function requireTarget(named: Named, name: string, value: unknown): Target {
-  const slot =
-    typeof value === 'object' &&
-    value !== null &&
-    typeof (value as { slot?: unknown }).slot === 'string';
-  if (!(typeof value === 'string' || slot)) {
-    fail(named, `${name} is required: a node id or a slot reference { slot }.`);
-  }
-  return copyTarget(value as Target);
+  if (!isTarget(value)) fail(named, `${name} is required: a node id or a slot reference { slot }.`);
+  return copyTarget(value);
 }
 
-/** The node `target` names in `scope`, or why there is none (prefixed by `what`). */
+/** `value` as an optional target named `name` (`null` when absent). */
+function optionalTarget(named: Named, name: string, value: unknown): Target | null {
+  if (value === undefined || value === null) return null;
+  if (!isTarget(value)) {
+    fail(
+      named,
+      `${name} must be a node id or a slot reference { slot }, got ${targetName(value as Target)}.`,
+    );
+  }
+  return copyTarget(value);
+}
+
+/**
+ * The node `target` names in `scope`, or why there is none: prefixed by `what` and the
+ * target's name, except for the constraint's own `target`, which its name already gives.
+ */
 function find(target: Target, scope: TargetScope, what: string): Node | string {
   const node = lookupTarget(target, scope);
   if (typeof node !== 'string') return node;
   return what === 'target' ? node : `${what} ${targetName(target)}: ${node}`;
+}
+
+/** Whether `node` turns with `root`: it is `root` or one of its descendants. */
+function turnsWith(node: Node, root: Node): boolean {
+  return node === root || root.isAncestorOf(node);
+}
+
+/**
+ * Resolves `target`, named `what`, into `nodes`. It must not turn with `root`, so it may be
+ * neither `root` nor one of its descendants; an error message or null.
+ */
+function findOutside(
+  target: Target,
+  scope: TargetScope,
+  what: string,
+  root: Node,
+  nodes: Node[],
+): string | null {
+  const node = find(target, scope, what);
+  if (typeof node === 'string') return node;
+  if (turnsWith(node, root)) {
+    return `${what} ${targetName(target)} must not be the target or under it: it would turn with it.`;
+  }
+  nodes.push(node);
+  return null;
 }
 
 /** The binding of a constraint: nodes it reads and writes, or why it has none. */
@@ -295,6 +374,10 @@ abstract class BaseConstraint {
   #nodes: readonly Node[] = [];
   #written: readonly Written[] = [];
   #scene: Scene | null = null;
+  /** The spec the constraint was made from, with defaults written out. */
+  #spec: ConstraintSpec | null = null;
+  /** Why the last attempt to resolve the nodes again failed. */
+  #failure: string | null = null;
 
   protected constructor(spec: ConstraintSpec) {
     this.kind = spec.kind;
@@ -316,29 +399,49 @@ abstract class BaseConstraint {
     return this.#enabled;
   }
   set enabled(value: boolean) {
-    if (typeof value !== 'boolean') fail(this, `enabled must be true or false, got ${value}.`);
+    if (typeof value !== 'boolean') {
+      fail(this, `enabled must be true or false, got ${String(value)}.`);
+    }
     this.#enabled = value;
   }
 
-  /** The node the constraint changes. */
+  /**
+   * The node the constraint changes: the one its target named when it was last bound (it may
+   * be gone; see `problem`).
+   */
   get node(): Node {
     return this.#nodes[0] as Node;
   }
 
-  /** The spec of the constraint as it is now, with defaults written out. */
+  /**
+   * The spec the constraint was made from, with defaults written out: what the document
+   * saves. Changes at run time (`weight`, `enabled`, `point`, `maxAngle`) are not in it.
+   */
   toSpec(): ConstraintSpec {
-    const spec: Record<string, unknown> = {
-      kind: this.kind,
-      target: this.target,
-      weight: this.#weight,
-      enabled: this.#enabled,
-    };
-    this.describe(spec);
-    return spec as unknown as ConstraintSpec;
+    return structuredClone(this.#spec as ConstraintSpec);
   }
 
-  /** Adds the kind's own fields to `spec`. */
-  protected abstract describe(spec: Record<string, unknown>): void;
+  /**
+   * Why the constraint does nothing although it is enabled, or `null` when it works: a node
+   * that is gone (and, after a failed attempt to find its replacement, why that failed), or
+   * a chain that does not hold together. Built when read.
+   */
+  get problem(): string | null {
+    if (!this.#live) {
+      const gone = this.#nodes.find((node) => node.scene !== this.#scene) as Node;
+      const lost = `node "${gone.id}" is destroyed or out of the scene`;
+      return this.#failure ? `${lost}, and ${this.#failure}` : `${lost}.`;
+    }
+    return this.intact ? null : this.brokenBecause();
+  }
+
+  /** The kind's fields of the spec it was made from, with defaults written out. */
+  protected abstract describe(): Record<string, unknown>;
+
+  /** Why `intact` is false. */
+  protected brokenBecause(): string {
+    return 'its nodes do not hold together.';
+  }
 
   /** Resolves the nodes in `scope`: the target first, then the others the constraint reads. */
   protected abstract find(scope: TargetScope): Found;
@@ -354,10 +457,20 @@ abstract class BaseConstraint {
     return true;
   }
 
-  /** Resolves and binds the nodes, or throws naming the constraint. */
+  /**
+   * Resolves and binds the nodes, or throws naming the constraint, and records the spec. The
+   * last step of every kind's constructor.
+   */
   protected resolve(scope: TargetScope): void {
     const error = this.#tryResolve(scope);
     if (error !== null) fail(this, error);
+    this.#spec = Object.freeze({
+      kind: this.kind,
+      target: this.target,
+      weight: this.#weight,
+      enabled: this.#enabled,
+      ...this.describe(),
+    }) as unknown as ConstraintSpec;
   }
 
   /** Binds the nodes `find` gives, all at once; null, or why they cannot be bound. */
@@ -389,8 +502,12 @@ abstract class BaseConstraint {
       },
       written: (constraint) => constraint.#written,
       rebind(constraint, scope) {
-        if (constraint.#live) return false;
-        return constraint.#tryResolve(scope) === null;
+        if (constraint.#live && constraint.intact) {
+          constraint.#failure = null;
+          return false;
+        }
+        constraint.#failure = constraint.#tryResolve(scope);
+        return constraint.#failure === null;
       },
     };
   }
@@ -400,51 +517,47 @@ abstract class BaseConstraint {
 abstract class GoalConstraint extends BaseConstraint {
   /** A node whose pivot is the goal, or `null`. */
   readonly at: Target | null;
-  #point: Vec3 | null = null;
+  #point: Readonly<Vec3> | null = null;
 
   protected constructor(spec: AimSpec | LookAtSpec | TwoBoneIKSpec) {
     super(spec);
-    const at = spec.at ?? null;
+    const at = optionalTarget(spec, 'at', spec.at);
     const point = spec.point ?? null;
     if (at !== null && point !== null) fail(spec, 'give either at or point, not both.');
-    this.at = at === null ? null : copyTarget(at);
-    if (point !== null) this.#point = vec3.clone(checkPoint(spec, 'point', point));
+    this.at = at;
+    if (point !== null) this.#point = Object.freeze(vec3.clone(checkPoint(spec, 'point', point)));
   }
 
   /**
    * The goal as a world point when there is no `at` node; `null` leaves the pose alone.
-   * Setting copies the point (do not change the one read back: set a new one); it throws for
-   * a constraint that follows an `at` node.
+   * Setting stores a frozen copy; it throws for a constraint that follows an `at` node.
    */
   get point(): Readonly<Vec3> | null {
     return this.#point;
   }
   set point(value: Readonly<Vec3> | null) {
     if (this.at !== null) fail(this, `it follows ${targetName(this.at)}, so it has no point.`);
-    if (value === null) {
-      this.#point = null;
-      return;
-    }
-    checkPoint(this, 'point', value);
-    this.#point = vec3.copy(this.#point ?? vec3.create(), value);
+    this.#point =
+      value === null ? null : Object.freeze(vec3.clone(checkPoint(this, 'point', value)));
   }
 
-  /** Resolves `at` into `nodes`, refusing the nodes in `own`; an error message or null. */
-  protected findGoal(scope: TargetScope, nodes: Node[], own: readonly Node[]): string | null {
-    if (this.at === null) return null;
-    const at = find(this.at, scope, 'at');
-    if (typeof at === 'string') return at;
-    if (own.includes(at)) return `at ${targetName(this.at)} must not be a node of the chain.`;
-    nodes.push(at);
-    return null;
+  /** Resolves `at` into `nodes` (see `findOutside`); an error message or null. */
+  protected findGoal(scope: TargetScope, nodes: Node[], root: Node): string | null {
+    return this.at === null ? null : findOutside(this.at, scope, 'at', root, nodes);
   }
 
   /** The `at` node once bound, or null. */
   protected abstract get atNode(): Node | null;
 
-  protected describeGoal(spec: Record<string, unknown>): void {
-    if (this.at !== null) spec.at = this.at;
-    else if (this.#point) spec.point = vec3.clone(this.#point);
+  /** Why `node`, a goal or pole, cannot be used with `root` now (it turns with it), or null. */
+  protected static under(what: string, node: Node | null, root: Node): string | null {
+    if (!node || !turnsWith(node, root)) return null;
+    return `${what} "${node.id}" is the target "${root.id}" or under it: it would turn with it.`;
+  }
+
+  protected describeGoal(): Record<string, unknown> {
+    if (this.at !== null) return { at: this.at };
+    return this.#point ? { point: vec3.clone(this.#point) } : {};
   }
 
   /** Writes the goal into `out`; `false` when there is none. */
@@ -454,8 +567,9 @@ abstract class GoalConstraint extends BaseConstraint {
       pivotOf(out, at);
       return true;
     }
-    if (!this.#point) return false;
-    vec3.copy(out, this.#point);
+    const point = this.#point;
+    if (!point) return false;
+    vec3.copy(out, point);
     return true;
   }
 }
@@ -472,7 +586,7 @@ abstract class TurnConstraint extends GoalConstraint {
     this.#maxAngle = checkMaxAngle(spec, spec.maxAngle ?? Math.PI);
   }
 
-  /** The largest turn in radians, above 0 and at most π. */
+  /** The largest turn in radians, above 0 and at most π (from the spec, changeable). */
   get maxAngle(): number {
     return this.#maxAngle;
   }
@@ -484,11 +598,20 @@ abstract class TurnConstraint extends GoalConstraint {
     return this.#at;
   }
 
+  protected override get intact(): boolean {
+    const at = this.#at;
+    return !at || !turnsWith(at, this.node);
+  }
+
+  protected override brokenBecause(): string {
+    return GoalConstraint.under('at', this.#at, this.node) ?? super.brokenBecause();
+  }
+
   protected find(scope: TargetScope): Found {
     const node = find(this.target, scope, 'target');
     if (typeof node === 'string') return { error: node };
     const nodes = [node];
-    const error = this.findGoal(scope, nodes, [node]);
+    const error = this.findGoal(scope, nodes, node);
     return error ? { error } : { nodes };
   }
 
@@ -497,10 +620,8 @@ abstract class TurnConstraint extends GoalConstraint {
     return [{ node: nodes[0] as Node, property: 'rotation' }];
   }
 
-  protected describe(spec: Record<string, unknown>): void {
-    this.describeGoal(spec);
-    spec.axis = vec3.clone(this.axis);
-    spec.maxAngle = this.#maxAngle;
+  protected describe(): Record<string, unknown> {
+    return { ...this.describeGoal(), axis: vec3.clone(this.axis), maxAngle: this.#maxAngle };
   }
 }
 
@@ -549,10 +670,8 @@ export class LookAtConstraint extends TurnConstraint {
     return super.toSpec() as LookAtSpec;
   }
 
-  protected override describe(spec: Record<string, unknown>): void {
-    super.describe(spec);
-    spec.up = vec3.clone(this.up);
-    spec.worldUp = vec3.clone(this.worldUp);
+  protected override describe(): Record<string, unknown> {
+    return { ...super.describe(), up: vec3.clone(this.up), worldUp: vec3.clone(this.worldUp) };
   }
 
   protected run(weight: number): void {
@@ -606,17 +725,15 @@ export class TwoBoneIKConstraint extends GoalConstraint {
   constructor(spec: TwoBoneIKSpec, scope: TargetScope) {
     super(spec);
     this.mid = requireTarget(spec, 'mid', spec.mid);
-    if (spec.tip === undefined) fail(spec, "tip is required: a point in mid's coordinates.");
-    this.tip = Object.freeze(vec3.clone(checkPoint(spec, 'tip', spec.tip)));
-    const pole = spec.pole ?? null;
-    this.pole = pole === null ? null : copyTarget(pole);
-    this.resolve(scope);
-    if (vec3.equals(this.tip, this.midNode.pivot, 0)) {
-      fail(spec, "tip must differ from mid's pivot.");
+    if (spec.tip === undefined || spec.tip === null) {
+      fail(spec, "tip is required: a point in mid's coordinates.");
     }
+    this.tip = Object.freeze(vec3.clone(checkPoint(spec, 'tip', spec.tip)));
+    this.pole = optionalTarget(spec, 'pole', spec.pole);
+    this.resolve(scope);
   }
 
-  /** The second bone. */
+  /** The second bone (as for `node`, the one last bound). */
   get midNode(): Node {
     return this.#mid as Node;
   }
@@ -626,18 +743,34 @@ export class TwoBoneIKConstraint extends GoalConstraint {
   }
 
   protected override get intact(): boolean {
-    return this.node.isAncestorOf(this.#mid as Node);
+    const root = this.node;
+    const at = this.#at;
+    const pole = this.#pole;
+    // Runs every frame: plain checks, no arrays.
+    if (!root.isAncestorOf(this.#mid as Node)) return false;
+    if (at && turnsWith(at, root)) return false;
+    return !pole || !turnsWith(pole, root);
+  }
+
+  protected override brokenBecause(): string {
+    const root = this.node;
+    if (!root.isAncestorOf(this.midNode)) {
+      return `mid "${this.midNode.id}" has left the subtree of the target "${root.id}".`;
+    }
+    return (
+      GoalConstraint.under('at', this.#at, root) ??
+      GoalConstraint.under('pole', this.#pole, root) ??
+      super.brokenBecause()
+    );
   }
 
   override toSpec(): TwoBoneIKSpec {
     return super.toSpec() as TwoBoneIKSpec;
   }
 
-  protected describe(spec: Record<string, unknown>): void {
-    this.describeGoal(spec);
-    spec.mid = this.mid;
-    spec.tip = vec3.clone(this.tip);
-    if (this.pole !== null) spec.pole = this.pole;
+  protected describe(): Record<string, unknown> {
+    const spec = { ...this.describeGoal(), mid: this.mid, tip: vec3.clone(this.tip) };
+    return this.pole === null ? spec : { ...spec, pole: this.pole };
   }
 
   protected find(scope: TargetScope): Found {
@@ -649,17 +782,10 @@ export class TwoBoneIKConstraint extends GoalConstraint {
       return { error: `mid ${targetName(this.mid)} must be a descendant of the target.` };
     }
     const nodes = [root, mid];
-    const error = this.findGoal(scope, nodes, [root, mid]);
-    if (error) return { error };
-    if (this.pole !== null) {
-      const pole = find(this.pole, scope, 'pole');
-      if (typeof pole === 'string') return { error: pole };
-      if (pole === root || pole === mid) {
-        return { error: `pole ${targetName(this.pole)} must not be a node of the chain.` };
-      }
-      nodes.push(pole);
-    }
-    return { nodes };
+    const error =
+      this.findGoal(scope, nodes, root) ??
+      (this.pole === null ? null : findOutside(this.pole, scope, 'pole', root, nodes));
+    return error ? { error } : { nodes };
   }
 
   protected bind(nodes: readonly Node[]): readonly Written[] {
@@ -680,9 +806,22 @@ export class TwoBoneIKConstraint extends GoalConstraint {
     if (!this.goal(goal)) return;
     const root = this.node;
     const mid = this.#mid as Node;
+    const pole = this.#pole;
     pivotOf(a, root);
     pivotOf(b, mid);
     mid.localToWorld(c, this.tip);
+    if (pole) pivotOf(bend, pole);
+    // The triangle is solved in the space of the root's parent, where the root turns: lengths
+    // there stay as they are under any scale above the chain.
+    const parent = root.parent;
+    if (parent) {
+      if (!mat3x4.invert(inverse, parent.worldMatrix)) return;
+      mat3x4.transformPoint(a, inverse, a);
+      mat3x4.transformPoint(b, inverse, b);
+      mat3x4.transformPoint(c, inverse, c);
+      mat3x4.transformPoint(goal, inverse, goal);
+      if (pole) mat3x4.transformPoint(bend, inverse, bend);
+    }
     const upper = vec3.distance(a, b);
     const lower = vec3.distance(b, c);
     vec3.sub(toGoal, goal, a);
@@ -693,12 +832,11 @@ export class TwoBoneIKConstraint extends GoalConstraint {
     reach = Math.min(Math.max(reach, Math.abs(upper - lower) + 1e-9), upper + lower);
     // The bend, across the line to the goal: towards the pole, or the way the joint sticks out
     // of the line from the root to the tip in the pose.
-    if (this.#pole) {
-      pivotOf(bend, this.#pole);
+    if (pole) {
       vec3.sub(bend, bend, a);
       vec3.scaleAndAdd(bend, bend, toGoal, -vec3.dot(bend, toGoal));
     }
-    if (!this.#pole || vec3.length(bend) < 1e-9 * upper) {
+    if (!pole || vec3.length(bend) < 1e-9 * upper) {
       vec3.sub(bend, b, a);
       vec3.sub(scratch, c, a);
       const lengthSq = vec3.dot(scratch, scratch);
@@ -722,7 +860,9 @@ export class TwoBoneIKConstraint extends GoalConstraint {
     quat.copy(poseMid, mid.rotation);
     vec3.sub(b, b, a);
     vec3.sub(knee, knee, a);
-    turnNode(root, b, knee);
+    turnInParent(root, b, knee);
+    // The second bone turns in its own parent's space: back to the world for `turnNode`.
+    if (parent) mat3x4.transformPoint(end, parent.worldMatrix, end);
     pivotOf(b, mid);
     mid.localToWorld(c, this.tip);
     vec3.sub(c, c, b);
@@ -780,11 +920,9 @@ export class CopyTransformConstraint extends BaseConstraint {
     return super.toSpec() as CopyTransformSpec;
   }
 
-  protected describe(spec: Record<string, unknown>): void {
-    spec.from = this.from;
-    spec.position = this.position;
-    spec.rotation = this.rotation;
-    spec.scale = this.scale;
+  protected describe(): Record<string, unknown> {
+    const { from, position, rotation, scale } = this;
+    return { from, position, rotation, scale };
   }
 
   protected find(scope: TargetScope): Found {
@@ -862,8 +1000,8 @@ export class LimitRotationConstraint extends BaseConstraint {
       ['min', spec.min],
       ['max', spec.max],
     ] as const) {
-      if (bounds === undefined) continue;
-      if (typeof bounds !== 'object' || bounds === null) {
+      if (bounds === undefined || bounds === null) continue;
+      if (typeof bounds !== 'object') {
         fail(spec, `${name} must be an object with x, y or z.`);
       }
       for (const key of Object.keys(bounds)) {
@@ -879,7 +1017,10 @@ export class LimitRotationConstraint extends BaseConstraint {
       if (!(typeof lo === 'number' && typeof hi === 'number' && lo >= -limit && hi <= limit)) {
         const range =
           axis === this.#middle ? `[−π/2, π/2] (the middle axis of ${order})` : '[−π, π]';
-        fail(spec, `the ${axis} bounds must be numbers within ${range}, got [${lo}, ${hi}].`);
+        fail(
+          spec,
+          `the ${axis} bounds must be numbers within ${range}, got [${String(lo)}, ${String(hi)}].`,
+        );
       }
       if (lo > hi) fail(spec, `the ${axis} bounds have min ${lo} above max ${hi}.`);
       min[axis] = lo;
@@ -894,10 +1035,8 @@ export class LimitRotationConstraint extends BaseConstraint {
     return super.toSpec() as LimitRotationSpec;
   }
 
-  protected describe(spec: Record<string, unknown>): void {
-    spec.min = vec3.clone(this.min);
-    spec.max = vec3.clone(this.max);
-    spec.order = this.order;
+  protected describe(): Record<string, unknown> {
+    return { min: vec3.clone(this.min), max: vec3.clone(this.max), order: this.order };
   }
 
   protected find(scope: TargetScope): Found {
@@ -909,18 +1048,21 @@ export class LimitRotationConstraint extends BaseConstraint {
     return [{ node: nodes[0] as Node, property: 'rotation' }];
   }
 
-  /** Clamps `e` into the ranges; whether anything changed. */
+  /**
+   * Clamps `e` into the ranges; whether anything changed. An angle out of its range goes to
+   * the nearer bound around the circle, so a pose crossing ±π does not jump across the range.
+   */
   #clamp(e: Euler): boolean {
     const { min, max } = this;
     let changed = false;
     for (let i = 0; i < 3; i++) {
       const axis = AXES[i] as Axis;
       const value = e[axis];
-      const clamped = Math.min(Math.max(value, min[axis]), max[axis]);
-      if (clamped !== value) {
-        e[axis] = clamped;
-        changed = true;
-      }
+      const lo = min[axis];
+      const hi = max[axis];
+      if (value >= lo && value <= hi) continue;
+      e[axis] = Math.abs(wrap(value - lo)) <= Math.abs(wrap(value - hi)) ? lo : hi;
+      changed = true;
     }
     return changed;
   }
@@ -981,7 +1123,7 @@ export function createConstraint(spec: ConstraintSpec, scope: TargetScope): Cons
   if (!(CONSTRAINT_KINDS as readonly unknown[]).includes(kind)) {
     fail(spec, `unknown kind "${String(kind)}" (known: ${CONSTRAINT_KINDS.join(', ')}).`);
   }
-  const known = KEYS[spec.kind];
+  const known: readonly string[] = KEYS[spec.kind];
   for (const key of Object.keys(spec)) {
     if (!known.includes(key)) {
       fail(spec, `unknown option "${key}" (known: ${known.slice(1).join(', ')}).`);

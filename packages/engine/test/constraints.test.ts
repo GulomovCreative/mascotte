@@ -1,6 +1,14 @@
 import { euler, mat3x4, quat, type Vec3, vec3 } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
-import { Animator, Camera, createProjectedPoint, Node, Rig, Scene } from '../src/index.ts';
+import {
+  type AimSpec,
+  Animator,
+  Camera,
+  createProjectedPoint,
+  Node,
+  Rig,
+  Scene,
+} from '../src/index.ts';
 
 function expectVec(actual: Readonly<Vec3>, expected: Readonly<Vec3>, digits = 9) {
   expect(actual.x).toBeCloseTo(expected.x, digits);
@@ -91,7 +99,7 @@ describe('aim', () => {
       }),
     ).toThrow('Constraint aim head: give either at or point, not both.');
     expect(() => animator.addConstraint({ kind: 'aim', target: 'head', at: 'head' })).toThrow(
-      'Constraint aim head: at head must not be a node of the chain.',
+      'Constraint aim head: at head must not be the target or under it: it would turn with it.',
     );
     // `null` for `at` or `point` means none, as JSON writes it.
     const none = animator.addConstraint({ kind: 'aim', target: 'head', at: null, point: null });
@@ -343,14 +351,18 @@ describe('twoBoneIK', () => {
         tip: { x: 0, y: 1, z: 0 },
       }),
     ).toThrow('Constraint twoBoneIK lower: mid upper must be a descendant of the target.');
-    expect(() =>
-      animator.addConstraint({
-        kind: 'twoBoneIK',
-        target: 'upper',
-        mid: 'lower',
-        tip: { x: 0, y: 0, z: 0 },
-      }),
-    ).toThrow("Constraint twoBoneIK upper: tip must differ from mid's pivot.");
+    // A tip at mid's pivot makes a second bone of no length: the pose stays.
+    const flatTip = animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip: { x: 0, y: 0, z: 0 },
+      point: { x: 3, y: 3, z: 0 },
+    });
+    animator.removeConstraint(ik);
+    animator.evaluate();
+    expect(quat.equalsRotation(upper.rotation, quat.create(), 0)).toBe(true);
+    animator.removeConstraint(flatTip);
     expect(() =>
       animator.addConstraint({
         kind: 'twoBoneIK',
@@ -821,7 +833,9 @@ describe('constraints in depth', () => {
         tip: { x: 0, y: 8, z: 0 },
         pole: 'lower',
       }),
-    ).toThrow('Constraint twoBoneIK upper: pole lower must not be a node of the chain.');
+    ).toThrow(
+      'Constraint twoBoneIK upper: pole lower must not be the target or under it: it would turn with it.',
+    );
     expect(() =>
       animator.addConstraint({
         kind: 'twoBoneIK',
@@ -830,7 +844,7 @@ describe('constraints in depth', () => {
         at: 'upper',
         tip: { x: 0, y: 8, z: 0 },
       }),
-    ).toThrow('at upper must not be a node of the chain.');
+    ).toThrow('at upper must not be the target or under it');
     expect(() =>
       animator.addConstraint({ kind: 'twoBoneIK', target: 'upper', mid: 'lower' } as never),
     ).toThrow("Constraint twoBoneIK upper: tip is required: a point in mid's coordinates.");
@@ -982,5 +996,337 @@ describe('constraints in depth', () => {
     const found = animator.constraints[0];
     if (found?.kind === 'aim') expect(found.maxAngle).toBe(Math.PI);
     expect(Object.isFrozen(aim.axis)).toBe(true);
+  });
+});
+
+describe('constraints after the full review', () => {
+  it('a slot rebound alone does not move a live constraint; a rig change alone rebinds a lost one', () => {
+    const { scene, body, head: node } = head();
+    const other = new Node({ id: 'other', position: { x: 0, y: -20, z: 0 } });
+    body.add(other);
+    const rig = new Rig(body, { head: 'head' });
+    const animator = new Animator(scene, { rig });
+    const aim = animator.addConstraint({
+      kind: 'aim',
+      target: { slot: 'head' },
+      point: { x: 50, y: -20, z: 0 },
+    });
+    rig.setSlot('head', 'other');
+    animator.evaluate();
+    expect(aim.node).toBe(node);
+    expect(quat.equalsRotation(other.rotation, quat.create(), 0)).toBe(true);
+    rig.setSlot('head', 'head');
+    node.destroy();
+    animator.evaluate();
+    expect(aim.problem).toMatch(/^node "head" is destroyed or out of the scene, and/);
+    // Only the slots change now: `other` was there all along.
+    rig.setSlot('head', 'other');
+    animator.evaluate();
+    expect(aim.node).toBe(other);
+    expect(aim.problem).toBeNull();
+    expectVec(worldAxis(other), { x: 1, y: 0, z: 0 });
+  });
+
+  it('a broken chain does nothing, says why, and comes back when its slot names a good mid', () => {
+    const { scene, upper, lower, animator } = arm();
+    const rigged = new Animator(scene, { rig: new Rig(scene.root, { mid: 'lower' }) });
+    const ik = rigged.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: { slot: 'mid' },
+      tip: { x: 0, y: 8, z: 0 },
+      point: { x: 9, y: 0, z: 4 },
+    });
+    expect(animator).toBeDefined();
+    scene.root.add(lower);
+    rigged.evaluate();
+    expect(quat.equalsRotation(upper.rotation, quat.create(), 0)).toBe(true);
+    expect(ik.problem).toBe('mid "lower" has left the subtree of the target "upper".');
+    const fore = new Node({ id: 'fore', position: { x: 0, y: 10, z: 0 } });
+    upper.add(fore);
+    rigged.rig?.setSlot('mid', 'fore');
+    rigged.evaluate();
+    expect(ik.midNode).toBe(fore);
+    expect(ik.problem).toBeNull();
+    expectVec(fore.localToWorld(vec3.create(), { x: 0, y: 8, z: 0 }), { x: 9, y: 0, z: 4 });
+  });
+
+  it('a node moved into another scene pauses the constraint', () => {
+    const { head: node, animator } = head();
+    animator.addConstraint({ kind: 'aim', target: 'head', point: { x: 50, y: -20, z: 0 } });
+    new Scene().root.add(node);
+    animator.evaluate();
+    expect(quat.equalsRotation(node.rotation, quat.create(), 0)).toBe(true);
+  });
+
+  it('two-bone IK reaches the goal under non-uniform scale above the chain', () => {
+    const { scene, upper, animator, hand } = arm();
+    const holder = new Node({ id: 'holder', scale: { x: 1, y: 2, z: 0.5 } });
+    holder.rotation.copy(rotationZ(0.3));
+    scene.root.add(holder);
+    holder.add(upper);
+    const goalPoint = { x: 6, y: 4, z: 2 };
+    animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip: { x: 0, y: 8, z: 0 },
+      point: goalPoint,
+    });
+    animator.evaluate();
+    expectVec(hand(), goalPoint);
+  });
+
+  it('a pole on the line to the goal falls back to the bend of the pose', () => {
+    const { scene, lower, animator, elbow, hand } = arm();
+    lower.rotation.copy(quat.fromEuler(quat.create(), euler.create(0.4, 0, 0)));
+    scene.root.add(new Node({ id: 'pole', position: { x: 0, y: 30, z: 0 } }));
+    animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip: { x: 0, y: 8, z: 0 },
+      point: { x: 0, y: 2, z: 0 },
+      pole: 'pole',
+    });
+    animator.evaluate();
+    expectVec(hand(), { x: 0, y: 2, z: 0 });
+    expect(vec3.distance(elbow(), { x: 0, y: -10, z: 0 })).toBeCloseTo(10, 9);
+    expect(Math.sign(elbow().z)).toBe(-1);
+  });
+
+  it('lookAt leaves the pose under a parent of scale 0, and stays finite along worldUp', () => {
+    const turned = head();
+    turned.body.rotation.copy(rotationZ(0.5));
+    turned.animator.addConstraint({ kind: 'lookAt', target: 'head', point: { x: 9, y: 3, z: 9 } });
+    turned.animator.evaluate();
+    const { body, head: node, animator } = head();
+    body.scale.set(0, 0, 0);
+    animator.addConstraint({ kind: 'lookAt', target: 'head', point: { x: 10, y: 0, z: 10 } });
+    animator.evaluate();
+    expect(quat.equalsRotation(node.rotation, quat.create(), 0)).toBe(true);
+    const up = head();
+    up.animator.addConstraint({ kind: 'lookAt', target: 'head', point: { x: 0, y: -120, z: 0 } });
+    up.animator.evaluate();
+    for (const value of [up.head.rotation.x, up.head.rotation.y, up.head.rotation.z]) {
+      expect(Number.isFinite(value)).toBe(true);
+    }
+    expectVec(worldAxis(up.head), { x: 0, y: -1, z: 0 });
+  });
+
+  it('limitRotation leaves every rotation inside its ranges exactly as it was', () => {
+    const { head: node, animator } = head();
+    const limit = animator.addConstraint({
+      kind: 'limitRotation',
+      target: 'head',
+      min: { x: -3, y: -1.5, z: -3 },
+      max: { x: 3, y: 1.5, z: 3 },
+    });
+    const layer = animator.addLayer();
+    let seed = 7;
+    const next = () => {
+      seed = (seed * 16807) % 2147483647;
+      return seed / 2147483647;
+    };
+    for (let i = 0; i < 200; i++) {
+      const pose = euler.create((next() * 2 - 1) * 3, (next() * 2 - 1) * 1.5, (next() * 2 - 1) * 3);
+      layer.play({
+        duration: 1,
+        loop: 'once',
+        tracks: [
+          {
+            target: 'head',
+            property: 'rotation',
+            keys: [{ time: 0, value: quat.fromEuler(quat.create(), pose) }],
+          },
+        ],
+      });
+      limit.enabled = false;
+      animator.evaluate();
+      const plain = quat.clone(node.rotation);
+      limit.enabled = true;
+      animator.evaluate();
+      expect(quat.equals(node.rotation, plain, 0)).toBe(true);
+    }
+  });
+
+  it('limitRotation moves smoothly when the pose crosses ±π outside its range', () => {
+    const { head: node, animator } = head();
+    animator.addConstraint({ kind: 'limitRotation', target: 'head', min: { x: 0 }, max: { x: 2 } });
+    const layer = animator.addLayer();
+    let previous: ReturnType<typeof quat.create> | null = null;
+    // Across π the result stays at the bound; much further out another allowed rotation
+    // becomes the nearest, as with any limit that is not convex.
+    for (let x = 2.9; x <= 3.32; x += 0.02) {
+      layer.play({
+        duration: 1,
+        loop: 'once',
+        tracks: [
+          {
+            target: 'head',
+            property: 'rotation',
+            keys: [{ time: 0, value: quat.fromEuler(quat.create(), euler.create(x, 0.2, 0.1)) }],
+          },
+        ],
+      });
+      animator.evaluate();
+      if (previous) expect(quat.angleBetween(node.rotation, previous)).toBeLessThan(0.05);
+      previous = quat.clone(node.rotation);
+    }
+  });
+
+  it('keeps its spec apart from run-time changes and from the caller', () => {
+    const { animator } = arm();
+    const tip = { x: 0, y: 8, z: 0 };
+    const point = { x: 9, y: 0, z: 4 };
+    const ik = animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip,
+      point,
+    });
+    tip.y = 99;
+    point.x = 99;
+    expect(ik.tip.y).toBe(8);
+    expect(ik.point?.x).toBe(9);
+    const before = ik.point;
+    ik.point = { x: 1, y: 1, z: 1 };
+    ik.weight = 0.5;
+    expect(before?.x).toBe(9);
+    expect(Object.isFrozen(ik.point)).toBe(true);
+    const saved = ik.toSpec();
+    expect(saved.point).toEqual({ x: 9, y: 0, z: 4 });
+    expect(saved.weight).toBe(1);
+    (saved.point as { x: number }).x = 5;
+    expect(ik.toSpec().point).toEqual({ x: 9, y: 0, z: 4 });
+    const aim = animator.addConstraint({
+      kind: 'aim',
+      target: 'upper',
+      axis: { x: 3, y: 0, z: 0 },
+    });
+    expect(aim.axis).toEqual({ x: 1, y: 0, z: 0 });
+    expect(Object.isFrozen(aim.axis)).toBe(true);
+  });
+
+  it('replaces a constraint with an edited spec in place, or changes nothing', () => {
+    const { head: node, animator } = head();
+    const first = animator.addConstraint({ kind: 'limitRotation', target: 'head' });
+    const aim = animator.addConstraint({
+      kind: 'aim',
+      target: 'head',
+      point: { x: 50, y: -20, z: 0 },
+    });
+    const last = animator.addConstraint({ kind: 'limitRotation', target: 'head' });
+    const edited = animator.replaceConstraint(aim, { ...aim.toSpec(), maxAngle: 0.25 });
+    expect(animator.constraints).toEqual([first, edited, last]);
+    expect(edited.maxAngle).toBe(0.25);
+    animator.evaluate();
+    expect(angleOf(worldAxis(node), { x: 0, y: 0, z: 1 })).toBeCloseTo(0.25, 9);
+    expect(() => animator.replaceConstraint(edited, { ...edited.toSpec(), maxAngle: 9 })).toThrow(
+      'maxAngle must be a number above 0',
+    );
+    expect(animator.constraints).toEqual([first, edited, last]);
+    expect(() => animator.replaceConstraint(aim, aim.toSpec())).toThrow(
+      'The constraint is not on this animator.',
+    );
+  });
+
+  it('checks goals, poles and vectors from loose data', () => {
+    const { scene, animator } = arm();
+    const nose = new Node({ id: 'nose' });
+    scene.getById('lower')?.add(nose);
+    const ik = (options: object) =>
+      animator.addConstraint({
+        kind: 'twoBoneIK',
+        target: 'upper',
+        mid: 'lower',
+        tip: { x: 0, y: 8, z: 0 },
+        ...options,
+      } as never);
+    for (const [options, message] of [
+      [{ at: 'nose' }, 'at nose must not be the target or under it: it would turn with it.'],
+      [{ pole: 'upper' }, 'pole upper must not be the target or under it'],
+      [
+        { at: 5 },
+        'Constraint twoBoneIK upper: at must be a node id or a slot reference { slot }, got 5.',
+      ],
+      [{ pole: {} }, 'pole must be a node id or a slot reference { slot }, got {}.'],
+    ] as const) {
+      expect(() => ik(options), message).toThrow(message);
+    }
+    expect(() =>
+      animator.addConstraint({ kind: 'aim', target: 'upper', axis: { x: 1e200, y: 0, z: 0 } }),
+    ).toThrow('axis must be a non-zero vector');
+    const loose = animator.addConstraint({
+      kind: 'aim',
+      target: 'upper',
+      weight: null,
+      enabled: null,
+      maxAngle: null,
+      axis: null,
+    } as unknown as AimSpec);
+    expect([loose.weight, loose.enabled, loose.maxAngle]).toEqual([1, true, Math.PI]);
+  });
+
+  it('springs and constraints both say whether they were removed; unproject refuses NaN', () => {
+    const { animator } = head();
+    const spring = animator.addSpring({ target: 'head', tip: { x: 0, y: -5, z: 0 } });
+    expect(animator.removeSpring(spring)).toBe(true);
+    expect(animator.removeSpring(spring)).toBe(false);
+    const camera = new Camera();
+    const out = vec3.create(1, 2, 3);
+    expect(camera.unproject(out, Number.NaN, 0, 0)).toBeNull();
+    expect(camera.unproject(out, 0, 0, Number.POSITIVE_INFINITY)).toBeNull();
+    expect(out).toEqual({ x: 1, y: 2, z: 3 });
+  });
+
+  it('a goal or pole moved under the target stops the constraint and says why', () => {
+    const { scene, head: node, animator } = head();
+    const ball = new Node({ id: 'ball', position: { x: 50, y: -20, z: 0 } });
+    scene.root.add(ball);
+    const aim = animator.addConstraint({ kind: 'aim', target: 'head', at: 'ball' });
+    node.add(ball);
+    animator.evaluate();
+    expect(quat.equalsRotation(node.rotation, quat.create(), 0)).toBe(true);
+    expect(aim.problem).toBe('at "ball" is the target "head" or under it: it would turn with it.');
+    scene.root.add(ball);
+    animator.evaluate();
+    expect(aim.problem).toBeNull();
+    expectVec(worldAxis(node), { x: 1, y: 0, z: 0 });
+    const limb = arm();
+    const pole = new Node({ id: 'pole', position: { x: 20, y: 0, z: 0 } });
+    limb.scene.root.add(pole);
+    const ik = limb.animator.addConstraint({
+      kind: 'twoBoneIK',
+      target: 'upper',
+      mid: 'lower',
+      tip: { x: 0, y: 8, z: 0 },
+      point: { x: 0, y: 2, z: 0 },
+      pole: 'pole',
+    });
+    limb.upper.add(pole);
+    limb.animator.evaluate();
+    expectVec(limb.hand(), { x: 0, y: 8, z: 0 });
+    expect(ik.problem).toBe(
+      'pole "pole" is the target "upper" or under it: it would turn with it.',
+    );
+  });
+
+  it('forgets an old failure once the constraint works again', () => {
+    const { body, head: node, animator } = head();
+    const aim = animator.addConstraint({
+      kind: 'aim',
+      target: 'head',
+      point: { x: 50, y: -20, z: 0 },
+    });
+    node.removeFromParent();
+    animator.evaluate();
+    expect(aim.problem).toMatch(/and no node with id "head" in the scene\.$/);
+    body.add(node);
+    animator.evaluate();
+    expect(aim.problem).toBeNull();
+    node.removeFromParent();
+    expect(aim.problem).toBe('node "head" is destroyed or out of the scene.');
   });
 });
