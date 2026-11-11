@@ -23,13 +23,20 @@ import { type Blend1D, blendSampler, checkBlend, type Sampler } from './blend.ts
 import { addChannel, type Channel, ChannelSet, mixChannel, sampleTracks } from './channels.ts';
 import { type Clip, clipTime, compileClip } from './clip.ts';
 import { clearTriggers, Inputs } from './inputs.ts';
+import { type Motion, motionKind } from './motion.ts';
 import { findProperty } from './properties.ts';
 import { applySpring, bindSpring, Spring, type SpringOptions, stepSpring } from './springs.ts';
-import { StateMachine, type StateMachineSpec, stepMachine } from './state-machine.ts';
+import {
+  detachMachine,
+  StateMachine,
+  type StateMachineSpec,
+  stepMachine,
+} from './state-machine.ts';
 
 /*
- * Animator: animation layers over one scene. A layer plays motions: keyed clips or sets of
- * procedural behaviors (see behaviors.ts); in this file, "clip" stands for either. Every
+ * Animator: animation layers over one scene. A layer plays motions: keyed clips, sets of
+ * procedural behaviors (see behaviors.ts) or blends of those by a number input (see
+ * blend.ts); in this file, "clip" stands for any of them. Every
  * property animated by a clip played on the animator, or turned by a spring, becomes a
  * channel; its value when it first becomes one is its rest pose, and it is not updated later
  * (a behavior's `from` is not the rest pose: an override layer below full weight blends it
@@ -49,6 +56,10 @@ import { StateMachine, type StateMachineSpec, stepMachine } from './state-machin
  * edited one must be a new object. It is compiled again the next time it is played after one
  * of its nodes was destroyed or the rig's slots changed (`Rig.version`); until then a playing
  * motion keeps the nodes it was compiled for, and nodes it no longer animates return to rest.
+ *
+ * State machines (see state-machine.ts) choose what their layers play from the animator's
+ * inputs (`animator.inputs`): they step after the layers advance, and then fired triggers are
+ * cleared.
  *
  * Constraints (see rig/constraints.ts) run after the layers, in the order of
  * `animator.constraints`, and adjust the blended pose: aim, look at, two-bone IK, copy and
@@ -122,11 +133,7 @@ function checkTime(value: number, what: string): number {
   return value;
 }
 
-/**
- * What a layer plays: a keyed clip, a set of procedural behaviors, or a blend of those by a
- * number input (see blend.ts).
- */
-export type Motion = Clip | BehaviorSet | Blend1D;
+export type { Motion } from './motion.ts';
 
 /** A motion compiled against the animator's scene, rig and channels. */
 interface CompiledMotion extends Sampler {
@@ -142,6 +149,10 @@ interface BlendContext {
   rest(): Float64Array;
 }
 
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
 /** `Rig.version` of `rig`, or -1 without a rig. */
 function rigVersionOf(rig: Rig | null): number {
   return rig ? rig.version : -1;
@@ -154,19 +165,25 @@ function compileMotion(
   context: BlendContext,
 ): CompiledMotion {
   const rigVersion = rigVersionOf(scope.rig);
-  if ('blend' in motion) {
-    const input = checkBlend(motion, context.inputs);
-    const children = motion.blend.map((point) =>
-      compileMotion(point.motion, scope, channels, context),
-    );
+  const kind = motionKind(motion);
+  if (kind === 'blend') {
+    const blend = motion as Blend1D;
+    const input = checkBlend(blend, context.inputs);
+    const children = blend.blend.map((point, i) => {
+      try {
+        return compileMotion(point.motion, scope, channels, context);
+      } catch (error) {
+        throw new Error(`Blend: point ${i}: ${messageOf(error)}`, { cause: error });
+      }
+    });
     return {
       motion,
       rigVersion,
-      ...blendSampler(motion.blend, children, input, channels, context.rest),
+      ...blendSampler(blend.blend, children, input, channels, context.rest),
     };
   }
-  if ('behaviors' in motion) {
-    const compiled = compileBehaviors(motion, scope, channels);
+  if (kind === 'behaviors') {
+    const compiled = compileBehaviors(motion as BehaviorSet, scope, channels);
     return {
       motion,
       rigVersion,
@@ -174,8 +191,9 @@ function compileMotion(
       sample: (time, out, touched) => sampleBehaviors(compiled, time, out, touched),
     };
   }
-  const { tracks } = compileClip(motion, scope, channels);
-  const { duration, loop } = motion;
+  const clip = motion as Clip;
+  const { tracks } = compileClip(clip, scope, channels);
+  const { duration, loop } = clip;
   return {
     motion,
     rigVersion,
@@ -535,20 +553,27 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Adds a state machine (see state-machine.ts) that drives the layer named `spec.layer`. Its
-   * inputs are declared on `animator.inputs` first, the motions of all its states are compiled
-   * (so a target that does not resolve fails here, naming it), and the machine enters its
-   * initial state at once. Throws when there is no such layer, the layer already has a
-   * machine, or the spec is not valid.
+   * Adds a state machine (see state-machine.ts) that drives the layer named `spec.layer`. The
+   * spec is checked first; then its inputs are declared on `animator.inputs`, the motions of
+   * all its states are compiled (so a target that does not resolve fails here, naming it) and
+   * the machine enters its initial state at once. Throws an error naming the machine when
+   * there is no such layer, the layer already has a machine, or the spec is not valid; a
+   * failed add declares no inputs and leaves the layer as it was (channels of motions compiled
+   * before the failing one stay, with their rest values).
    */
   addStateMachine(spec: StateMachineSpec): StateMachine {
-    const name = spec?.layer;
-    const layer = typeof name === 'string' ? this.layer(name) : null;
-    if (!layer) throw new Error(`State machine: no layer ${JSON.stringify(name) ?? String(name)}.`);
-    if (this.#machines.some((machine) => machine.layer === layer)) {
-      throw new Error(`State machine: layer "${layer.name}" already has a machine.`);
+    if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+      throw new TypeError('State machine: the spec must be an object.');
     }
-    for (const input of spec.inputs ?? []) this.inputs.define(input);
+    const label = typeof spec.name === 'string' && spec.name !== '' ? ` "${spec.name}"` : '';
+    const name = spec.layer;
+    const layer = typeof name === 'string' ? this.layer(name) : null;
+    if (!layer) {
+      throw new Error(`State machine${label}: no layer ${JSON.stringify(name) ?? String(name)}.`);
+    }
+    if (this.#machines.some((machine) => machine.layer === layer)) {
+      throw new Error(`State machine${label}: layer "${layer.name}" already has a machine.`);
+    }
     const machine = new StateMachine(spec, layer, this.inputs, (motion) => {
       this.#compile(motion);
     });
@@ -557,13 +582,15 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Removes `machine`; its layer keeps playing what it plays. Returns whether it was on this
-   * animator.
+   * Removes `machine`; its layer keeps playing what it plays, and the machine's `setState` and
+   * `reset` throw from then on. Returns whether it was on this animator.
    */
   removeStateMachine(machine: StateMachine): boolean {
     const index = this.#machines.indexOf(machine);
-    if (index >= 0) this.#machines.splice(index, 1);
-    return index >= 0;
+    if (index < 0) return false;
+    this.#machines.splice(index, 1);
+    detachMachine(machine);
+    return true;
   }
 
   /** Springs in the order they ran in the last frame: parents before children. */
@@ -773,15 +800,19 @@ export class Animator implements TargetScope {
   }
 
   /**
-   * Advances every layer by `dt` seconds, writes the blended pose to the nodes, applies the
-   * constraints and simulates the springs for `dt` from the result.
+   * Advances every layer by `dt` seconds, steps the state machines (which may play new
+   * motions on their layers), clears the fired triggers, writes the blended pose to the
+   * nodes, applies the constraints and simulates the springs for `dt` from the result.
    */
   update(dt: number): void {
     checkTime(dt, 'Animator dt');
     for (const layer of this.#layers) layerInternals.advance(layer, dt);
     const machines = this.#machines;
-    for (let i = 0; i < machines.length; i++) stepMachine(machines[i] as StateMachine, dt);
-    clearTriggers(this.inputs);
+    try {
+      for (let i = 0; i < machines.length; i++) stepMachine(machines[i] as StateMachine, dt);
+    } finally {
+      clearTriggers(this.inputs);
+    }
     if (this.#springsEnabled) this.#prepareSprings();
     this.#prepareConstraints();
     this.#writePose();
@@ -796,9 +827,10 @@ export class Animator implements TargetScope {
   /**
    * Writes the blended pose for the layers' current times without advancing them, applies the
    * constraints, and shows the springs in their current state (after `resetSprings`, the plain
-   * pose). Outside fades, with springs off and the same constraint settings (`point`,
-   * `weight`, `enabled`), setting layer times and evaluating gives the same frame as playing
-   * up to them; fade progress and spring motion are not seekable.
+   * pose). It does not step state machines or clear triggers. Outside fades, with springs off,
+   * the same constraint settings (`point`, `weight`, `enabled`), the same input values and the
+   * machines in the same states, setting layer times and evaluating gives the same frame as
+   * playing up to them; fade progress, spring motion and machine states are not seekable.
    */
   evaluate(): void {
     if (this.#springsEnabled) this.#prepareSprings();

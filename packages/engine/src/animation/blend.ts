@@ -37,6 +37,9 @@ export interface Sampler {
 
 /** Checks the shape of `motion` and gives the number input it reads; throws otherwise. */
 export function checkBlend(motion: Blend1D, inputs: Inputs): InputRecord {
+  for (const key of Object.keys(motion)) {
+    if (key !== 'input' && key !== 'blend') throw new RangeError(`Blend: unknown option "${key}".`);
+  }
   const { input, blend } = motion;
   if (typeof input !== 'string') throw new TypeError('Blend: input must be an input name.');
   const record = inputRecord(inputs, input);
@@ -54,6 +57,11 @@ export function checkBlend(motion: Blend1D, inputs: Inputs): InputRecord {
     const point = blend[i] as BlendPoint;
     if (typeof point !== 'object' || point === null) {
       throw new TypeError(`Blend: point ${i} must be an object { at, motion }.`);
+    }
+    for (const key of Object.keys(point)) {
+      if (key !== 'at' && key !== 'motion') {
+        throw new RangeError(`Blend: point ${i}: unknown option "${key}".`);
+      }
     }
     if (!Number.isFinite(point.at)) {
       throw new RangeError(`Blend: point ${i} needs a finite at, got ${String(point.at)}.`);
