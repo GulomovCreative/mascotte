@@ -36,12 +36,11 @@ import {
 /*
  * Animator: animation layers over one scene. A layer plays motions: keyed clips, sets of
  * procedural behaviors (see behaviors.ts) or blends of those by a number input (see
- * blend.ts); in this file, "clip" stands for any of them. Every
- * property animated by a clip played on the animator, or turned by a spring, becomes a
- * channel; its value when it first becomes one is its rest pose, and it is not updated later
- * (a behavior's `from` is not the rest pose: an override layer below full weight blends it
- * with rest). Each frame starts from the rest pose, and every layer blends its clips into it
- * in order:
+ * blend.ts); in this file, "clip" stands for any of them. Every property animated by a clip
+ * played on the animator, or turned by a spring, becomes a channel; its value when it first
+ * becomes one is its rest pose, and it is not updated later (a behavior's `from` is not the
+ * rest pose: an override layer below full weight blends it with rest). Each frame starts from
+ * the rest pose, and every layer blends its clips into it in order:
  * - an override layer moves the pose towards its clips by its weight;
  * - an additive layer adds how far its clips are from their value at time 0, scaled by its
  *   weight (rotations compose). Booleans, enums and `null` colors are not additive.

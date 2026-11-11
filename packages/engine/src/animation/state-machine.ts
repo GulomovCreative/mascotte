@@ -1,4 +1,5 @@
 import type { AnimationLayer } from './animator.ts';
+import type { Clip } from './clip.ts';
 import {
   addInput,
   checkInput,
@@ -176,6 +177,19 @@ function listOf<T>(value: readonly T[] | null | undefined, what: string, fail: F
   return value;
 }
 
+/** How often an exit point of `clip` comes again: its loop period, or 0 when it does not. */
+function exitCycle(clip: Clip): number {
+  if (!(clip.duration > 0)) return 0;
+  switch (clip.loop) {
+    case 'loop':
+      return clip.duration;
+    case 'once':
+      return 0;
+    default:
+      return 2 * clip.duration;
+  }
+}
+
 /**
  * How far the time went past an exit point of `state` at `exitTime` when it moved from `prev`
  * to `now`; -1 if it did not reach one.
@@ -311,14 +325,9 @@ export class StateMachine {
           where(`its blend reads input ${show(input)}, which the machine does not declare.`);
         }
       }
-      const clip = kind === 'clip' ? (motion as Extract<Motion, { tracks: unknown }>) : null;
+      const clip = kind === 'clip' ? (motion as Clip) : null;
       const duration = clip ? clip.duration : -1;
-      const cycle =
-        !clip || !(clip.duration > 0) || clip.loop === 'once'
-          ? 0
-          : clip.loop === 'loop'
-            ? clip.duration
-            : 2 * clip.duration;
+      const cycle = clip ? exitCycle(clip) : 0;
       const state: State = { name, motion, duration, cycle, transitions: [] };
       states.push(state);
       byName.set(name, state);

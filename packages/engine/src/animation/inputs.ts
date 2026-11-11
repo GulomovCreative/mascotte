@@ -93,6 +93,11 @@ function encode(name: string, type: InputType, value: unknown): number {
   }
 }
 
+/** The public form of a stored `value` of an input of `type`. */
+function decode(type: InputType, value: number): boolean | number {
+  return type === 'number' ? value : value === 1;
+}
+
 let inputsInternals!: {
   record(inputs: Inputs, name: string): InputRecord | undefined;
   check(inputs: Inputs, spec: InputSpec): InputRecord;
@@ -127,16 +132,13 @@ export class Inputs {
       );
     }
     if (spec.value !== undefined && spec.value !== null && existing.initial !== record.initial) {
+      const start = String(decode(existing.type, existing.initial));
       throw new Error(
-        `Input "${record.name}" is already declared starting at ${this.#show(existing, existing.initial)}, ` +
+        `Input "${record.name}" is already declared starting at ${start}, ` +
           `not ${show(spec.value)}.`,
       );
     }
     return existing;
-  }
-
-  #show(record: InputRecord, value: number): string {
-    return record.type === 'bool' ? String(value === 1) : String(value);
   }
 
   /** Whether an input named `name` is declared. */
@@ -160,7 +162,7 @@ export class Inputs {
    */
   get(name: string): boolean | number {
     const record = this.#find(name);
-    return record.type === 'number' ? record.value : record.value === 1;
+    return decode(record.type, record.value);
   }
 
   /** Sets a `bool` or `number` input; throws for an unknown input, a trigger or a wrong value. */
@@ -202,7 +204,6 @@ export class Inputs {
       },
       clearTriggers: (inputs) => {
         const triggers = inputs.#triggers;
-        if (triggers.length === 0) return;
         for (let i = 0; i < triggers.length; i++) (triggers[i] as InputRecord).value = 0;
         triggers.length = 0;
       },
