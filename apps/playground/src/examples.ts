@@ -476,8 +476,9 @@ function clipExampleGL(): Example {
 /**
  * The animated mascot on animation layers; its head follows the pointer over the canvas (the
  * gaze eases in and out; over other elements it lets go), it smiles wider while the pointer is
- * over it (the `mood` input eases the same way) and a click pokes it (the `poke` trigger: it
- * hops and gasps). Every frame advances the layers, the machines, the gaze and the springs by
+ * over the canvas (the `mood` input follows the gaze weight) and a click on the canvas pokes
+ * it (the `poke` trigger: it hops and gasps; not while the animation is paused, when the
+ * machines could switch states but not play them). Every frame advances the layers, the machines, the gaze and the springs by
  * the step of the example's time. The first frame, or a step back or longer than
  * `SPRING_MAX_DT`, seeks instead: the machines start again from their initial states and the
  * springs rest; while the animation is paused the step is 0 and the springs hold still.
@@ -534,7 +535,9 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         pointer = null;
       };
       const poke = (event: PointerEvent) => {
-        if (event.target instanceof HTMLCanvasElement) animator.inputs.fire('poke');
+        if (controls.animate && event.target instanceof HTMLCanvasElement) {
+          animator.inputs.fire('poke');
+        }
       };
       container.addEventListener('pointermove', move);
       container.addEventListener('pointerleave', leave);

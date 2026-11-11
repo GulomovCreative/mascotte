@@ -1,5 +1,13 @@
-import type { AnimationLayer, Motion } from './animator.ts';
-import { type InputRecord, type InputSpec, type Inputs, inputRecord } from './inputs.ts';
+import type { AnimationLayer } from './animator.ts';
+import {
+  addInput,
+  checkInput,
+  type InputRecord,
+  type InputSpec,
+  type Inputs,
+  removeInput,
+} from './inputs.ts';
+import { type Motion, motionKind } from './motion.ts';
 
 /*
  * State machines: which motion a layer plays, chosen by inputs. A machine drives one layer of
@@ -7,16 +15,23 @@ import { type InputRecord, type InputSpec, type Inputs, inputRecord } from './in
  * input) or nothing; transitions move from a state (or from any state) to another when all
  * their conditions on inputs hold, fading the new state's motion in over `duration` seconds,
  * and may wait for the state's clip to reach a point (`exitTime`, in clip durations). Several
- * machines run in parallel on different layers (body, face) and read the same inputs.
+ * machines run in parallel on different layers (body, face) and read the same inputs; each
+ * declares every input its conditions and blends read, so its spec stands on its own.
  *
  * A machine is made from plain data (a spec, which the document will save) by
- * `Animator.addStateMachine`. It steps in `Animator.update`, after the layers advance: its time
- * in the state grows by `dt`, and the first transition that can fire does, transitions from
- * any state before those of the current state, each in the order of the spec; at most one
- * fires per update. A transition from any state does not fire into the state the machine is
- * in. Triggers hold for one update (see inputs.ts), so a trigger whose transition waits for
- * an exit time it has not reached is lost. Machines keep state, so they are not seekable:
- * `reset()` starts one again from its initial state.
+ * `Animator.addStateMachine`. It steps in `Animator.update`, after the layers advance: the
+ * first transition that can fire does, transitions from any state before those of the current
+ * state, each in the order of the spec; at most one fires per update. A transition from any
+ * state does not fire into the state the machine is in. Triggers hold for one update (see
+ * inputs.ts), so a trigger that no transition of the current state uses, or whose transition
+ * waits for an exit time it has not reached, is lost.
+ *
+ * The machine owns its layer: its time in a state that plays a motion is the layer's time
+ * (`layer.time`, so seeking the layer moves it too), and other code should not play or stop
+ * motions on that layer. When a transition's motion cannot be played (a node of it was
+ * destroyed, or the rig's slots changed, and its targets no longer resolve), the machine
+ * enters the state anyway with the layer stopped and says why in `problem`; it does not throw
+ * from `update`. Machines keep state, so they are not seekable: `reset()` starts one again.
  */
 
 /** The `from` of a transition that leaves any state. */
@@ -48,10 +63,13 @@ export interface TransitionSpec {
   /** Seconds the new state's motion fades in over the old one; 0 (default) switches at once. */
   readonly duration?: number | null;
   /**
-   * Waits for the leaving state's clip to reach `exitTime` clip durations. A clip that plays
-   * once can leave at that point or any time after; a looping (or ping-pong) one only when it
-   * passes that point of a cycle, and the new state starts as far into its motion as the
-   * clip went past the point. Only for transitions from a state that plays a clip.
+   * Waits until the time in the leaving state reaches `exitTime` clip durations; only for
+   * transitions from a state that plays a clip. For a clip played once (or of zero duration)
+   * the transition can fire at that point or any time after. For a looping clip the point
+   * comes again every cycle, and for a ping-pong clip every two durations (values from 1 to 2
+   * fall on the way back); the transition can fire only in the update that passes one. The
+   * new state starts as far into its motion as the time went past the point within that
+   * update.
    */
   readonly exitTime?: number | null;
 }
@@ -63,11 +81,11 @@ export interface StateSpec {
 }
 
 export interface StateMachineSpec {
-  /** Name for lookups and debugging. */
+  /** Name for lookups, debugging and error messages. */
   readonly name?: string | null;
   /** The name of the animator layer the machine drives; one machine per layer. */
   readonly layer: string;
-  /** Inputs the machine declares on its animator (see `Inputs.define`). */
+  /** Every input its conditions and blends read (see `Inputs.define`). */
   readonly inputs?: readonly InputSpec[] | null;
   /** At least one state; names are unique and not `'*'`. */
   readonly states: readonly StateSpec[];
@@ -109,7 +127,7 @@ interface State {
   readonly motion: Motion | null;
   /** Clip duration, or -1 when the state does not play a clip. */
   readonly duration: number;
-  /** How often an exit point comes again: the loop period, or 0 for a clip played once. */
+  /** How often an exit point comes again: the loop period, or 0 when it does not. */
   readonly cycle: number;
   readonly transitions: Transition[];
 }
@@ -127,6 +145,8 @@ const STATE_KEYS = new Set(['name', 'motion']);
 const TRANSITION_KEYS = new Set(['from', 'to', 'conditions', 'duration', 'exitTime']);
 const CONDITION_KEYS = new Set(['input', 'op', 'value']);
 
+type Fail = (message: string) => never;
+
 function show(value: unknown): string {
   if (typeof value === 'string') return `"${value}"`;
   try {
@@ -136,7 +156,11 @@ function show(value: unknown): string {
   }
 }
 
-function checkKeys(value: object, keys: ReadonlySet<string>, fail: (message: string) => never) {
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function checkKeys(value: object, keys: ReadonlySet<string>, fail: Fail): void {
   for (const key of Object.keys(value)) {
     if (!keys.has(key)) fail(`unknown option "${key}".`);
   }
@@ -146,21 +170,16 @@ function isObject(value: unknown): value is object {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function listOf<T>(
-  value: readonly T[] | null | undefined,
-  what: string,
-  fail: (m: string) => never,
-): readonly T[] {
+function listOf<T>(value: readonly T[] | null | undefined, what: string, fail: Fail): readonly T[] {
   if (value === undefined || value === null) return [];
   if (!Array.isArray(value)) fail(`${what} must be a list.`);
   return value;
 }
 
-function isClip(motion: Motion): motion is Extract<Motion, { duration: number }> {
-  return 'tracks' in motion;
-}
-
-/** Whether the time went from `prev` to `now` past an exit point of `transition`; the overshoot or -1. */
+/**
+ * How far the time went past an exit point of `state` at `exitTime` when it moved from `prev`
+ * to `now`; -1 if it did not reach one.
+ */
 function exitOvershoot(state: State, exitTime: number, prev: number, now: number): number {
   const point = exitTime * state.duration;
   if (state.cycle <= 0) return now >= point ? now - Math.max(point, prev) : -1;
@@ -204,25 +223,30 @@ function holds(conditions: readonly Condition[]): boolean {
 
 let machineInternals!: {
   step(machine: StateMachine, dt: number): void;
+  detach(machine: StateMachine): void;
 };
 
 /** A state machine driving one layer. Created by `Animator.addStateMachine`. */
 export class StateMachine {
   readonly name: string;
   readonly layer: AnimationLayer;
+  readonly #label: string;
   readonly #spec: StateMachineSpec;
   readonly #byName: ReadonlyMap<string, State>;
   readonly #any: readonly Transition[];
   readonly #initial: State;
   readonly #names: readonly string[];
   #state: State;
+  /** Time in the current state when the machine last looked. */
   #time = 0;
+  #problem: string | null = null;
+  #detached = false;
 
   /**
-   * Checks `spec` against `inputs` (its own inputs must be declared already), passes the
-   * motion of every state to `prepare` (which compiles it, and throws for a bad one) and
-   * enters the initial state on `layer` at once. Throws an error naming the machine for a bad
-   * spec.
+   * Checks `spec`, declares its inputs on `inputs`, passes the motion of every state to
+   * `prepare` (which compiles it, and throws for a bad one) and enters the initial state on
+   * `layer` at once. Throws an error naming the machine and the part for a bad spec, and then
+   * declares nothing.
    */
   constructor(
     spec: StateMachineSpec,
@@ -230,12 +254,10 @@ export class StateMachine {
     inputs: Inputs,
     prepare: (motion: Motion) => void,
   ) {
-    const label =
-      isObject(spec) && typeof spec.name === 'string' && spec.name !== ''
-        ? `"${spec.name}"`
-        : `on layer "${layer.name}"`;
-    const fail = (message: string): never => {
-      throw new Error(`State machine ${label}: ${message}`);
+    const named = isObject(spec) && typeof spec.name === 'string' && spec.name !== '';
+    this.#label = `State machine ${named ? `"${spec.name}"` : `on layer "${layer.name}"`}`;
+    const fail: Fail = (message) => {
+      throw new Error(`${this.#label}: ${message}`);
     };
     if (!isObject(spec)) fail('the spec must be an object.');
     checkKeys(spec, SPEC_KEYS, fail);
@@ -244,25 +266,52 @@ export class StateMachine {
     }
     this.name = spec.name ?? '';
     this.layer = layer;
+
+    // Inputs: checked against those already declared, declared only once all is well.
+    const declared = new Map<string, InputRecord>();
+    const inputSpecs = listOf(spec.inputs, 'inputs', fail);
+    for (let i = 0; i < inputSpecs.length; i++) {
+      let record: InputRecord;
+      try {
+        record = checkInput(inputs, inputSpecs[i] as InputSpec);
+      } catch (error) {
+        throw new Error(`${this.#label}: input ${i}: ${messageOf(error)}`, { cause: error });
+      }
+      if (declared.has(record.name)) fail(`input ${i}: "${record.name}" is declared twice.`);
+      declared.set(record.name, record);
+    }
+
     const stateSpecs = listOf(spec.states, 'states', fail);
     if (stateSpecs.length === 0) fail('it needs at least one state.');
     const states: State[] = [];
     const byName = new Map<string, State>();
     for (const stateSpec of stateSpecs) {
       if (!isObject(stateSpec)) fail('a state must be an object { name, motion }.');
-      checkKeys(stateSpec, STATE_KEYS, (m) => fail(`state ${show(stateSpec.name)}: ${m}`));
       const { name } = stateSpec;
       if (typeof name !== 'string' || name === '' || name === ANY_STATE) {
         fail(
           `a state name must be a non-empty string other than "${ANY_STATE}", got ${show(name)}.`,
         );
       }
+      const where: Fail = (m) => fail(`state "${name}": ${m}`);
+      checkKeys(stateSpec, STATE_KEYS, where);
       if (byName.has(name)) fail(`two states are named "${name}".`);
       const motion = stateSpec.motion ?? null;
-      if (motion !== null && !isObject(motion)) {
-        fail(`state "${name}": motion must be a clip, behaviors, a blend or null.`);
+      let kind = null;
+      if (motion !== null) {
+        try {
+          kind = motionKind(motion);
+        } catch (error) {
+          where(messageOf(error));
+        }
       }
-      const clip = motion !== null && isClip(motion) ? motion : null;
+      if (kind === 'blend') {
+        const input = (motion as { readonly input: unknown }).input;
+        if (typeof input !== 'string' || !declared.has(input)) {
+          where(`its blend reads input ${show(input)}, which the machine does not declare.`);
+        }
+      }
+      const clip = kind === 'clip' ? (motion as Extract<Motion, { tracks: unknown }>) : null;
       const duration = clip ? clip.duration : -1;
       const cycle =
         !clip || !(clip.duration > 0) || clip.loop === 'once'
@@ -274,11 +323,12 @@ export class StateMachine {
       states.push(state);
       byName.set(name, state);
     }
+
     const any: Transition[] = [];
     const transitionSpecs = listOf(spec.transitions, 'transitions', fail);
     for (let i = 0; i < transitionSpecs.length; i++) {
       const t = transitionSpecs[i] as TransitionSpec;
-      const where = (m: string): never => fail(`transition ${i}: ${m}`);
+      const where: Fail = (m) => fail(`transition ${i}: ${m}`);
       if (!isObject(t)) where('a transition must be an object { from, to, ... }.');
       checkKeys(t, TRANSITION_KEYS, where);
       const from = t.from === ANY_STATE ? null : byName.get(t.from);
@@ -301,31 +351,55 @@ export class StateMachine {
       }
       const conditionSpecs = listOf(t.conditions, 'conditions', where);
       const conditions = conditionSpecs.map((c, k) =>
-        compileCondition(c, inputs, (m) => where(`condition ${k}: ${m}`)),
+        compileCondition(c, declared, (m) => where(`condition ${k}: ${m}`)),
       );
       if (conditions.length === 0 && exitTime < 0) {
         where('it needs a condition or an exitTime, or it would fire at once.');
       }
+      if (
+        from === to &&
+        exitTime < 0 &&
+        !conditions.some((condition) => condition.op === Op.Fired)
+      ) {
+        where(
+          'a transition into its own state needs a trigger or an exitTime, or it would restart ' +
+            'the state every update while its conditions hold.',
+        );
+      }
       const transition: Transition = { to: to as State, conditions, fade, exitTime };
       (from ? from.transitions : any).push(transition);
     }
+
     const initialName = spec.initial ?? (states[0] as State).name;
     const initial = byName.get(initialName);
     if (!initial) fail(`no initial state ${show(initialName)}.`);
+
+    // The spec is valid: declare the new inputs, then compile the motions (blends read
+    // inputs), taking the inputs back if a motion fails.
+    const added: string[] = [];
+    for (const record of declared.values()) {
+      if (inputs.has(record.name)) continue;
+      addInput(inputs, record);
+      added.push(record.name);
+    }
     for (const state of states) {
       if (!state.motion) continue;
       try {
         prepare(state.motion);
       } catch (error) {
-        fail(`state "${state.name}": ${error instanceof Error ? error.message : String(error)}`);
+        for (const name of added) removeInput(inputs, name);
+        throw new Error(`${this.#label}: state "${state.name}": ${messageOf(error)}`, {
+          cause: error,
+        });
       }
     }
+
     this.#byName = byName;
     this.#any = any;
     this.#initial = initial as State;
     this.#state = initial as State;
     this.#names = Object.freeze(states.map((state) => state.name));
-    this.#spec = Object.freeze({ ...spec });
+    this.#spec = snapshot(spec);
     this.#enter(this.#initial, 0, 0);
   }
 
@@ -334,7 +408,10 @@ export class StateMachine {
     return this.#state.name;
   }
 
-  /** Seconds spent in the current state (counted from where its motion started). */
+  /**
+   * Seconds in the current state when the machine last stepped or entered it: the layer's
+   * time for a state that plays a motion.
+   */
   get time(): number {
     return this.#time;
   }
@@ -344,59 +421,65 @@ export class StateMachine {
     return this.#names;
   }
 
-  /** The spec the machine was made from (a copy; motions are shared, not copied). */
+  /**
+   * Why the current state's motion is not playing, or `null`: a transition entered it, but
+   * its motion could not be played (its targets no longer resolve), so the layer was stopped.
+   */
+  get problem(): string | null {
+    return this.#problem;
+  }
+
+  /** A copy of the spec the machine was made from, taken when it was made; motions are shared. */
   toSpec(): StateMachineSpec {
-    const spec = this.#spec;
-    return {
-      ...spec,
-      ...(spec.inputs ? { inputs: spec.inputs.map((input) => ({ ...input })) } : {}),
-      states: spec.states.map((state) => ({ ...state })),
-      ...(spec.transitions
-        ? {
-            transitions: spec.transitions.map((t) => ({
-              ...t,
-              ...(t.conditions ? { conditions: t.conditions.map((c) => ({ ...c })) } : {}),
-            })),
-          }
-        : {}),
-    };
+    return snapshot(this.#spec, false);
   }
 
   /**
    * Goes to state `name` at once, whatever the conditions, fading its motion in over `fade`
-   * seconds. Throws for an unknown state.
+   * seconds; for the current state, its motion starts again. Throws for an unknown state, a
+   * motion that cannot be played, or a machine removed from its animator.
    */
   setState(name: string, options: { readonly fade?: number } = {}): void {
+    this.#checkAttached();
     const state = this.#byName.get(name);
     if (!state) {
       throw new Error(
-        `State machine "${this.name}": no state ${show(name)} (states: ${this.#names.join(', ')}).`,
+        `${this.#label}: no state ${show(name)} (states: ${this.#names.join(', ')}).`,
       );
     }
     const fade = options.fade ?? 0;
     if (!(fade >= 0 && Number.isFinite(fade))) {
-      throw new RangeError(`Fade must be a finite non-negative number, got ${fade}.`);
+      throw new RangeError(
+        `${this.#label}: fade must be a finite non-negative number, got ${fade}.`,
+      );
     }
     this.#enter(state, fade, 0);
   }
 
-  /** Goes back to the initial state at once, at the start of its motion. */
+  /** Goes back to the initial state at once, at the start of its motion. Throws like `setState`. */
   reset(): void {
+    this.#checkAttached();
     this.#enter(this.#initial, 0, 0);
   }
 
+  #checkAttached(): void {
+    if (this.#detached) throw new Error(`${this.#label}: it was removed from its animator.`);
+  }
+
+  /** Enters `state`, playing its motion from `time`; throws if the motion cannot be played. */
   #enter(state: State, fade: number, time: number): void {
     if (state.motion) this.layer.play(state.motion, { fade, time });
     else this.layer.stop({ fade });
     this.#state = state;
     this.#time = time;
+    this.#problem = null;
   }
 
   #step(dt: number): void {
     const prev = this.#time;
-    const now = prev + dt;
-    this.#time = now;
     const state = this.#state;
+    const now = state.motion && this.#problem === null ? this.layer.time : prev + dt;
+    this.#time = now;
     if (this.#try(this.#any, state, prev, now)) return;
     this.#try(state.transitions, state, prev, now);
   }
@@ -412,7 +495,15 @@ export class StateMachine {
         if (start < 0) continue;
       }
       if (!holds(transition.conditions)) continue;
-      this.#enter(transition.to, transition.fade, start);
+      try {
+        this.#enter(transition.to, transition.fade, start);
+      } catch (error) {
+        // In the frame loop: enter the state with the layer stopped instead of throwing.
+        this.layer.stop({ fade: transition.fade });
+        this.#state = transition.to;
+        this.#time = start;
+        this.#problem = messageOf(error);
+      }
       return true;
     }
     return false;
@@ -421,20 +512,45 @@ export class StateMachine {
   static {
     machineInternals = {
       step: (machine, dt) => machine.#step(dt),
+      detach: (machine) => {
+        machine.#detached = true;
+      },
     };
   }
 }
 
+/** A deep copy of the lists and plain objects of `spec`, frozen or not; motions are shared. */
+function snapshot(spec: StateMachineSpec, freeze = true): StateMachineSpec {
+  const done = <T extends object>(value: T): T => (freeze ? Object.freeze(value) : value);
+  const items = <T extends object>(list: readonly T[], map: (item: T) => T): readonly T[] =>
+    done(list.map(map));
+  const plain = <T extends object>(item: T): T => done({ ...item });
+  const copy: { -readonly [K in keyof StateMachineSpec]: StateMachineSpec[K] } = {
+    ...spec,
+    states: items(spec.states, plain),
+  };
+  if (spec.inputs) copy.inputs = items(spec.inputs, plain);
+  if (spec.transitions) {
+    copy.transitions = items(spec.transitions, (t) =>
+      done(t.conditions ? { ...t, conditions: items(t.conditions, plain) } : { ...t }),
+    );
+  }
+  return done(copy);
+}
+
 function compileCondition(
   spec: ConditionSpec,
-  inputs: Inputs,
-  fail: (message: string) => never,
+  declared: ReadonlyMap<string, InputRecord>,
+  fail: Fail,
 ): Condition {
   if (!isObject(spec)) fail('a condition must be an object { input, op, value }.');
   checkKeys(spec, CONDITION_KEYS, fail);
-  const input = typeof spec.input === 'string' ? inputRecord(inputs, spec.input) : undefined;
+  const input = typeof spec.input === 'string' ? declared.get(spec.input) : undefined;
   if (!input) {
-    fail(`no input ${show(spec.input)} (inputs: ${inputs.names.join(', ') || 'none'}).`);
+    fail(
+      `the machine does not declare input ${show(spec.input)} ` +
+        `(its inputs: ${[...declared.keys()].join(', ') || 'none'}).`,
+    );
   }
   const record = input as InputRecord;
   const op = spec.op ?? null;
@@ -444,8 +560,9 @@ function compileCondition(
   }
   switch (record.type) {
     case 'trigger':
-      if (op !== null || value !== null)
+      if (op !== null || value !== null) {
         fail(`input "${record.name}" is a trigger: it takes no op or value.`);
+      }
       return { input: record, op: Op.Fired, value: 1 };
     case 'bool':
       if (op !== null && op !== '==' && op !== '!=') {
@@ -469,4 +586,9 @@ function compileCondition(
 /** Steps `machine` by `dt` seconds; the animator calls it in `update`. */
 export function stepMachine(machine: StateMachine, dt: number): void {
   machineInternals.step(machine, dt);
+}
+
+/** Marks `machine` as removed from its animator: `setState` and `reset` throw from then on. */
+export function detachMachine(machine: StateMachine): void {
+  machineInternals.detach(machine);
 }

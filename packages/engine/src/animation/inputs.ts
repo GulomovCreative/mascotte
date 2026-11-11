@@ -1,3 +1,5 @@
+import { SLOT_NAME_PATTERN } from '../rig/rig.ts';
+
 /*
  * Inputs: named values that drive state machines and blends. An input is a `bool`, a `number`
  * or a `trigger`; page code (and later pointer events) sets them, and every state machine and
@@ -13,41 +15,44 @@ export const INPUT_TYPES = ['bool', 'number', 'trigger'] as const;
 export type InputType = (typeof INPUT_TYPES)[number];
 
 /** An input declaration: its name, type and starting value (`false` or 0 by default). */
-export interface InputSpec {
-  readonly name: string;
-  readonly type: InputType;
-  /** A boolean for `bool`, a finite number for `number`; not allowed for `trigger`. */
-  readonly value?: boolean | number | null;
-}
+export type InputSpec =
+  | { readonly name: string; readonly type: 'bool'; readonly value?: boolean | null }
+  | { readonly name: string; readonly type: 'number'; readonly value?: number | null }
+  | { readonly name: string; readonly type: 'trigger'; readonly value?: null };
 
-/**
- * Input names: words of letters, digits and `_` joined by dots, starting with a letter (like
- * slot names).
- */
-export const INPUT_NAME_PATTERN = /^[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*$/;
+/** Input names follow the rules of slot names (`SLOT_NAME_PATTERN`). */
+export const INPUT_NAME_PATTERN = SLOT_NAME_PATTERN;
 
 /** The stored input: booleans and triggers as 0 or 1, so readers need no boxing. */
 export interface InputRecord {
   readonly name: string;
   readonly type: InputType;
+  /** The starting value it was declared with, in the same encoding. */
+  readonly initial: number;
   value: number;
 }
 
 const INPUT_KEYS = new Set(['name', 'type', 'value']);
 
-function describe(value: unknown): string {
-  return typeof value === 'string' ? `"${value}"` : String(value);
+function show(value: unknown): string {
+  if (typeof value === 'string') return `"${value}"`;
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /** Checks `spec` and gives the record it declares; throws a TypeError or a RangeError. */
 function recordOf(spec: InputSpec): InputRecord {
-  if (typeof spec !== 'object' || spec === null) {
-    throw new TypeError('An input must be an object { name, type, value }.');
+  if (typeof spec !== 'object' || spec === null || Array.isArray(spec)) {
+    throw new TypeError(`An input must be an object { name, type, value }, got ${show(spec)}.`);
   }
-  const { name, type, value } = spec;
+  const { name, type } = spec;
+  const value: unknown = spec.value;
   if (typeof name !== 'string' || !INPUT_NAME_PATTERN.test(name)) {
     throw new RangeError(
-      `Input name ${describe(name)} must be words of letters, digits and _ joined by dots, ` +
+      `Input name ${show(name)} must be words of letters, digits and _ joined by dots, ` +
         'starting with a letter.',
     );
   }
@@ -56,10 +61,11 @@ function recordOf(spec: InputSpec): InputRecord {
   }
   if (!(INPUT_TYPES as readonly string[]).includes(type)) {
     throw new RangeError(
-      `Input "${name}": type must be one of ${INPUT_TYPES.join(', ')}, got ${describe(type)}.`,
+      `Input "${name}": type must be one of ${INPUT_TYPES.join(', ')}, got ${show(type)}.`,
     );
   }
-  return { name, type, value: encode(name, type, value ?? null) };
+  const initial = encode(name, type, value ?? null);
+  return { name, type, initial, value: initial };
 }
 
 /** The stored form of `value` for an input of `type`; `null` gives the default. */
@@ -68,14 +74,14 @@ function encode(name: string, type: InputType, value: unknown): number {
     case 'bool':
       if (value === null) return 0;
       if (typeof value !== 'boolean') {
-        throw new TypeError(`Input "${name}" is a bool, got ${describe(value)}.`);
+        throw new TypeError(`Input "${name}" is a bool, got ${show(value)}.`);
       }
       return value ? 1 : 0;
     case 'number':
       if (value === null) return 0;
       if (typeof value !== 'number' || !Number.isFinite(value)) {
         throw new TypeError(
-          `Input "${name}" is a number and needs a finite one, got ${describe(value)}.`,
+          `Input "${name}" is a number and needs a finite one, got ${show(value)}.`,
         );
       }
       return value;
@@ -89,6 +95,9 @@ function encode(name: string, type: InputType, value: unknown): number {
 
 let inputsInternals!: {
   record(inputs: Inputs, name: string): InputRecord | undefined;
+  check(inputs: Inputs, spec: InputSpec): InputRecord;
+  add(inputs: Inputs, record: InputRecord): void;
+  remove(inputs: Inputs, name: string): void;
   clearTriggers(inputs: Inputs): void;
 };
 
@@ -98,21 +107,36 @@ export class Inputs {
   #triggers: InputRecord[] = [];
 
   /**
-   * Declares an input. Declaring one that exists with the same type keeps its current value
-   * (machines that share an input each declare it); another type throws.
+   * Declares an input. Declaring one that exists with the same type and starting value keeps
+   * its current value (machines that share an input each declare it); a declaration with
+   * another type or another explicit starting value throws.
    */
   define(spec: InputSpec): void {
+    const record = this.#check(spec);
+    if (!this.#records.has(record.name)) this.#records.set(record.name, record);
+  }
+
+  /** The record `spec` declares: the existing one if it fits, a new one if there is none. */
+  #check(spec: InputSpec): InputRecord {
     const record = recordOf(spec);
     const existing = this.#records.get(record.name);
-    if (existing) {
-      if (existing.type !== record.type) {
-        throw new Error(
-          `Input "${record.name}" is already a ${existing.type}, it cannot be declared a ${record.type}.`,
-        );
-      }
-      return;
+    if (!existing) return record;
+    if (existing.type !== record.type) {
+      throw new Error(
+        `Input "${record.name}" is already a ${existing.type}, it cannot be declared a ${record.type}.`,
+      );
     }
-    this.#records.set(record.name, record);
+    if (spec.value !== undefined && spec.value !== null && existing.initial !== record.initial) {
+      throw new Error(
+        `Input "${record.name}" is already declared starting at ${this.#show(existing, existing.initial)}, ` +
+          `not ${show(spec.value)}.`,
+      );
+    }
+    return existing;
+  }
+
+  #show(record: InputRecord, value: number): string {
+    return record.type === 'bool' ? String(value === 1) : String(value);
   }
 
   /** Whether an input named `name` is declared. */
@@ -161,7 +185,7 @@ export class Inputs {
     const record = this.#records.get(name);
     if (!record) {
       const known = this.names.join(', ') || 'none';
-      throw new Error(`No input "${String(name)}" (inputs: ${known}).`);
+      throw new Error(`No input ${show(name)} (inputs: ${known}).`);
     }
     return record;
   }
@@ -169,6 +193,13 @@ export class Inputs {
   static {
     inputsInternals = {
       record: (inputs, name) => inputs.#records.get(name),
+      check: (inputs, spec) => inputs.#check(spec),
+      add: (inputs, record) => {
+        inputs.#records.set(record.name, record);
+      },
+      remove: (inputs, name) => {
+        inputs.#records.delete(name);
+      },
       clearTriggers: (inputs) => {
         const triggers = inputs.#triggers;
         if (triggers.length === 0) return;
@@ -182,6 +213,24 @@ export class Inputs {
 /** The stored record of input `name`, read every frame without a lookup by its users. */
 export function inputRecord(inputs: Inputs, name: string): InputRecord | undefined {
   return inputsInternals.record(inputs, name);
+}
+
+/**
+ * Checks that `spec` can be declared on `inputs` without declaring it: gives the existing
+ * record, or a new one to pass to `addInput`. Throws like `Inputs.define`.
+ */
+export function checkInput(inputs: Inputs, spec: InputSpec): InputRecord {
+  return inputsInternals.check(inputs, spec);
+}
+
+/** Declares a record from `checkInput`. */
+export function addInput(inputs: Inputs, record: InputRecord): void {
+  inputsInternals.add(inputs, record);
+}
+
+/** Takes back a declaration made by `addInput`, before anything has read it. */
+export function removeInput(inputs: Inputs, name: string): void {
+  inputsInternals.remove(inputs, name);
 }
 
 /** Clears the fired triggers; the animator calls it at the end of every update. */

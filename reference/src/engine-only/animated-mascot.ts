@@ -300,8 +300,9 @@ const bodyMachine: StateMachineSpec = {
 };
 
 /**
- * The face: its smile widens with the `mood` input (0 calm, 1 happy), and a `poke` makes it
- * gasp, then calm down again.
+ * The face, on the layer `mood` (masked to the head; the layer `face` blinks): its smile
+ * widens with the `mood` input (0 calm, 1 happy), and a `poke` makes it gasp, then calm down
+ * again.
  */
 const faceMachine: StateMachineSpec = {
   name: 'face',
@@ -361,8 +362,8 @@ const blink: BehaviorSet = {
  * Sets up the mascot's layers, state machines, constraints and springs on `animator`, whose
  * scene holds a mascot from `build` and whose rig is that mascot's rig. Returns the `gaze`: an
  * aim of the head at `gaze.point`, off (weight 0, no point) until the page sets its point and
- * raises its weight; and the `body` and `face` machines, which the inputs `mood` (a number
- * from 0 to 1) and `poke` (a trigger) on `animator.inputs` drive.
+ * raises its weight; and the `body` and `face` machines, driven by the inputs on
+ * `animator.inputs`: `poke` (a trigger) drives both, `mood` (a number from 0 to 1) the face.
  */
 function animate(animator: Animator): {
   gaze: AimConstraint;

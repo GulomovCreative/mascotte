@@ -5,11 +5,14 @@ import {
   type BehaviorSet,
   type Blend1D,
   type Clip,
+  type ConditionOp,
+  type InputSpec,
   Inputs,
   Node,
   PathShape,
   Scene,
   type StateMachineSpec,
+  type StateSpec,
 } from '../src/index.ts';
 
 /** A clip holding `property` of `target` at `value` for `duration` seconds. */
@@ -93,17 +96,25 @@ describe('Inputs', () => {
     const inputs = new Inputs();
     inputs.define({ name: 'mood', type: 'number' });
     inputs.set('mood', 3);
-    inputs.define({ name: 'mood', type: 'number', value: 1 });
+    inputs.define({ name: 'mood', type: 'number' });
+    inputs.define({ name: 'mood', type: 'number', value: 0 });
     expect(inputs.get('mood')).toBe(3);
     expect(() => inputs.define({ name: 'mood', type: 'bool' })).toThrow(/already a number/);
+    expect(() => inputs.define({ name: 'mood', type: 'number', value: 1 })).toThrow(
+      /already declared starting at 0, not 1/,
+    );
   });
 
   it('rejects bad declarations and values with messages naming the input', () => {
     const inputs = new Inputs();
     expect(() => inputs.define({ name: '1st', type: 'bool' })).toThrow(/Input name "1st"/);
     expect(() => inputs.define({ name: 'a', type: 'text' as 'bool' })).toThrow(/type must be/);
-    expect(() => inputs.define({ name: 'a', type: 'bool', value: 1 })).toThrow(/is a bool/);
-    expect(() => inputs.define({ name: 'a', type: 'trigger', value: true })).toThrow(/no value/);
+    expect(() =>
+      inputs.define({ name: 'a', type: 'bool', value: 1 } as unknown as InputSpec),
+    ).toThrow(/is a bool/);
+    expect(() =>
+      inputs.define({ name: 'a', type: 'trigger', value: true } as unknown as InputSpec),
+    ).toThrow(/no value/);
     expect(() =>
       inputs.define({ name: 'a', type: 'bool', extra: 1 } as unknown as {
         name: string;
@@ -557,7 +568,7 @@ describe('StateMachine', () => {
     expect(machine.state).toBe('idle');
     expect(machine.time).toBe(0);
     expect(() => machine.setState('gone')).toThrow(/no state "gone" \(states: idle, happy\)/);
-    expect(() => machine.setState('idle', { fade: -1 })).toThrow(/Fade/);
+    expect(() => machine.setState('idle', { fade: -1 })).toThrow(/fade must be/);
   });
 
   it('a removed machine no longer steps; its layer keeps its motion', () => {
@@ -621,7 +632,9 @@ describe('StateMachine', () => {
     ).toThrow(/duration must be a finite non-negative number/);
     const condition = (c: object) =>
       bad({ transitions: [{ from: 'idle', to: 'happy', conditions: [c as { input: string }] }] });
-    expect(condition({ input: 'nope' })).toThrow(/condition 0: no input "nope"/);
+    expect(condition({ input: 'nope' })).toThrow(
+      /condition 0: the machine does not declare input "nope" \(its inputs: happy, poke\)/,
+    );
     expect(condition({ input: 'poke', value: true })).toThrow(/is a trigger: it takes no op/);
     expect(condition({ input: 'happy', op: '<' })).toThrow(/is a bool: op must be == or !=/);
     expect(condition({ input: 'happy', value: 1 })).toThrow(/value must be a boolean/);
@@ -651,6 +664,247 @@ describe('StateMachine', () => {
       }),
     ).toThrow(/state "lost": .*nobody/);
     expect(animator.stateMachines).toEqual([]);
+  });
+
+  it('a failed add declares no inputs and leaves the layer as it was', () => {
+    const { animator } = setup();
+    const layer = layerOf(animator, 'body');
+    layer.play(idle);
+    expect(() =>
+      animator.addStateMachine({
+        name: 'broken',
+        layer: 'body',
+        inputs: [{ name: 'mood', type: 'number' }],
+        states: [{ name: 'lost', motion: hold('nobody', 'opacity', 1) }],
+      }),
+    ).toThrow(/State machine "broken": state "lost": .*nobody/);
+    expect(animator.inputs.names).toEqual([]);
+    expect(layer.motion).toBe(idle);
+    // Fixed, with another type for the same input.
+    animator.addStateMachine({
+      layer: 'body',
+      inputs: [{ name: 'mood', type: 'bool' }],
+      states: [{ name: 'ok', motion: happy }],
+    });
+    expect(animator.inputs.typeOf('mood')).toBe('bool');
+  });
+
+  it('input errors name the machine and the input, and inputs must be a list', () => {
+    const { animator } = setup();
+    animator.addStateMachine(moodMachine());
+    expect(() =>
+      animator.addStateMachine({
+        name: 'face',
+        layer: 'face',
+        inputs: [
+          { name: 'calm', type: 'bool' },
+          { name: 'poke', type: 'bool' },
+        ],
+        states: [{ name: 'a', motion: idle }],
+      }),
+    ).toThrow(/State machine "face": input 1: Input "poke" is already a trigger/);
+    expect(animator.inputs.has('calm')).toBe(false);
+    const face = (inputs: unknown) => () =>
+      animator.addStateMachine({
+        name: 'face',
+        layer: 'face',
+        inputs: inputs as InputSpec[],
+        states: [{ name: 'a', motion: idle }],
+      });
+    expect(face('abc')).toThrow(/State machine "face": inputs must be a list/);
+    expect(face([{ name: 'x', type: 'bool', valu: 1 }])).toThrow(
+      /"face": input 0: Input "x": unknown option "valu"/,
+    );
+    expect(
+      face([
+        { name: 'x', type: 'bool' },
+        { name: 'x', type: 'bool' },
+      ]),
+    ).toThrow(/"x" is declared twice/);
+  });
+
+  it('a blend state must read an input the machine declares', () => {
+    const { animator } = setup();
+    animator.inputs.define({ name: 'mood', type: 'number' });
+    expect(() =>
+      animator.addStateMachine({
+        layer: 'body',
+        states: [{ name: 'b', motion: { input: 'mood', blend: [{ at: 0, motion: idle }] } }],
+      }),
+    ).toThrow(/state "b": its blend reads input "mood", which the machine does not declare/);
+  });
+
+  it('a transition whose motion no longer resolves enters its state with the layer stopped', () => {
+    const { scene, body, animator } = setup();
+    const arm = new Node({ id: 'arm' });
+    scene.root.add(arm);
+    const machine = animator.addStateMachine({
+      layer: 'body',
+      inputs: [{ name: 'poke', type: 'trigger' }],
+      states: [
+        { name: 'a', motion: idle },
+        { name: 'b', motion: hold('arm', 'opacity', 0.3) },
+      ],
+      transitions: [
+        { from: 'a', to: 'b', conditions: [{ input: 'poke' }] },
+        { from: 'b', to: 'a', conditions: [{ input: 'poke' }] },
+      ],
+    });
+    arm.destroy();
+    animator.inputs.fire('poke');
+    expect(() => animator.update(0.1)).not.toThrow();
+    expect(machine.state).toBe('b');
+    expect(machine.problem).toMatch(/arm/);
+    expect(animator.inputs.get('poke')).toBe(false);
+    expect(layerOf(animator, 'body').motion).toBeNull();
+    expect(body.opacity).toBe(1);
+    // It leaves again normally.
+    animator.inputs.fire('poke');
+    animator.update(0.1);
+    expect(machine.state).toBe('a');
+    expect(machine.problem).toBeNull();
+    expect(body.opacity).toBeCloseTo(0.5);
+  });
+
+  it('a removed machine cannot be driven any more', () => {
+    const { animator } = setup();
+    const machine = animator.addStateMachine(moodMachine());
+    animator.removeStateMachine(machine);
+    expect(() => machine.setState('happy')).toThrow(/removed from its animator/);
+    expect(() => machine.reset()).toThrow(/removed from its animator/);
+  });
+
+  it('rejects a transition into its own state that would restart it every update', () => {
+    const { animator } = setup();
+    const self = (conditions: { input: string }[], exitTime?: number) => () =>
+      animator.addStateMachine(
+        moodMachine({
+          transitions: [
+            { from: 'idle', to: 'idle', conditions, ...(exitTime ? { exitTime } : {}) },
+          ],
+        }),
+      );
+    expect(self([{ input: 'happy' }])).toThrow(/into its own state needs a trigger or an exitTime/);
+    expect(self([{ input: 'poke' }])).not.toThrow();
+  });
+
+  it('a trigger is lost while its transition waits for an exit time', () => {
+    const { animator } = setup();
+    const machine = animator.addStateMachine({
+      layer: 'body',
+      inputs: [{ name: 'poke', type: 'trigger' }],
+      states: [
+        { name: 'a', motion: hold('body', 'opacity', 0.2, 1) },
+        { name: 'b', motion: idle },
+      ],
+      transitions: [{ from: 'a', to: 'b', exitTime: 1, conditions: [{ input: 'poke' }] }],
+    });
+    animator.inputs.fire('poke');
+    animator.update(0.3);
+    animator.update(1);
+    expect(machine.state).toBe('a');
+  });
+
+  it('compares numbers with every operator', () => {
+    const cases: [ConditionOp, number, boolean][] = [];
+    const truth: Record<ConditionOp, (a: number, b: number) => boolean> = {
+      '==': (a, b) => a === b,
+      '!=': (a, b) => a !== b,
+      '<': (a, b) => a < b,
+      '<=': (a, b) => a <= b,
+      '>': (a, b) => a > b,
+      '>=': (a, b) => a >= b,
+    };
+    for (const op of Object.keys(truth) as ConditionOp[]) {
+      for (const level of [0, 1, 2]) cases.push([op, level, truth[op](level, 1)]);
+    }
+    for (const [op, level, fires] of cases) {
+      const { animator } = setup();
+      const machine = animator.addStateMachine({
+        layer: 'body',
+        inputs: [{ name: 'level', type: 'number', value: level }],
+        states: [
+          { name: 'a', motion: idle },
+          { name: 'b', motion: happy },
+        ],
+        transitions: [{ from: 'a', to: 'b', conditions: [{ input: 'level', op, value: 1 }] }],
+      });
+      animator.update(0.1);
+      expect(machine.state, `${level} ${op} 1`).toBe(fires ? 'b' : 'a');
+    }
+  });
+
+  it('exit points: landing exactly on one fires, 0 on a loop waits for the next cycle', () => {
+    const { animator } = setup();
+    const machine = animator.addStateMachine({
+      layer: 'body',
+      states: [
+        { name: 'a', motion: hold('body', 'opacity', 0.2, 1) },
+        { name: 'b', motion: hold('body', 'opacity', 0.4, 1, 'loop') },
+        { name: 'c', motion: idle },
+      ],
+      transitions: [
+        { from: 'a', to: 'b', exitTime: 0.5 },
+        { from: 'b', to: 'c', exitTime: 0 },
+      ],
+    });
+    animator.update(0.25);
+    animator.update(0.25);
+    expect(machine.state).toBe('b');
+    expect(machine.time).toBe(0);
+    animator.update(0.5);
+    expect(machine.state).toBe('b');
+    animator.update(0.5);
+    expect(machine.state).toBe('c');
+  });
+
+  it('the time in a state is the layer time, so seeking the layer moves exit points too', () => {
+    const { animator } = setup();
+    const machine = animator.addStateMachine({
+      layer: 'body',
+      states: [
+        { name: 'a', motion: hold('body', 'opacity', 0.2, 1) },
+        { name: 'b', motion: idle },
+      ],
+      transitions: [{ from: 'a', to: 'b', exitTime: 1 }],
+    });
+    animator.update(0.1);
+    layerOf(animator, 'body').time = 0.95;
+    animator.update(0.1);
+    expect(machine.state).toBe('b');
+    expect(machine.time).toBeCloseTo(0.05);
+  });
+
+  it('toSpec is a snapshot: later edits of the caller spec do not change it', () => {
+    const { animator } = setup();
+    const spec = moodMachine();
+    const machine = animator.addStateMachine(spec);
+    (spec.states as StateSpec[]).push({ name: 'later', motion: idle });
+    const first = (spec.transitions as unknown as { duration: number }[])[0];
+    if (first) first.duration = 9;
+    const copy = machine.toSpec();
+    expect(copy.states.map((state) => state.name)).toEqual(['idle', 'happy']);
+    expect(copy.transitions?.[0]?.duration).toBe(0.5);
+  });
+
+  it('a blend on an additive layer adds its difference from where it started', () => {
+    const { body, animator } = setup();
+    body.opacity = 0.5;
+    animator.inputs.define({ name: 'mood', type: 'number', value: 0.5 });
+    const layer = animator.addLayer({ name: 'add', mode: 'additive' });
+    layer.play({
+      input: 'mood',
+      blend: [
+        { at: 0, motion: hold('body', 'opacity', 0) },
+        { at: 1, motion: hold('body', 'opacity', 0.4) },
+      ],
+    });
+    animator.evaluate();
+    expect(body.opacity).toBeCloseTo(0.5);
+    animator.inputs.set('mood', 1);
+    animator.evaluate();
+    // The blend went from 0.2 to 0.4: 0.2 is added to the rest.
+    expect(body.opacity).toBeCloseTo(0.7);
   });
 
   it('allows one machine per layer', () => {
