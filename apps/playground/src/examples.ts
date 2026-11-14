@@ -5,6 +5,7 @@ import {
   CanvasRenderer,
   DragRotate,
   HitTester,
+  type PointerHandler,
   PointerInputs,
   Scene,
   SPRING_MAX_DT,
@@ -477,10 +478,12 @@ function clipExampleGL(): Example {
 
 /**
  * The animated mascot on animation layers; its head follows the pointer over the canvas (the
- * gaze eases in and out; outside the canvas it lets go), it smiles wider while the pointer is
- * over the mascot (the `mood` input eases towards the hover of `PointerInputs`), a click on the
- * mascot pokes it (the `poke` trigger: it hops and gasps) and a drag turns it (`DragRotate` on
- * its root, which turns back after the drag). Every frame advances the layers, the machines,
+ * gaze eases in and out; outside the canvas it lets go, unless a press holds the pointer), it
+ * smiles wider while the pointer is over the mascot (the `mood` input eases towards the hover
+ * of `PointerInputs`), a click on the mascot pokes it (the `poke` trigger: it hops and gasps;
+ * not while the animation is paused, when the machines could switch states but not play them)
+ * and a drag turns it (`DragRotate` on its root, which turns back after the drag, once the
+ * animation runs). Every frame advances the layers, the machines,
  * the gaze, the turn and the springs by the step of the example's time. The first frame, or a
  * step back or longer than `SPRING_MAX_DT`, seeks instead: the machines start again from their
  * initial states, the turn and the springs rest; while the animation is paused the step is 0
@@ -586,7 +589,14 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         unmount();
         throw new Error('The animated mascot example has no canvas.');
       }
-      const unbind = bindPointer(canvas, frame, gazeHandler, poke, turn);
+      // A release while paused ends the press without a click.
+      const pokeWhilePlaying: PointerHandler = {
+        down: (x, y) => poke.down(x, y),
+        move: (x, y) => poke.move(x, y),
+        up: (x, y) => (controls.animate ? poke.up(x, y) : poke.leave()),
+        leave: () => poke.leave(),
+      };
+      const unbind = bindPointer(canvas, frame, gazeHandler, pokeWhilePlaying, turn);
       return () => {
         unbind();
         unmount();
