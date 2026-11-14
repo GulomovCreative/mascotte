@@ -3,13 +3,15 @@ import {
   bindClip,
   Camera,
   CanvasRenderer,
+  DragRotate,
   HitTester,
+  PointerInputs,
   Scene,
   SPRING_MAX_DT,
   Ticker,
   WebGLRenderer,
 } from '@mascotte/engine';
-import { pauseWhenOffscreen } from '@mascotte/player';
+import { bindPointer, pauseWhenOffscreen } from '@mascotte/player';
 import {
   animatedMascot,
   buildBenchmark,
@@ -475,14 +477,14 @@ function clipExampleGL(): Example {
 
 /**
  * The animated mascot on animation layers; its head follows the pointer over the canvas (the
- * gaze eases in and out; over other elements it lets go), it smiles wider while the pointer is
- * over the canvas (the `mood` input follows the gaze weight) and a click on the canvas pokes
- * it (the `poke` trigger: it hops and gasps; not while the animation is paused, when the
- * machines could switch states but not play them). Every frame advances the layers, the
- * machines, the gaze and the springs by the step of the example's time. The first frame, or a
+ * gaze eases in and out; outside the canvas it lets go), it smiles wider while the pointer is
+ * over the mascot (the `mood` input eases towards the hover of `PointerInputs`), a click on the
+ * mascot pokes it (the `poke` trigger: it hops and gasps) and a drag turns it (`DragRotate` on
+ * its root, which turns back after the drag). Every frame advances the layers, the machines,
+ * the gaze, the turn and the springs by the step of the example's time. The first frame, or a
  * step back or longer than `SPRING_MAX_DT`, seeks instead: the machines start again from their
- * initial states and the springs rest; while the animation is paused the step is 0 and the
- * springs hold still.
+ * initial states, the turn and the springs rest; while the animation is paused the step is 0
+ * and the springs hold still.
  */
 function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   const scene = animatedMascot;
@@ -496,7 +498,12 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const animator = new Animator(world, { rig });
       const { gaze } = scene.animate(animator);
       const head = rig.node('head');
-      if (!head) throw new Error('The animated mascot has no node in its head slot.');
+      const body = rig.node('root');
+      if (!head || !body) throw new Error('The animated mascot has no head or root slot.');
+      const frame = { width: scene.width, height: scene.height };
+      const poke = new PointerInputs(animator, { camera, viewport: frame, click: 'poke' });
+      const turn = new DragRotate(body, { settle: 0.5 });
+      let mood = 0;
       // The pointer over the canvas in frame units from the center, or null elsewhere.
       let pointer: { x: number; y: number } | null = null;
       const center = { x: 0, y: 0, z: 0 };
@@ -508,7 +515,8 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
         const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
         gaze.weight = Math.min(1, Math.max(0, weight));
-        animator.inputs.set('mood', gaze.weight);
+        mood = Math.min(1, Math.max(0, mood + ((poke.hovering ? 1 : 0) - mood) * ease));
+        animator.inputs.set('mood', mood);
         if (!pointer) return;
         // The point under the pointer, 120 units in front of the head.
         camera.toView(view, head.localToWorld(center, head.pivot));
@@ -519,39 +527,30 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         looked.z += (target.z - looked.z) * k;
         gaze.point = looked;
       };
-      const move = (event: PointerEvent) => {
-        const canvas = event.target;
-        if (!(canvas instanceof HTMLCanvasElement && canvas.clientWidth > 0)) {
+      const track = (x: number, y: number) => {
+        pointer = { x: x - scene.width / 2, y: y - scene.height / 2 };
+      };
+      const gazeHandler = {
+        down: track,
+        move: track,
+        up: track,
+        leave: () => {
           pointer = null;
-          return;
-        }
-        // The canvas may be shrunk in width: convert to frame units.
-        const unit = scene.width / canvas.clientWidth;
-        pointer = {
-          x: event.offsetX * unit - scene.width / 2,
-          y: event.offsetY * unit - scene.height / 2,
-        };
+        },
       };
-      const leave = () => {
-        pointer = null;
-      };
-      const poke = (event: PointerEvent) => {
-        if (controls.animate && event.target instanceof HTMLCanvasElement) {
-          animator.inputs.fire('poke');
-        }
-      };
-      container.addEventListener('pointermove', move);
-      container.addEventListener('pointerleave', leave);
-      container.addEventListener('pointerdown', poke);
       let last = Number.NaN;
       const pose = (time: number) => {
         const dt = time - last;
         last = time;
+        // Hover is tested against the frame on screen, before the pose moves on.
+        poke.update();
         follow(dt);
         if (dt >= 0 && dt <= SPRING_MAX_DT) {
+          turn.update(dt);
           animator.update(dt);
           return;
         }
+        turn.reset();
         for (const machine of animator.stateMachines) machine.reset();
         for (const layer of animator.layers) layer.time = time;
         animator.resetSprings();
@@ -582,10 +581,14 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
           renderer.render(ctx, world, camera, options(pixelRatio));
         });
       }
+      const canvas = container.querySelector('canvas');
+      if (!canvas) {
+        unmount();
+        throw new Error('The animated mascot example has no canvas.');
+      }
+      const unbind = bindPointer(canvas, frame, gazeHandler, poke, turn);
       return () => {
-        container.removeEventListener('pointermove', move);
-        container.removeEventListener('pointerleave', leave);
-        container.removeEventListener('pointerdown', poke);
+        unbind();
         unmount();
       };
     },
