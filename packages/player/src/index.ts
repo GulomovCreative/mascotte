@@ -1,4 +1,4 @@
-// Embedding the player in a page. See docs/PLAN.md, section 5.9 and stage 4.
+// Embedding the player in a page. See docs/PLAN.md, sections 5.9, 5.11 and stage 4.
 
 export {
   bindTickerToPage,
@@ -7,3 +7,4 @@ export {
   type PageEnvironment,
   pauseWhenOffscreen,
 } from './page.ts';
+export { bindPointer, type PointerElement } from './pointer.ts';
