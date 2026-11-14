@@ -315,5 +315,6 @@ describe('DragRotate', () => {
   it('rejects bad options', () => {
     expect(() => new DragRotate(new Node(), { speed: Number.NaN })).toThrow(/speed/);
     expect(() => new DragRotate(new Node(), { settle: -1 })).toThrow(/settle/);
+    expect(() => new DragRotate(new Node(), { maxPitch: 4 })).toThrow(/maxPitch .* from 0 to/);
   });
 });

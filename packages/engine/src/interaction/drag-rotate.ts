@@ -6,7 +6,7 @@ import type { PointerHandler } from './pointer.ts';
 export interface DragRotateOptions {
   /** Radians of turn per frame unit of drag; 0.01 by default. */
   readonly speed?: number | null;
-  /** The largest tilt up or down from the rest rotation, in radians; π/2 by default. */
+  /** The largest tilt up or down from the rest rotation, in radians, up to π; π/2 by default. */
   readonly maxPitch?: number | null;
   /**
    * After a drag the node turns back to its rest rotation with this time constant in seconds
@@ -21,9 +21,10 @@ const Y_AXIS = { x: 0, y: 1, z: 0 } as const;
 // Below this the settling turn is snapped to the rest rotation.
 const SETTLED = 1e-4;
 
-function check(name: string, value: number, min: number): number {
-  if (!(Number.isFinite(value) && value >= min)) {
-    throw new RangeError(`DragRotate: ${name} must be a finite number ≥ ${min}, got ${value}.`);
+function check(name: string, value: number, min: number, max = Number.MAX_VALUE): number {
+  if (!(Number.isFinite(value) && value >= min && value <= max)) {
+    const range = max === Number.MAX_VALUE ? `≥ ${min}` : `from ${min} to ${max}`;
+    throw new RangeError(`DragRotate: ${name} must be a finite number ${range}, got ${value}.`);
   }
   return value;
 }
@@ -55,7 +56,7 @@ export class DragRotate implements PointerHandler {
 
   constructor(node: Node, options: DragRotateOptions = {}) {
     this.#speed = check('speed', options.speed ?? 0.01, 0);
-    this.#maxPitch = check('maxPitch', options.maxPitch ?? Math.PI / 2, 0);
+    this.#maxPitch = check('maxPitch', options.maxPitch ?? Math.PI / 2, 0, Math.PI);
     this.#settle = check('settle', options.settle ?? 0, 0);
     this.node = node;
     const { x, y, z, w } = node.rotation;

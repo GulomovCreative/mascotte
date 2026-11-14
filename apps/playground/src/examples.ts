@@ -593,7 +593,14 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const pokeWhilePlaying: PointerHandler = {
         down: (x, y) => poke.down(x, y),
         move: (x, y) => poke.move(x, y),
-        up: (x, y) => (controls.animate ? poke.up(x, y) : poke.leave()),
+        up: (x, y) => {
+          if (controls.animate) {
+            poke.up(x, y);
+            return;
+          }
+          poke.leave();
+          poke.move(x, y); // still over the canvas: keep testing hover
+        },
         leave: () => poke.leave(),
       };
       const unbind = bindPointer(canvas, frame, gazeHandler, pokeWhilePlaying, turn);
