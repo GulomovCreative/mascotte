@@ -1,4 +1,4 @@
-// Scene, primitives, sorting, rendering, animation and rig. See docs/PLAN.md, sections 5.4–5.12.
+// Scene, primitives, sorting, rendering, animation, rig and interaction. See docs/PLAN.md, sections 5.4–5.12.
 
 export {
   type AnimationLayer,
@@ -80,6 +80,13 @@ export {
   type TickerOptions,
   type TickSubscription,
 } from './animation/ticker.ts';
+export { DragRotate, type DragRotateOptions } from './interaction/drag-rotate.ts';
+export {
+  CLICK_DISTANCE,
+  type PointerHandler,
+  PointerInputs,
+  type PointerInputsSpec,
+} from './interaction/pointer.ts';
 export { CanvasRenderer, type CanvasTarget, type Viewport } from './render/canvas.ts';
 export { DepthSorter, type Drawable, isDrawable } from './render/depth-sort.ts';
 export { DisplayItem, DisplayList, type DisplayListOptions } from './render/display-list.ts';
