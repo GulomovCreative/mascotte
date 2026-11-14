@@ -8,6 +8,7 @@ import {
   Node,
   PointerInputs,
   type PointerInputsSpec,
+  Rig,
   Scene,
   Sphere,
 } from '../src/index.ts';
@@ -108,11 +109,66 @@ describe('PointerInputs', () => {
     const { pointer, inputs } = setup();
     pointer.down(50, 50);
     pointer.up(95, 95);
+    expect(inputs.get('press')).toBe(false);
     expect(inputs.get('click')).toBe(false);
     pointer.down(50, 50);
     pointer.leave();
     expect(inputs.get('press')).toBe(false);
     expect(inputs.get('click')).toBe(false);
+  });
+
+  it('hover and press are separate: a held press stays held off the target', () => {
+    const { pointer, inputs } = setup();
+    pointer.down(50, 50);
+    pointer.move(53, 50);
+    pointer.move(90, 50);
+    pointer.update();
+    expect(inputs.get('hover')).toBe(false);
+    expect(inputs.get('press')).toBe(true);
+    expect(inputs.get('drag')).toBe(true);
+  });
+
+  it('drives only the inputs it names; null means none', () => {
+    const { pointer, inputs } = setup({ hover: null, press: null, drag: null });
+    expect(inputs.names).toEqual(['click']);
+    pointer.move(50, 50);
+    pointer.update();
+    pointer.down(50, 50);
+    pointer.move(80, 50);
+    pointer.up(50, 50);
+    expect(inputs.get('click')).toBe(false);
+    pointer.down(50, 50);
+    pointer.up(50, 50);
+    expect(inputs.get('click')).toBe(true);
+    pointer.leave();
+    expect(pointer.hovering).toBe(false);
+  });
+
+  it('a target can be a rig slot; one that does not resolve is an error', () => {
+    const scene = new Scene();
+    const body = new Node({ id: 'body' });
+    body.add(new Sphere({ id: 'ball', diameter: 40, style: { stroke: 0 } }));
+    scene.root.add(body);
+    const rig = new Rig(body, { trunk: 'body' });
+    const animator = new Animator(scene, { rig });
+    const camera = new Camera();
+    const pointer = new PointerInputs(animator, {
+      camera,
+      viewport,
+      target: { slot: 'trunk' },
+      hover: 'hover',
+    });
+    pointer.move(50, 50);
+    pointer.update();
+    expect(pointer.hovering).toBe(true);
+    expect(
+      () => new PointerInputs(animator, { camera, viewport, target: 'bdy', hover: 'hover' }),
+    ).toThrow(/target bdy: no node with id "bdy"/);
+    expect(
+      () =>
+        new PointerInputs(animator, { camera, viewport, target: { slot: 'tail' }, click: 'tap' }),
+    ).toThrow(/target \[tail\]/);
+    expect(animator.inputs.has('tap')).toBe(false);
   });
 
   it('the click trigger reaches a state machine', () => {
@@ -188,6 +244,52 @@ describe('DragRotate', () => {
     drag.move(20, -200);
     expect(drag.yaw).toBeCloseTo(0.5, 12);
     expect(drag.pitch).toBe(0.5);
+    drag.move(20, 400);
+    expect(drag.pitch).toBe(-0.5);
+  });
+
+  it('a diagonal drag tilts about the parent x axis after turning about its y axis', () => {
+    const node = new Node();
+    const drag = new DragRotate(node, { speed: 0.01 });
+    drag.down(0, 0);
+    drag.move(40, 30);
+    const expected = quat.multiply(
+      quat.create(),
+      quat.setAxisAngle(quat.create(), { x: 1, y: 0, z: 0 }, -0.3),
+      quat.setAxisAngle(quat.create(), { x: 0, y: 1, z: 0 }, 0.4),
+    );
+    expect(quat.equalsRotation(turned(node), expected, 1e-12)).toBe(true);
+  });
+
+  it('a leave ends the drag; non-finite points and steps are ignored', () => {
+    const node = new Node();
+    const drag = new DragRotate(node, { speed: 0.01, settle: 0.1 });
+    drag.down(Number.NaN, 0);
+    expect(drag.dragging).toBe(false);
+    drag.down(0, 0);
+    drag.move(Number.POSITIVE_INFINITY, 0);
+    drag.move(30, 0);
+    drag.leave();
+    expect(drag.dragging).toBe(false);
+    drag.move(90, 0);
+    expect(drag.yaw).toBeCloseTo(0.3, 12);
+    for (const dt of [0, -1, Number.NaN]) drag.update(dt);
+    expect(drag.yaw).toBeCloseTo(0.3, 12);
+    drag.update(0.1);
+    expect(drag.yaw).toBeCloseTo(0.3 * Math.exp(-1), 12);
+  });
+
+  it('settles the short way round, and leaves the node alone once settled', () => {
+    const node = new Node();
+    const drag = new DragRotate(node, { speed: 0.01, settle: 0.1 });
+    drag.down(0, 0);
+    drag.up(100 * 2 * Math.PI + 50, 0); // two whole turns and 0.5 rad
+    expect(drag.yaw).toBeCloseTo(0.5, 9);
+    drag.update(10);
+    expect(drag.yaw).toBe(0);
+    node.rotation.set(0, 1, 0, 0);
+    drag.update(0.1);
+    expect(turned(node)).toEqual({ x: 0, y: 1, z: 0, w: 0 });
   });
 
   it('settles back to rest after a drag, not during one; reset snaps back', () => {
@@ -207,7 +309,7 @@ describe('DragRotate', () => {
     drag.move(50, 50);
     drag.reset();
     expect(drag.dragging).toBe(false);
-    expect(turned(node)).toEqual({ x: 0, y: 0, z: 0, w: 1 });
+    expect(quat.equalsRotation(turned(node), quat.create(), 1e-12)).toBe(true);
   });
 
   it('rejects bad options', () => {
