@@ -1,4 +1,6 @@
 import {
+  type AimConstraint,
+  type Animator,
   Camera,
   Capsule,
   Cylinder,
@@ -6,9 +8,27 @@ import {
   Node,
   PathShape,
   Rect,
+  type Rig,
   Sphere,
 } from '@mascotte/engine';
 import { euler } from '@mascotte/math';
+
+/**
+ * An animated mascot (`animatedMascot`, `pip`): `build` makes its scene and rig, `animate` sets
+ * up its layers, machines, constraints and springs on an animator over that scene and rig and
+ * returns its `gaze`, an aim of the head that is off until the page sets its point. The rig
+ * binds the slots `root` (a node whose rotation nothing animates, so a drag can turn it) and
+ * `head`.
+ */
+export interface AnimatedScene {
+  readonly id: string;
+  readonly title: string;
+  readonly width: number;
+  readonly height: number;
+  readonly background: string;
+  build(): { root: Node; camera: Camera; rig: Rig };
+  animate(animator: Animator): { gaze: AimConstraint };
+}
 
 /**
  * A new-engine-only scene: checks features Zdog lacks (perspective, stroke scaling, surfaces,
