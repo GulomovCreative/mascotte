@@ -10,6 +10,7 @@ export {
   buildBenchmark,
 } from './engine-only/benchmark.ts';
 export { lookAroundClip } from './engine-only/clips.ts';
+export { pip } from './engine-only/pip.ts';
 export { type EngineScene, engineScenes } from './engine-only/scenes.ts';
 export type { EngineVersion, ReferenceScene, RenderOptions } from './scene.ts';
 

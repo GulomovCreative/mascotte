@@ -222,6 +222,7 @@ A behavior is data: it moves one property of one node between two values, `from`
 - **Transitions:** from a state or from any state (`'*'`) to another, when all their conditions on inputs hold (a trigger fired; a bool `==` or `!=` a value; a number compared with `== != < <= > >=`), fading the new motion in over `duration` seconds. `exitTime` waits until the time in the leaving state (the layer's time, so seeking the layer moves it) reaches that many clip durations: a clip played once can leave at that point or any time after; a looping one only in the update that passes the point again in some cycle (a ping-pong one every two durations), and the new state starts as far into its motion as the time went past the point in that update. A transition needs a condition or an exit time, and a transition into its own state a trigger or an exit time (otherwise it would restart the state every update). Transitions from any state are checked first and never fire into the current state; at most one transition fires per update. A trigger that no transition of the current state uses, or whose transition waits for an exit time, is lost.
 - Several machines can run in parallel on different layers (body, face), one per layer. A machine is made from data (`{ name, layer, inputs, states, initial, transitions }`, the plain data the document will save; unknown options and values of the wrong type are rejected with an error naming the machine and the part, and a failed add declares no inputs) by `animator.addStateMachine(spec)`, which declares its inputs, compiles the motions of all its states (so a target that does not resolve fails there) and enters the initial state at once. The machine owns its layer: other code should not play motions on it. When a transition's motion can no longer be played (its targets no longer resolve after the tree or the slots changed), the machine enters the state with the layer stopped and says why in `problem`, instead of throwing from `update`. Machines step in `update` after the layers advance and before constraints and springs. They keep state, so they are not seekable, like springs: `reset()` starts one again, and `setState(name, { fade })` jumps to a state whatever the conditions; both throw after `removeStateMachine`. `toSpec()` gives a copy of the spec it was made from, taken when it was made.
 - The playground mascot has two machines: the body waves and hops on a `poke` (a click), going back to waving once the hop has landed (an exit time); the face (a machine on the layer `mood`, masked to the head) smiles wider with `mood` (a blend: the pointer over the mascot raises it) and gasps on the same `poke`.
+- The showcase mascot Pip (`pip` in `@mascotte/reference`, the playground's first example; the old mascot stays for the snapshot, seeking and allocation tests) is a round chick rigged with bird slots (`body`, `head`, `eye.L`, `eyes.happy`, `beak.lower`, `wing.L`, `crest.M`, …). Its emotions are one machine on the layer `emotion`: calm, happy while `hover` holds (wings flap, eyes turn to arcs, beak open) and, on a `poke` from any state, surprised for a moment (crest up, round eyes), then happy or calm by the hover. Every emotion holds the same set of tracks, so a transition fades each of them from one emotion to the next. Additive layers breathe, tilt its head and chirp (the beak opens), a layer masked to the head blinks, its head turns to the pointer with an `aim`, and its three crest feathers swing on springs.
 
 ## 6. How different mascots are made
 
@@ -316,12 +317,13 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 
 ### Stage 3. Rig and interactivity
 
-Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/4)
+Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/4)
 
 - [x] Bones and rig slots ([#22](https://github.com/GulomovCreative/mascotte/issues/22))
 - [x] Rig constraints ([#23](https://github.com/GulomovCreative/mascotte/issues/23))
 - [x] State machine and inputs ([#24](https://github.com/GulomovCreative/mascotte/issues/24))
 - [x] Pointer events and mouse rotation ([#25](https://github.com/GulomovCreative/mascotte/issues/25))
+- [x] Showcase mascot Pip ([#69](https://github.com/GulomovCreative/mascotte/issues/69))
 
 **Done when** the mascot follows the cursor, reacts to hover and click, and switches emotions.
 
