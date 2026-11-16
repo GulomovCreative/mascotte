@@ -644,7 +644,9 @@ function mascotExample(
 }
 
 /** Pip cheers up while hovered and startles on a click. */
-const pipPlay = (): PointerPlay => ({ inputs: { hover: 'hover', click: 'poke' } });
+function pipPlay(): PointerPlay {
+  return { inputs: { hover: 'hover', click: 'poke' } };
+}
 
 /** Pip, the showcase mascot, comes first: the page opens on it. */
 export const examples: Example[] = [
