@@ -9,6 +9,8 @@ import {
   Rig,
   type StateMachine,
 } from '@mascotte/engine';
+import { ARCHETYPES, MOTIONS, scaleMotion, usesSize } from '@mascotte/library';
+import { type Vec3, vec3 } from '@mascotte/math';
 import {
   DocumentError,
   type MascotDocument,
@@ -112,8 +114,29 @@ export function readDocument(input: unknown): MascotDocument {
 /** The part of a document that animates a mascot. */
 export type AnimationDocument = Pick<
   MascotDocument,
-  'motions' | 'layers' | 'machines' | 'constraints' | 'springs'
+  'archetype' | 'motions' | 'layers' | 'machines' | 'constraints' | 'springs'
 >;
+
+/**
+ * The mascot's size by its archetype: the distance between the pivots of the archetype's two
+ * size slots, as the animator's scene and rig hold them now (at rest, before the animation).
+ */
+function sizeOf(archetypeName: string | undefined, animator: Animator): number {
+  const archetype = archetypeName === undefined ? undefined : ARCHETYPES.get(archetypeName);
+  if (!archetype) throw new Error('library motions that move positions need an archetype.');
+  const [from, to] = archetype.size.map((slot) => {
+    const node = animator.rig?.node(slot);
+    if (!node) throw new Error(`the rig binds no slot "${slot}" to measure the mascot by.`);
+    return node.localToWorld(vec3.create(), node.pivot);
+  }) as [Vec3, Vec3];
+  const size = vec3.distance(from, to);
+  if (!(size > 0)) {
+    throw new Error(
+      `the slots ${archetype.size.join(' and ')} are at one point, so the mascot has no size.`,
+    );
+  }
+  return size;
+}
 
 /**
  * Sets up a document's layers, state machines, constraints and springs on `animator` (see
@@ -123,10 +146,19 @@ export type AnimationDocument = Pick<
  */
 export function animateDocument(document: AnimationDocument, animator: Animator): Animated {
   const motions = document.motions ?? {};
+  let size: number | undefined;
+  // A name in `motions`, then a library motion in scene units (measured once, when needed).
   const named = (ref: MotionRef): MotionDocument => {
-    if (typeof ref !== 'string') return ref;
-    if (!Object.hasOwn(motions, ref)) throw new Error(`no motion "${ref}" in motions.`);
-    return motions[ref] as MotionDocument;
+    let motion: MotionDocument;
+    if (typeof ref !== 'string') motion = ref;
+    else if (Object.hasOwn(motions, ref)) motion = motions[ref] as MotionDocument;
+    else throw new Error(`no motion "${ref}" in motions.`);
+    if (!('library' in motion)) return motion;
+    const entry = MOTIONS.get(motion.library);
+    if (!entry) throw new Error(`no library motion "${motion.library}".`);
+    if (!usesSize(entry.motion)) return entry.motion as MotionDocument;
+    size ??= sizeOf(document.archetype, animator);
+    return scaleMotion(entry.motion, size) as MotionDocument;
   };
   // Blends do not nest (the engine refuses a blend point that is a blend), so one level.
   const resolve = (ref: MotionRef): Motion => {

@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "@mascotte/engine": "workspace:*",
+    "@mascotte/library": "workspace:*",
     "@mascotte/math": "workspace:*"
   }
 }

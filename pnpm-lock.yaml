@@ -212,6 +212,18 @@ importers:
       '@mascotte/engine':
         specifier: workspace:*
         version: link:../engine
+      '@mascotte/library':
+        specifier: workspace:*
+        version: link:../library
+      '@mascotte/math':
+        specifier: workspace:*
+        version: link:../math
+
+  packages/library:
+    dependencies:
+      '@mascotte/engine':
+        specifier: workspace:*
+        version: link:../engine
       '@mascotte/math':
         specifier: workspace:*
         version: link:../math

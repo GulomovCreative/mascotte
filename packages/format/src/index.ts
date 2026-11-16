@@ -14,6 +14,7 @@ export {
   FORMAT,
   type Issue,
   type LayerDocument,
+  type LibraryMotionRef,
   type MachineDocument,
   type MascotDocument,
   type MotionDocument,

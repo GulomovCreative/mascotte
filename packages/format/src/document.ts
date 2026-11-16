@@ -45,8 +45,16 @@ export interface BlendDocument {
   readonly blend: readonly { readonly at: number; readonly motion: MotionRef }[];
 }
 
-/** A clip, a behavior set or a blend (see `Motion` in the engine). */
-export type MotionDocument = Clip | BehaviorSet | BlendDocument;
+/**
+ * A motion of the library (`MOTIONS` in `@mascotte/library`) by its name: written for slots,
+ * with positions in sizes of the mascot, which its `archetype` measures.
+ */
+export interface LibraryMotionRef {
+  readonly library: string;
+}
+
+/** A clip, a behavior set, a blend (see `Motion` in the engine) or a library motion. */
+export type MotionDocument = Clip | BehaviorSet | BlendDocument | LibraryMotionRef;
 
 /** An animator layer, in blend order; `play` is the motion it plays from the start. */
 export interface LayerDocument {
@@ -74,6 +82,11 @@ export interface MascotDocument {
   readonly format: typeof FORMAT;
   readonly version: number;
   readonly meta: { readonly name: string; readonly description?: string };
+  /**
+   * The archetype (`ARCHETYPES` in `@mascotte/library`): the rig binds its slots, and library
+   * motions measure the mascot's size by it.
+   */
+  readonly archetype?: string;
   /** The frame size in CSS pixels (before devicePixelRatio) and its background color. */
   readonly view: { readonly width: number; readonly height: number; readonly background?: string };
   /** Camera properties by registry name (`zoom`, `projection`, `distance`, …). */
