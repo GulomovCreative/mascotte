@@ -7,13 +7,13 @@ import {
   PathShape,
   propertiesOf,
 } from '@mascotte/engine';
-import { color } from '@mascotte/math';
+import { color, type Quat, type Vec3 } from '@mascotte/math';
 import type { NodeDocument, PropertyValue } from './document.ts';
 import { NODE_TYPES } from './nodes.ts';
 import { MAX_DEPTH } from './validate.ts';
 
 /** Throws unless JSON can hold the value and a document can read it back. */
-function storable(node: Node, name: string, value: PropertyValue, isColor: boolean): void {
+function storable(node: Node, name: string, value: Plain, isColor: boolean): void {
   let numbers: number[] = [];
   if (typeof value === 'number') numbers = [value];
   else if (typeof value === 'object' && value !== null) numbers = Object.values(value);
@@ -33,7 +33,10 @@ function storable(node: Node, name: string, value: PropertyValue, isColor: boole
   }
 }
 
-function same(a: PropertyValue, b: PropertyValue): boolean {
+/** A property value as the registry reads it: plain numbers. */
+type Plain = number | boolean | string | null | Vec3 | Quat;
+
+function same(a: Plain, b: Plain): boolean {
   if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return a === b;
   return (
     a.x === b.x && a.y === b.y && a.z === b.z && ('w' in a ? a.w === (b as { w: number }).w : true)
@@ -44,7 +47,7 @@ function same(a: PropertyValue, b: PropertyValue): boolean {
 export function writeProps(node: Node): Record<string, PropertyValue> {
   const props: Record<string, PropertyValue> = {};
   for (const property of propertiesOf(node)) {
-    let value: PropertyValue;
+    let value: Plain;
     if (property.type === 'vec3') value = property.get(node, { x: 0, y: 0, z: 0 });
     else if (property.type === 'quat') value = property.get(node, { x: 0, y: 0, z: 0, w: 1 });
     else value = property.get(node);

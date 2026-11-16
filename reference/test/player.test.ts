@@ -433,4 +433,27 @@ describe('Player', () => {
         }),
     ).toThrow(/no constraint "eyes"/);
   });
+
+  it('builds the document with the shape parameters it is given', () => {
+    const { canvas } = fakeCanvas();
+    const day = pipDocument();
+    const sized = {
+      ...day,
+      params: { size: { default: 1, min: 0.5, max: 2 } },
+      root: {
+        ...day.root,
+        props: { ...day.root.props, scale: { param: 'size', times: { x: 1, y: 1, z: 1 } } },
+      },
+    };
+    const options = { renderer: 'canvas', ticker: manualTicker().ticker } as const;
+    const plain = new Player(canvas, JSON.stringify(sized), options);
+    expect(plain.scene.root.scale.x).toBe(1);
+    plain.destroy();
+    const big = new Player(canvas, JSON.stringify(sized), { ...options, params: { size: 1.5 } });
+    expect(big.scene.root.scale.x).toBe(1.5);
+    // A swap keeps the parameters.
+    big.load(JSON.stringify(sized));
+    expect(big.scene.root.scale.y).toBe(1.5);
+    big.destroy();
+  });
 });

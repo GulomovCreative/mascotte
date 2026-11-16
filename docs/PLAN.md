@@ -254,6 +254,18 @@ This is the main requirement, and the architecture is built around it.
 - **Pip** is a `bird`.
 - **Still missing.** The library does not cover constraints and springs yet; they are short and already written for slots in documents.
 
+**Shape parameters and prefabs** (`@mascotte/format`, with the standard prefabs in `@mascotte/library`):
+- **Parameters.** A document declares numeric parameters (`params: { earLength: { default: 12, min: 6, max: 24 } }`).
+  - Any value in the tree can be computed from one: `{ "param": "earLength", "times": 0.5, "plus": 2 }`.
+  - For a vector, `times` and `plus` are vectors, and `plus` may itself be a reference, so a vector can depend on several parameters.
+  - A reference is always a whole value, never one coordinate inside `{x, y, z}`. V8 shares one hidden class among all `{x, y, z}` objects, and one holding something else there makes every vector in the engine box its numbers (the allocation tests caught this).
+  - Building takes values for the parameters (`buildDocument(document, { params })`, and the `params` option of the player), so one document yields a family of mascots.
+- **Prefabs.** A prefab is a subtree with its own parameters.
+  - A node `{ prefab, id, params, props, children }` becomes that subtree. Its ids are prefixed with the instance id (`eye-left` + `pupil` gives `eye-left-pupil`), its root takes the instance's `props` and `name`, and the instance's children are added.
+  - The library has `eye` (white, pupil, highlight), `mouth` (a curve with a width and a depth), `ear` and `paw`. A document may add its own under `prefabs`.
+  - A prefab cannot hold prefabs yet.
+- **Validation and reading.** Validation checks the tree as it will be built, with the parameters set and the prefabs in place, and reports parameter, range and reference problems with paths. `readDocument` keeps the document as written; the editor saves prefabs and references, not their expansion.
+
 Requirement check: by the end of stage 4 at least three mascots of different archetypes must work. All three are assembled only from documents and use the shared animation library.
 
 ## 7. Document format
@@ -402,7 +414,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 - [x] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
 - [x] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
 - [x] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
-- [ ] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
+- [x] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
 - [ ] Palettes and skins ([#30](https://github.com/GulomovCreative/mascotte/issues/30))
 - [ ] Three reference mascots ([#31](https://github.com/GulomovCreative/mascotte/issues/31))
 

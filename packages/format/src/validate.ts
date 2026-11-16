@@ -20,6 +20,7 @@ import {
   type NodeDocument,
 } from './document.ts';
 import { NODE_TYPES, type NodeType } from './nodes.ts';
+import { expandDocument } from './prefabs.ts';
 
 /*
  * Structural validation of a document of the current version. Node properties are checked
@@ -112,6 +113,8 @@ function fields<T>() {
 
 const NODE_KEYS = fields<NodeDocument>()([
   'type',
+  'prefab',
+  'params',
   'id',
   'name',
   'props',
@@ -123,6 +126,8 @@ const DOCUMENT_KEYS = fields<MascotDocument>()([
   'format',
   'version',
   'meta',
+  'params',
+  'prefabs',
   'archetype',
   'view',
   'camera',
@@ -472,9 +477,16 @@ function checkNamed(
  * Checks a document, assumed to be of the current version (after `migrate`), and returns every
  * problem found; an empty list means it can be built.
  */
-export function validateDocument(value: unknown): Issue[] {
+export function validateDocument(
+  value: unknown,
+  params: Readonly<Record<string, number>> = {},
+): Issue[] {
   const c = new Checker();
   if (!c.object(value, '', 'a document object')) return c.issues;
+  // The tree is checked as it will be built: parameters set, prefabs in place.
+  const expanded = expandDocument(value, params);
+  c.issues.push(...expanded.issues);
+  const tree = isObject(expanded.document) ? expanded.document.root : value.root;
   c.keys(value, DOCUMENT_KEYS, '');
   if (value.format !== FORMAT) c.fail('format', `expected "${FORMAT}", got ${show(value.format)}.`);
   if (c.object(value.meta, 'meta', 'an object {name, description}')) {
@@ -499,7 +511,7 @@ export function validateDocument(value: unknown): Issue[] {
     if (value.camera.props !== undefined) checkProps(c, Camera, value.camera.props, 'camera.props');
   }
   const ids = new Set<string>();
-  checkNode(c, value.root, 'root', ids, 0);
+  checkNode(c, tree, 'root', ids, 0);
   const slots = new Set<string>();
   if (value.rig !== undefined && c.object(value.rig, 'rig', 'an object {slots}')) {
     c.keys(value.rig, ['slots'], 'rig');

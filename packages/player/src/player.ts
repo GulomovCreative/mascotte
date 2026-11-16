@@ -56,6 +56,11 @@ export interface PlayerOptions {
    * does not. A `pointer.drag` input is driven by the same drags.
    */
   readonly turn?: DragRotateOptions | null;
+  /**
+   * Values for the document's shape parameters (`{ earLength: 20 }`): one document, a family of
+   * mascots. The document's defaults by default; `load` applies them to the new one too.
+   */
+  readonly params?: Readonly<Record<string, number>>;
   /** Whether the animation runs from the start; true by default. */
   readonly autoplay?: boolean;
   /**
@@ -298,7 +303,7 @@ export class Player {
   }
 
   #start(document: MascotDocument): Running {
-    const built = buildDocument(document);
+    const built = buildDocument(document, { params: this.#options.params ?? {} });
     const scene = new Scene(built.root);
     const animator = new Animator(scene, { rig: built.rig });
     const { machines, constraints } = built.animate(animator);

@@ -6,6 +6,7 @@ import type {
   Clip,
   ConstraintSpec,
   PathCommand,
+  PathPoint,
   SpringOptions,
   StateMachineSpec,
   StateSpec,
@@ -16,8 +17,52 @@ import type { Quat, Vec3 } from '@mascotte/math';
 /** The `format` field every mascot document carries. */
 export const FORMAT = 'mascotte';
 
+/**
+ * A value computed from a shape parameter: `param × times + plus`. `times` (1 by default) and
+ * `plus` (0 by default) are numbers for a number, or vectors `{x, y, z}` for a vector; `plus`
+ * may itself be a reference, so a vector can depend on several parameters. Inside a prefab it
+ * names the prefab's parameters, elsewhere the document's.
+ *
+ * A reference stands for a whole value, never for one coordinate inside `{x, y, z}`: V8 shares
+ * one hidden class among all `{x, y, z}` objects, and a single one holding something other than
+ * numbers there makes every vector in the engine box its numbers.
+ */
+export interface ParamRef {
+  readonly param: string;
+  readonly times?: number | Readonly<Vec3>;
+  readonly plus?: number | Readonly<Vec3> | ParamRef;
+}
+
+/** A number as stored: a literal, or computed from a parameter. */
+export type Num = number | ParamRef;
+
 /** A property value as stored: what the property registry reads and writes, as JSON. */
-export type PropertyValue = number | boolean | string | null | Vec3 | Quat;
+export type PropertyValue = number | boolean | string | null | Vec3 | Quat | ParamRef;
+
+/** A path command as stored: each of its points may be computed from parameters. */
+export type PathCommandDocument = PathCommand extends infer C
+  ? C extends PathCommand
+    ? { readonly [K in keyof C]: C[K] extends PathPoint ? PathPoint | ParamRef : C[K] }
+    : never
+  : never;
+
+/** A shape parameter: a number with a default and an optional range. */
+export interface ParamSpec {
+  readonly default: number;
+  readonly min?: number;
+  readonly max?: number;
+  readonly description?: string;
+}
+
+/**
+ * A prefab: a subtree with its own parameters, put into a tree by `{ prefab, id, params }`.
+ * Its numbers may refer to its parameters; it holds no prefabs itself.
+ */
+export interface PrefabDocument {
+  readonly description?: string;
+  readonly params?: Readonly<Record<string, ParamSpec>>;
+  readonly root: NodeDocument;
+}
 
 /**
  * A node of the tree: its type (`Node`, `Sphere`, `PathShape`, …), a stable `id` the rig,
@@ -25,13 +70,20 @@ export type PropertyValue = number | boolean | string | null | Vec3 | Quat;
  * quaternion, `style.color`, `diameter`; a missing one keeps its default) and its children.
  * A `PathShape` keeps its `path`, a `Box` its face settings. The child nodes a solid makes
  * itself (a box's face rects, a cylinder's bases) are not stored.
+ *
+ * Instead of a `type`, a node may name a `prefab` (the document's own or the library's) with
+ * an `id` and values for its `params`: it becomes the prefab's subtree, whose ids are prefixed
+ * with this id (`eye-left` + `pupil` → `eye-left-pupil`), whose root takes these `props` and
+ * `name`, and which gets these `children` as well.
  */
 export interface NodeDocument {
-  readonly type: string;
+  readonly type?: string;
+  readonly prefab?: string;
+  readonly params?: Readonly<Record<string, Num>>;
   readonly id?: string;
   readonly name?: string;
   readonly props?: Readonly<Record<string, PropertyValue>>;
-  readonly path?: readonly PathCommand[];
+  readonly path?: readonly PathCommandDocument[];
   readonly faces?: Readonly<Partial<Record<BoxFace, Partial<BoxFaceSettings>>>>;
   readonly children?: readonly NodeDocument[];
 }
@@ -82,6 +134,10 @@ export interface MascotDocument {
   readonly format: typeof FORMAT;
   readonly version: number;
   readonly meta: { readonly name: string; readonly description?: string };
+  /** Shape parameters: numbers the tree's geometry is computed from, set again when built. */
+  readonly params?: Readonly<Record<string, ParamSpec>>;
+  /** The document's own prefabs, by name; the library's are there too. */
+  readonly prefabs?: Readonly<Record<string, PrefabDocument>>;
   /**
    * The archetype (`ARCHETYPES` in `@mascotte/library`): the rig binds its slots, and library
    * motions measure the mascot's size by it.
