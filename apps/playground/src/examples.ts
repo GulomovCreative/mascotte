@@ -1,16 +1,13 @@
 import {
-  type AimConstraint,
   Animator,
   bindClip,
   Camera,
   CanvasRenderer,
   DragRotate,
   HitTester,
-  type Node,
   type PointerHandler,
   PointerInputs,
   type PointerInputsSpec,
-  type Rig,
   Scene,
   SPRING_MAX_DT,
   Ticker,
@@ -18,6 +15,7 @@ import {
 } from '@mascotte/engine';
 import { bindPointer, pauseWhenOffscreen } from '@mascotte/player';
 import {
+  type AnimatedScene,
   animatedMascot,
   buildBenchmark,
   type EngineScene,
@@ -481,32 +479,22 @@ function clipExampleGL(): Example {
   };
 }
 
-/** A mascot from `@mascotte/reference` that the pointer plays with. */
-interface PointerMascot {
-  readonly id: string;
-  readonly title: string;
-  readonly width: number;
-  readonly height: number;
-  readonly background: string;
-  build(): { root: Node; camera: Camera; rig: Rig };
-  animate(animator: Animator): { gaze: AimConstraint };
-}
-
 /**
  * How a mascot example uses the pointer: which inputs a `PointerInputs` drives over the
- * mascot, and what else follows its hover every frame (`ease` is the step towards it).
+ * mascot (inputs the mascot's machines read), and what else follows its hover every frame
+ * (`ease` is the fraction of the way towards it this frame, 1 on a seek).
  */
 interface PointerPlay {
   readonly inputs: Pick<PointerInputsSpec, 'hover' | 'click'>;
-  hover?(animator: Animator, hovering: boolean, ease: number): void;
+  follow?(animator: Animator, hovering: boolean, ease: number): void;
 }
 
-/** The old mascot smiles wider while the pointer is over it: `mood` eases towards the hover. */
+/** `animatedMascot` smiles wider while the pointer is over it: `mood` eases towards the hover. */
 function moodFollowsHover(): PointerPlay {
   let mood = 0;
   return {
     inputs: { click: 'poke' },
-    hover(animator, hovering, ease) {
+    follow(animator, hovering, ease) {
       mood = Math.min(1, Math.max(0, mood + ((hovering ? 1 : 0) - mood) * ease));
       animator.inputs.set('mood', mood);
     },
@@ -525,7 +513,7 @@ function moodFollowsHover(): PointerPlay {
  * and the springs rest; while the animation is paused the step is 0 and the springs hold still.
  */
 function mascotExample(
-  scene: PointerMascot,
+  scene: AnimatedScene,
   backend: 'gl' | 'canvas',
   play: () => PointerPlay,
 ): Example {
@@ -543,6 +531,12 @@ function mascotExample(
       if (!head || !body) throw new Error(`${scene.id} has no head or root slot.`);
       const frame = { width: scene.width, height: scene.height };
       const reaction = play();
+      // `PointerInputs` declares a name nothing reads without complaint: check it here.
+      for (const name of Object.values(reaction.inputs)) {
+        if (name && !animator.inputs.has(name)) {
+          throw new Error(`${scene.id} has no input "${name}" for the pointer.`);
+        }
+      }
       const poke = new PointerInputs(animator, { camera, viewport: frame, ...reaction.inputs });
       const turn = new DragRotate(body, { settle: 0.5 });
       // The pointer over the canvas in frame units from the center, or null elsewhere.
@@ -556,7 +550,7 @@ function mascotExample(
         const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
         const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
         gaze.weight = Math.min(1, Math.max(0, weight));
-        reaction.hover?.(animator, poke.hovering, ease);
+        reaction.follow?.(animator, poke.hovering, ease);
         if (!pointer) return;
         // The point under the pointer, 120 units in front of the head.
         camera.toView(view, head.localToWorld(center, head.pivot));

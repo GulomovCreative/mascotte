@@ -12,6 +12,7 @@ import {
   type StateMachineSpec,
 } from '@mascotte/engine';
 import { euler, quat } from '@mascotte/math';
+import type { AnimatedScene } from './scenes.ts';
 
 /*
  * The example mascot: it waves (a clip), breathes and sways (additive behaviors), blinks at
@@ -408,4 +409,4 @@ export const animatedMascot = {
   background: '#e8f1f2',
   build,
   animate,
-} as const;
+} satisfies AnimatedScene;

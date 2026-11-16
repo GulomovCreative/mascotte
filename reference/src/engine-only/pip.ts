@@ -15,16 +15,17 @@ import {
   type Track,
 } from '@mascotte/engine';
 import { euler, quat, type Vec3 } from '@mascotte/math';
+import type { AnimatedScene } from './scenes.ts';
 
 /*
  * Pip, the showcase mascot: a round yellow chick, all body and no neck. It breathes, blinks,
  * now and then chirps (its beak opens) and tilts its head, its crest feathers swing on springs,
  * and its head can turn towards a point (the pointer, in the playground) through an `aim`
- * constraint. Its
- * emotions are the states of a machine: calm, happy while `hover` holds (wings flap, eyes turn
- * to arcs, beak open) and surprised for a moment after a `poke` (crest up, round eyes). As for
- * the old mascot, with springs off, the machine in its initial state and the same gaze, setting
- * the layer times gives the same frame as playing up to them.
+ * constraint. Its emotions are the states of a machine: calm, happy while `hover` holds (wings
+ * flap, eyes turn to arcs, beak open) and surprised for a moment after a `poke` (crest up, wide
+ * eyes). As for `animatedMascot`, apart from the crest on its springs, with the machine in its
+ * initial state and the same gaze, setting the layer times gives the same frame as playing up
+ * to them.
  *
  * Its rig binds the bird slots: `root`, `body`, `head`, `eyes`, `eye.L`, `eye.R`,
  * `eyes.happy`, `lids`, `beak.upper`, `beak.lower`, `wing.L`, `wing.R`, `crest.L`, `crest.M`
@@ -49,7 +50,7 @@ const belly = '#fff0b3';
 const wingColor = '#f7c232';
 const orange = '#ff9a1f';
 const dark = '#3a2410';
-// The wings face out to the sides, a little forward.
+// The wings face out to the sides and half forward.
 const wingYaw = 0.9;
 
 /** The crest feathers: where each grows on the head (left, middle, right) and its tip from there. */
@@ -142,7 +143,7 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   const happy = new Node({ id: 'eyes-happy', visible: false });
   const lids = new Node({ id: 'lids', visible: false });
   for (const side of [-1, 1]) {
-    // An eye on its own node, so scaling it makes it rounder.
+    // An eye on its own node, so it scales with its highlight about its center (wide eyes).
     const eye = new Node({
       id: side < 0 ? 'eye-left' : 'eye-right',
       position: onBody(side * 17, -10, radius + 1),
@@ -255,7 +256,7 @@ function hold(slot: string, property: Track['property'], value: Value): Track {
   return { target, property, keys: [{ time: 0, value }] };
 }
 
-/** A wing (side −1 left, 1 right) turned out from the body by `angle` (up when large). */
+/** A wing (side −1 left, 1 right) turned out from the body by `angle` (towards level when large). */
 function wing(side: number, angle: number) {
   return rotation(0, 0, -side * angle);
 }
@@ -267,7 +268,10 @@ function beak(angle: number) {
 
 const one = { x: 1, y: 1, z: 1 };
 
-/** A held pose of the face, wings and crest: every emotion sets all of these. */
+/**
+ * A held pose of the wings (the first two tracks), face and crest: every emotion sets these
+ * slots and properties, so a transition fades each of them.
+ */
 function pose(options: {
   wings: number;
   beak: number;
@@ -298,11 +302,12 @@ const calmClip: Clip = {
   tracks: pose({ wings: 0.15, beak: 0, happyEyes: false, eyeScale: 1, crest: 1 }),
 };
 
-/** Happy: wings up and flapping, eyes as arcs, beak open. */
+/** Happy: wings raised and flapping, eyes as arcs, beak open. */
 const happyClip: Clip = {
   duration: 0.24,
   loop: 'pingpong',
   tracks: [
+    // The pose without its held wings, which flap instead.
     ...pose({ wings: 1.1, beak: 0.5, happyEyes: true, eyeScale: 1, crest: 1 }).slice(2),
     ...[-1, 1].map((side) => ({
       target: { slot: side < 0 ? 'wing.L' : 'wing.R' },
@@ -315,7 +320,10 @@ const happyClip: Clip = {
   ],
 };
 
-/** Surprised: crest up, round eyes, wings out and the beak a little open, then it settles. */
+/**
+ * Surprised: crest up, wide eyes, wings out and the beak a little open, held for 0.9 s; then the
+ * machine leaves it.
+ */
 const surprisedClip: Clip = {
   duration: 0.9,
   loop: 'once',
@@ -485,4 +493,4 @@ export const pip = {
   background: '#e6f0ff',
   build,
   animate,
-} as const;
+} satisfies AnimatedScene;
