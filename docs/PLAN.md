@@ -266,7 +266,7 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
 - **Writing.** `writeNode(node)` writes a subtree, keeping only the properties that differ from their defaults. `writeProps` does the same for a camera.
   - It refuses what a document could not read back: NaN and ±Infinity (JSON has neither), colors the reader cannot parse, rotations that are not unit quaternions, and nodes added under a solid's own parts.
 - **Reading.** `readDocument(json)` parses the JSON, migrates it and validates it. If anything is wrong it throws a `DocumentError` that lists every issue as `{ path, message }`, for example `root.children[2].props.diameter: expected a number at least 0, got -1.`
-  - Validation checks node properties against the property registry: types, ranges, integers, enum values, CSS colors and non-zero quaternions.
+  - Validation checks node properties against the property registry: types, ranges, integers, enum values, CSS colors and unit quaternions.
   - Unknown fields are reported on the document, nodes, path commands, faces and layers.
   - It checks references: duplicate ids, slots bound to missing ids, missing motions, blends nested in blends (the engine refuses them, so no chain of names can nest deeply or loop) and machines on missing layers.
   - It refuses a tree nested deeper than `MAX_DEPTH` (64) levels, and `writeNode` refuses to write one. Lookups by name ignore the object prototype.

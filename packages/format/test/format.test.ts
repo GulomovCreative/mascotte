@@ -330,6 +330,8 @@ describe('migrate and readDocument', () => {
         },
       ]),
     ).toThrow(/version: migrating from version 1 to 2 failed: bug/);
+    const nested = `{"format":"mascotte","version":1,"x":${'['.repeat(1e5)}${']'.repeat(1e5)}}`;
+    expect(() => readDocument(nested)).toThrow(/cannot be copied \(nested too deeply/);
     expect(() => migrate(old, [() => undefined as never])).toThrow(
       /version: migrating from version 1 to 2 gave no document\./,
     );
