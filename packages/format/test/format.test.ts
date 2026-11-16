@@ -216,7 +216,7 @@ describe('validateDocument against hostile or tricky input', () => {
     expect(() => buildDocument(deep as MascotDocument)).toThrow(DocumentError);
   });
 
-  it('reports named motions that lead back to themselves', () => {
+  it('refuses a blend in a blend, named or inline, as the engine does', () => {
     const found = issues(
       broken((d) => {
         d.motions.a = { input: 'x', blend: [{ at: 0, motion: 'a' }] };
@@ -227,9 +227,11 @@ describe('validateDocument against hostile or tricky input', () => {
         d.motions.c = { input: 'x', blend: [{ at: 1, motion: 'b' }] };
       }),
     );
+    // So no chain of names can blend a motion into itself or nest blends deeply.
     expect(found).toEqual([
-      'motions.a: the motion refers back to itself: a → a.',
-      'motions.b: the motion refers back to itself: b → c → b.',
+      'motions.a.blend[0].motion: a blend point cannot be a blend: blends do not nest.',
+      'motions.b.blend[0].motion: a blend point cannot be a blend: blends do not nest.',
+      'motions.c.blend[0].motion: a blend point cannot be a blend: blends do not nest.',
     ]);
   });
 
@@ -418,7 +420,7 @@ describe('buildDocument', () => {
     expect(animator.springs).toHaveLength(1);
   });
 
-  it('resolves names only among the motions, and stops at a cycle', () => {
+  it('resolves names only among the motions, and leaves nested blends to the engine', () => {
     const animator = new Animator(new Scene(new Node()));
     expect(() => animateDocument({ layers: [{ name: 'a', play: 'toString' }] }, animator)).toThrow(
       /layers\[0\]\.play: no motion "toString" in motions\./,
@@ -427,12 +429,11 @@ describe('buildDocument', () => {
       a: { input: 'x', blend: [{ at: 0, motion: 'b' }] },
       b: { input: 'x', blend: [{ at: 0, motion: 'a' }] },
     };
+    const withInput = new Animator(new Scene(new Node()));
+    withInput.inputs.define({ name: 'x', type: 'number' });
     expect(() =>
-      animateDocument(
-        { motions: loop, layers: [{ name: 'l', play: 'a' }] },
-        new Animator(new Scene(new Node())),
-      ),
-    ).toThrow(/layers\[0\]\.play: the motion refers back to itself: a → b → a\./);
+      animateDocument({ motions: loop, layers: [{ name: 'l', play: 'a' }] }, withInput),
+    ).toThrow(/layers\[0\]\.play: .*blends do not nest/);
   });
 
   it('reports what the engine rejects at the path of the entry', () => {
@@ -572,6 +573,13 @@ describe('writeNode', () => {
     expect(() => writeNode(named)).toThrow(/named: style\.color = "red" cannot be stored/);
     const can = new Cylinder({ id: 'can' });
     can.frontBase.add(new Ellipse({ id: 'label' }));
+    const skewed = new Node({ id: 'skewed' });
+    skewed.rotation.set(0, 0, 0, 2);
+    expect(() => writeNode(skewed)).toThrow(/skewed: rotation = .* cannot be stored/);
+    const deep = new Node({ id: 'top' });
+    let tip = deep;
+    for (let i = 0; i <= MAX_DEPTH; i++) tip = tip.add(new Node()).children[0] as Node;
+    expect(() => writeNode(deep)).toThrow(new RegExp(`deeper than ${MAX_DEPTH} levels`));
     expect(() => writeNode(can)).toThrow(/can\/front.* is a part can makes/);
   });
 

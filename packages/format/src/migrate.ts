@@ -29,7 +29,13 @@ export function migrate(
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new DocumentError([{ path: '', message: 'expected a document object.' }]);
   }
-  let document = structuredClone(value) as Record<string, unknown>;
+  let document: Record<string, unknown>;
+  try {
+    document = structuredClone(value) as Record<string, unknown>;
+  } catch (error) {
+    const message = 'the document holds values JSON cannot (functions, say).';
+    throw new DocumentError([{ path: '', message }], { cause: error });
+  }
   if (document.format !== FORMAT) {
     throw new DocumentError([
       { path: 'format', message: `expected "${FORMAT}": this is not a mascot document.` },
