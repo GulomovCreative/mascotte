@@ -9,6 +9,7 @@ import {
   propertiesOf,
   SLOT_NAME_PATTERN,
 } from '@mascotte/engine';
+import { ARCHETYPES, MOTIONS, slotsOf, usesSize } from '@mascotte/library';
 import { color } from '@mascotte/math';
 import {
   FORMAT,
@@ -119,6 +120,7 @@ const DOCUMENT_KEYS = fields<MascotDocument>()([
   'format',
   'version',
   'meta',
+  'archetype',
   'view',
   'camera',
   'root',
@@ -313,7 +315,38 @@ function isBlend(value: unknown): boolean {
   return isObject(value) && Array.isArray(value.blend);
 }
 
+const MOTION_KINDS =
+  'a clip {tracks}, behaviors {behaviors}, blend {input, blend} or library motion {library}';
 const NESTED_BLEND = 'a blend point cannot be a blend: blends do not nest.';
+
+/** What motion checks need: the named motions, the rig's slots and whether a size is known. */
+interface MotionContext {
+  readonly motions: Json;
+  readonly slots: ReadonlySet<string>;
+  readonly archetype: boolean;
+}
+
+/** Checks a library motion: it exists, the rig binds its slots, and it has a size if it needs one. */
+function checkLibrary(c: Checker, name: unknown, path: string, context: MotionContext): void {
+  const motion = typeof name === 'string' ? MOTIONS.get(name) : undefined;
+  if (!motion) {
+    c.fail(path, `expected a library motion (${list(MOTIONS.keys())}), got ${show(name)}.`);
+    return;
+  }
+  const missing = slotsOf(motion.motion).filter((slot) => !context.slots.has(slot));
+  if (missing.length > 0) {
+    c.fail(
+      path,
+      `the library motion "${motion.name}" needs the slots ${list(missing)}, which the rig does not bind.`,
+    );
+  }
+  if (!context.archetype && usesSize(motion.motion)) {
+    c.fail(
+      path,
+      `the library motion "${motion.name}" moves positions in sizes of the mascot: set an archetype to measure it.`,
+    );
+  }
+}
 
 /**
  * Checks a motion reference: a name in `motions`, or an inline motion. Inside a blend
@@ -324,13 +357,14 @@ function checkMotionRef(
   c: Checker,
   value: unknown,
   path: string,
-  motions: Json,
+  context: MotionContext,
   inBlend: boolean,
 ): void {
   if (typeof value !== 'string') {
-    checkMotion(c, value, path, motions, inBlend);
+    checkMotion(c, value, path, context, inBlend);
     return;
   }
+  const { motions } = context;
   if (!Object.hasOwn(motions, value)) {
     const names = list(Object.keys(motions)) || 'none';
     c.fail(path, `no motion "${value}" in motions (there are ${names}).`);
@@ -343,13 +377,16 @@ function checkMotion(
   c: Checker,
   value: unknown,
   path: string,
-  motions: Json,
+  context: MotionContext,
   inBlend: boolean,
 ): void {
-  if (!c.object(value, path, 'a clip {tracks}, behaviors {behaviors} or blend {input, blend}')) {
+  if (!c.object(value, path, MOTION_KINDS)) {
     return;
   }
-  if (isBlend(value)) {
+  if (value.library !== undefined) {
+    c.keys(value, ['library'], path);
+    checkLibrary(c, value.library, join(path, 'library'), context);
+  } else if (isBlend(value)) {
     if (inBlend) {
       c.fail(path, NESTED_BLEND);
       return;
@@ -359,11 +396,11 @@ function checkMotion(
       const at = join(join(path, 'blend'), i);
       if (c.object(point, at, 'a blend point {at, motion}')) {
         c.number(point.at, join(at, 'at'));
-        checkMotionRef(c, point.motion, join(at, 'motion'), motions, true);
+        checkMotionRef(c, point.motion, join(at, 'motion'), context, true);
       }
     });
   } else if (!Array.isArray(value.tracks) && !Array.isArray(value.behaviors)) {
-    c.fail(path, 'expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.');
+    c.fail(path, `expected ${MOTION_KINDS}.`);
   }
 }
 
@@ -426,6 +463,7 @@ export function validateDocument(value: unknown): Issue[] {
   }
   const ids = new Set<string>();
   checkNode(c, value.root, 'root', ids, 0);
+  const slots = new Set<string>();
   if (value.rig !== undefined && c.object(value.rig, 'rig', 'an object {slots}')) {
     c.keys(value.rig, ['slots'], 'rig');
     const given = value.rig.slots;
@@ -434,15 +472,35 @@ export function validateDocument(value: unknown): Issue[] {
         const at = join('rig.slots', slot);
         if (!SLOT_NAME_PATTERN.test(slot)) c.fail(at, `"${slot}" is not a slot name.`);
         if (c.string(id, at) && !ids.has(id)) c.fail(at, `no node with id "${id}".`);
+        slots.add(slot);
+      }
+    }
+  }
+  const archetype =
+    typeof value.archetype === 'string' ? ARCHETYPES.get(value.archetype) : undefined;
+  if (value.archetype !== undefined) {
+    if (!archetype) {
+      c.fail(
+        'archetype',
+        `expected one of ${list(ARCHETYPES.keys())}, got ${show(value.archetype)}.`,
+      );
+    } else {
+      const missing = archetype.slots.filter((slot) => !slots.has(slot));
+      if (missing.length > 0) {
+        c.fail(
+          'archetype',
+          `a ${archetype.name} binds the slots ${list(missing)}, which the rig does not.`,
+        );
       }
     }
   }
   let motions: Json = {};
   if (value.motions !== undefined && c.object(value.motions, 'motions', 'an object of motions')) {
     motions = value.motions;
-    for (const [name, motion] of Object.entries(motions)) {
-      checkMotion(c, motion, join('motions', name), motions, false);
-    }
+  }
+  const context: MotionContext = { motions, slots, archetype: archetype !== undefined };
+  for (const [name, motion] of Object.entries(motions)) {
+    checkMotion(c, motion, join('motions', name), context, false);
   }
   const layers = checkNamed(c, value.layers, 'layers', 'layers', true, (layer, at) => {
     c.keys(layer, LAYER_KEYS, at);
@@ -452,7 +510,7 @@ export function validateDocument(value: unknown): Issue[] {
     }
     if (layer.weight !== undefined) c.number(layer.weight, join(at, 'weight'), 0);
     if (layer.play !== undefined && layer.play !== null) {
-      checkMotionRef(c, layer.play, join(at, 'play'), motions, false);
+      checkMotionRef(c, layer.play, join(at, 'play'), context, false);
     }
   });
   checkNamed(c, value.machines, 'machines', 'state machines', false, (machine, at) => {
@@ -464,7 +522,7 @@ export function validateDocument(value: unknown): Issue[] {
         const where = join(join(at, 'states'), i);
         if (!c.object(state, where, 'a state {name, motion}')) return;
         if (state.motion !== undefined && state.motion !== null) {
-          checkMotionRef(c, state.motion, join(where, 'motion'), motions, false);
+          checkMotionRef(c, state.motion, join(where, 'motion'), context, false);
         }
       });
     }

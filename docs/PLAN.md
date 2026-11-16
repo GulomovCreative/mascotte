@@ -59,6 +59,7 @@ packages/
   math/        vectors, matrices, quaternions, color, easing curves
   engine/      scene, primitives, sorting, rendering, animation, rig
   format/      document schema, validation, versions and migrations
+  library/     archetypes and the slot-based motion library
   player/      embedding: document loading, loop, input, resize
 apps/
   playground/  examples, debugging, benchmarks
@@ -235,6 +236,23 @@ This is the main requirement, and the architecture is built around it.
 5. **Skins and palettes.** The palette is stored separately from the shape and changes on the fly: color themes, light and dark mode, branding.
 6. **Emotions as data.** An emotion is a named set of poses and face parameters that the state machine blends with the current animation.
 
+**Archetypes and the motion library** live in `@mascotte/library`; the package holds data only.
+- **Archetypes.** `ARCHETYPES` holds five of them: `blob`, `biped`, `quadruped`, `bird` and `face`. Each lists:
+  - the slots every mascot of that kind binds; `root` (at the feet), `body`, `eyes` and `lids` are common to all;
+  - the slots it may bind;
+  - two slots whose distance at rest is the mascot's size.
+- **Motions.** `MOTIONS` holds motions written for slots:
+  - shared by every archetype: `breathe`, `blink`, `hop`, `bob`, `sway`, `tilt`;
+  - for one archetype: `wave` (biped), `flap` and `chirp` (bird), `wag` (quadruped).
+- **Layers.** Each motion says whether it is meant for an additive or an override layer.
+- **Sizes.** Positions in library motions are written in sizes of the mascot. A document that uses one declares its `archetype`, and the motion's positions are multiplied by the size when it is set up (`scaleMotion`). So a hop is a fifth of the size high for a small mascot and for a big one.
+- **In a document.** It refers to a library motion as `{ "library": "hop" }`, in `motions` or anywhere a motion goes. Validation checks:
+  - the archetype is known, and the rig binds its slots;
+  - every library motion's slots are bound;
+  - a motion that moves positions has an archetype to measure the size by.
+- **Pip** is a `bird`.
+- **Still missing.** The library does not cover constraints and springs yet; they are short and already written for slots in documents.
+
 Requirement check: by the end of stage 4 at least three mascots of different archetypes must work. All three are assembled only from documents and use the shared animation library.
 
 ## 7. Document format
@@ -382,7 +400,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 
 - [x] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
 - [x] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
-- [ ] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
+- [x] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
 - [ ] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
 - [ ] Palettes and skins ([#30](https://github.com/GulomovCreative/mascotte/issues/30))
 - [ ] Three reference mascots ([#31](https://github.com/GulomovCreative/mascotte/issues/31))

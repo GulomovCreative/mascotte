@@ -527,6 +527,7 @@ export function pipDocument(): MascotDocument {
     format: FORMAT,
     version: VERSION,
     meta: { name: 'Pip', description: 'A round yellow chick: the showcase mascot.' },
+    archetype: 'bird',
     view: { width: pip.width, height: pip.height, background: pip.background },
     camera: { props: writeProps(camera) },
     root: writeNode(root),

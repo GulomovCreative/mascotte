@@ -149,7 +149,7 @@ describe('validateDocument', () => {
     expect(found).toEqual([
       'rig.slots.ear.L: no node with id "ear".',
       'rig.slots.2x: "2x" is not a slot name.',
-      'motions.bad: expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.',
+      'motions.bad: expected a clip {tracks}, behaviors {behaviors}, blend {input, blend} or library motion {library}.',
       'layers[0].play: no motion "wave" in motions (there are nod, bad).',
       'layers[2].name: the name "base" is used twice.',
       'layers[2].mode: expected one of override, additive, got "mix".',
@@ -252,7 +252,7 @@ describe('validateDocument against hostile or tricky input', () => {
       'motions.lean.blend[0].at: expected a finite number, got undefined.',
       'motions.lean.blend[0].motion: no motion "nope" in motions (there are nod, lean).',
       'motions.lean.blend[1]: expected a blend point {at, motion}, got 3.',
-      'layers[0].play: expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.',
+      'layers[0].play: expected a clip {tracks}, behaviors {behaviors}, blend {input, blend} or library motion {library}.',
       'constraints[1].name: the name "gaze" is used twice.',
     ]);
   });
