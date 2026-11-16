@@ -451,9 +451,18 @@ describe('Player', () => {
     plain.destroy();
     const big = new Player(canvas, JSON.stringify(sized), { ...options, params: { size: 1.5 } });
     expect(big.scene.root.scale.x).toBe(1.5);
-    // A swap keeps the parameters.
+    // A swap keeps the parameters, unless it is given its own.
     big.load(JSON.stringify(sized));
     expect(big.scene.root.scale.y).toBe(1.5);
+    big.load(JSON.stringify(sized), { params: { size: 0.5 } });
+    expect(big.scene.root.scale.y).toBe(0.5);
+    // A document without the parameter loads with no params; a bad load keeps the running ones.
+    expect(() => big.load(JSON.stringify(day))).toThrow(/no parameter "size"/);
+    big.load(JSON.stringify(day), { params: {} });
+    expect(big.scene.root.scale.y).toBe(1);
+    expect(() => big.load(JSON.stringify(sized), { params: { size: 9 } })).toThrow(/at most 2/);
+    big.load(JSON.stringify(sized), { params: { size: 2 } });
+    expect(big.scene.root.scale.y).toBe(2);
     big.destroy();
   });
 });

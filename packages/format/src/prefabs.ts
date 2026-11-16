@@ -1,5 +1,5 @@
 import { PREFABS } from '@mascotte/library';
-import type { Issue, MascotDocument, NodeDocument, ParamSpec, PrefabDocument } from './document.ts';
+import type { Issue, PrefabDocument, ShapeParam } from './document.ts';
 
 /*
  * Shape parameters and prefabs, expanded away: what is built is a plain tree of numbers.
@@ -7,6 +7,9 @@ import type { Issue, MascotDocument, NodeDocument, ParamSpec, PrefabDocument } f
  */
 
 type Json = Record<string, unknown>;
+
+/** How deep a tree or a value may nest (as `MAX_DEPTH` in validation); deeper is refused. */
+const LIMIT = 64;
 
 function isObject(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -20,8 +23,8 @@ function join(path: string, key: string | number): string {
 type Scope = ReadonlyMap<string, number>;
 
 /** Checks a set of parameter specs, reporting bad ones. */
-function checkSpecs(specs: unknown, path: string, issues: Issue[]): Map<string, ParamSpec> {
-  const out = new Map<string, ParamSpec>();
+function checkSpecs(specs: unknown, path: string, issues: Issue[]): Map<string, ShapeParam> {
+  const out = new Map<string, ShapeParam>();
   if (specs === undefined) return out;
   if (!isObject(specs)) {
     issues.push({ path, message: 'expected an object of parameters {default, min, max}.' });
@@ -56,14 +59,16 @@ function checkSpecs(specs: unknown, path: string, issues: Issue[]): Map<string, 
         });
       }
     }
-    out.set(name, spec as unknown as ParamSpec);
-    const problem = rangeProblem(spec.default, spec as unknown as ParamSpec);
+    out.set(name, spec as unknown as ShapeParam);
+    const problem = rangeProblem(spec.default, spec as unknown as ShapeParam);
     if (problem) issues.push({ path: join(at, 'default'), message: problem });
   }
   return out;
 }
 
-function rangeProblem(value: number, spec: ParamSpec): string | null {
+function rangeProblem(value: number, spec: ShapeParam): string | null {
+  if (spec.min !== undefined && spec.max !== undefined && spec.min > spec.max)
+    return `min ${spec.min} is above max ${spec.max}.`;
   if (spec.min !== undefined && value < spec.min)
     return `expected at least ${spec.min}, got ${value}.`;
   if (spec.max !== undefined && value > spec.max)
@@ -135,29 +140,63 @@ function evaluate(
     }
   }
   if (plus === null) return null;
-  if (typeof times === 'number' && typeof plus === 'number') return value * times + plus;
+  if (typeof times === 'number' && typeof plus === 'number') {
+    const result = value * times + plus;
+    if (Number.isFinite(result)) return result;
+    issues.push({ path, message: `param × times + plus is not a finite number (${result}).` });
+    return null;
+  }
   if (typeof times === 'number' || typeof plus === 'number') {
     issues.push({ path, message: 'times and plus must both be numbers or both be vectors.' });
     return null;
   }
-  return { x: value * times.x + plus.x, y: value * times.y + plus.y, z: value * times.z + plus.z };
+  const x = value * times.x + plus.x;
+  const y = value * times.y + plus.y;
+  const z = value * times.z + plus.z;
+  if (!(Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z))) {
+    issues.push({ path, message: 'param × times + plus is not a finite vector.' });
+    return null;
+  }
+  return { x, y, z };
 }
 
 /** `value` with every `{ param }` reference replaced by its number in `scope`. */
-function substitute(value: unknown, scope: Scope, path: string, issues: Issue[]): unknown {
+function substitute(
+  value: unknown,
+  scope: Scope,
+  path: string,
+  issues: Issue[],
+  depth = 0,
+): unknown {
+  // Values are shallow; anything this deep is refused instead of overflowing the stack.
+  if (depth > LIMIT) {
+    issues.push({ path, message: `nested deeper than ${LIMIT} levels.` });
+    return null;
+  }
   if (Array.isArray(value))
-    return value.map((item, i) => substitute(item, scope, join(path, i), issues));
+    return value.map((item, i) => substitute(item, scope, join(path, i), issues, depth + 1));
   if (!isObject(value)) return value;
   if ('param' in value) return evaluate(value, scope, path, issues) ?? 0;
+  for (const axis of ['x', 'y', 'z', 'w']) {
+    const item = value[axis];
+    if (isObject(item) && 'param' in item) {
+      issues.push({
+        path: join(path, axis),
+        message:
+          'a reference stands for a whole value, not one coordinate: use vector times and plus.',
+      });
+      return { ...value, [axis]: 0 };
+    }
+  }
   const out: Json = {};
   for (const [key, item] of Object.entries(value))
-    out[key] = substitute(item, scope, join(path, key), issues);
+    out[key] = substitute(item, scope, join(path, key), issues, depth + 1);
   return out;
 }
 
-/** Parameter values: the specs' defaults, set again by `given` (checked against the specs). */
+/** Parameter values: the specs' defaults, overridden by `given` (checked against the specs). */
 function valuesOf(
-  specs: ReadonlyMap<string, ParamSpec>,
+  specs: ReadonlyMap<string, ShapeParam>,
   given: unknown,
   outer: Scope,
   path: string,
@@ -182,7 +221,7 @@ function valuesOf(
       if (value !== null)
         issues.push({
           path: at,
-          message: `expected a finite number, got ${JSON.stringify(value)}.`,
+          message: `expected a finite number, got ${typeof value === 'number' ? value : JSON.stringify(value)}.`,
         });
       continue;
     }
@@ -194,10 +233,13 @@ function valuesOf(
 }
 
 /** Prefixes every set id in a prefab's subtree with the instance id. */
-function prefixIds(node: Json, prefix: string): Json {
-  const children = Array.isArray(node.children)
-    ? node.children.map((child) => (isObject(child) ? prefixIds(child, prefix) : child))
-    : node.children;
+function prefixIds(node: Json, prefix: string, depth = 0): Json {
+  const children =
+    Array.isArray(node.children) && depth < LIMIT
+      ? node.children.map((child) =>
+          isObject(child) ? prefixIds(child, prefix, depth + 1) : child,
+        )
+      : node.children;
   return {
     ...node,
     ...(typeof node.id === 'string' ? { id: `${prefix}-${node.id}` } : {}),
@@ -206,14 +248,14 @@ function prefixIds(node: Json, prefix: string): Json {
 }
 
 /** Reports prefab instances inside a prefab, which are not supported. */
-function findNested(node: unknown, path: string, issues: Issue[]): void {
-  if (!isObject(node)) return;
+function findNested(node: unknown, path: string, issues: Issue[], depth = 0): void {
+  if (!isObject(node) || depth > LIMIT) return;
   // упрощение: префаб не может содержать префабы; вернуться, если библиотеке понадобятся
   // составные части (лапа с когтями-префабами), с проверкой циклов.
   if (node.prefab !== undefined) issues.push({ path, message: 'a prefab cannot hold prefabs.' });
   if (Array.isArray(node.children)) {
     node.children.forEach((child, i) => {
-      findNested(child, join(join(path, 'children'), i), issues);
+      findNested(child, join(join(path, 'children'), i), issues, depth + 1);
     });
   }
 }
@@ -231,14 +273,20 @@ function expandNode(
   depth: number,
 ): unknown {
   // Deeper trees are refused by validation; leave them as they are.
-  if (!isObject(node) || depth > 64) return node;
+  if (!isObject(node) || depth > LIMIT) return node;
   const children = Array.isArray(node.children)
     ? node.children.map((child, i) =>
         expandNode(child, scope, join(join(path, 'children'), i), context, depth + 1),
       )
     : node.children;
   if (node.prefab === undefined) {
-    const { children: _, ...rest } = node;
+    if (node.params !== undefined) {
+      context.issues.push({
+        path: join(path, 'params'),
+        message: 'only a prefab instance has params.',
+      });
+    }
+    const { children: _, params: __, ...rest } = node;
     const own = substitute(rest, scope, path, context.issues) as Json;
     return children === undefined ? own : { ...own, children };
   }
@@ -253,18 +301,29 @@ function expandNode(
     });
     return { type: 'Node' };
   }
-  if (node.type !== undefined)
-    issues.push({ path: join(path, 'type'), message: 'a prefab instance has no type.' });
+  for (const key of ['type', 'path', 'faces']) {
+    if (node[key] !== undefined) {
+      issues.push({
+        path: join(path, key),
+        message: `a prefab instance has no ${key}: its prefab does.`,
+      });
+    }
+  }
   if (typeof node.id !== 'string' || node.id === '') {
     issues.push({
       path: join(path, 'id'),
       message: 'a prefab instance needs an id, to name the ids of its nodes.',
     });
   }
+  // The prefab's own specs and references were checked once, with its definition.
   const specs = checkSpecs(found.def.params, join(found.path, 'params'), []);
   const values = valuesOf(specs, node.params, scope, join(path, 'params'), issues);
-  const root = substitute(found.def.root, values, join(found.path, 'root'), issues);
-  if (!isObject(root)) return { type: 'Node' };
+  const root = substitute(found.def.root, values, join(found.path, 'root'), []);
+  // Unreachable for a checked prefab: its root is a node.
+  if (!isObject(root)) {
+    issues.push({ path: join(found.path, 'root'), message: 'a prefab root must be a node.' });
+    return { type: 'Node' };
+  }
   const prefixed = prefixIds(root, String(node.id));
   const props =
     node.props === undefined
@@ -276,16 +335,18 @@ function expandNode(
     ...(node.name === undefined ? {} : { name: node.name }),
     props: { ...(isObject(prefixed.props) ? prefixed.props : {}), ...props },
   };
+  // The instance's children first, so they keep the paths they have in the document.
   const own = Array.isArray(prefixed.children) ? prefixed.children : [];
   const extra = Array.isArray(children) ? children : [];
-  if (own.length + extra.length > 0) merged.children = [...own, ...extra];
+  if (own.length + extra.length > 0) merged.children = [...extra, ...own];
   return merged;
 }
 
 /**
  * Expands a document's shape parameters and prefabs into a plain tree: every `{ param }` becomes
- * its number (the document's defaults, set again by `params`) and every prefab instance its
- * subtree. Returns the expanded document and the problems found; it does not throw.
+ * its value (the document's defaults, overridden by `params`) and every prefab instance its
+ * subtree. A document prefab with a library prefab's name replaces it. Returns the expanded
+ * document and the problems found; it does not throw.
  */
 export function expandDocument(
   document: unknown,
@@ -308,8 +369,11 @@ export function expandDocument(
     } else {
       for (const [name, def] of Object.entries(document.prefabs)) {
         const at = join('prefabs', name);
-        if (!isObject(def) || !isObject(def.root)) {
-          issues.push({ path: at, message: 'expected a prefab {params, root}.' });
+        if (!isObject(def) || !isObject(def.root) || 'param' in def.root) {
+          issues.push({
+            path: at,
+            message: 'expected a prefab {params, root} whose root is a node.',
+          });
           continue;
         }
         for (const key of Object.keys(def)) {
@@ -320,8 +384,11 @@ export function expandDocument(
             });
           }
         }
-        checkSpecs(def.params, join(at, 'params'), issues);
+        const own = checkSpecs(def.params, join(at, 'params'), issues);
         findNested(def.root, join(at, 'root'), issues);
+        // Its references are checked here, once, whether or not anything uses it.
+        const defaults = new Map([...own].map(([key, spec]) => [key, spec.default]));
+        substitute(def.root, defaults, join(at, 'root'), issues);
         prefabs.set(name, { def: def as unknown as PrefabDocument, path: at });
       }
     }
@@ -330,7 +397,3 @@ export function expandDocument(
   const { params: _, prefabs: __, ...rest } = document;
   return { document: { ...rest, root }, issues };
 }
-
-/** A node document with no prefabs or parameters left, as `expandDocument` makes it. */
-export type ExpandedNode = NodeDocument & { readonly type: string };
-export type ExpandedDocument = MascotDocument & { readonly root: ExpandedNode };

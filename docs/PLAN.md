@@ -258,13 +258,13 @@ This is the main requirement, and the architecture is built around it.
 - **Parameters.** A document declares numeric parameters (`params: { earLength: { default: 12, min: 6, max: 24 } }`).
   - Any value in the tree can be computed from one: `{ "param": "earLength", "times": 0.5, "plus": 2 }`.
   - For a vector, `times` and `plus` are vectors, and `plus` may itself be a reference, so a vector can depend on several parameters.
-  - A reference is always a whole value, never one coordinate inside `{x, y, z}`. V8 shares one hidden class among all `{x, y, z}` objects, and one holding something else there makes every vector in the engine box its numbers (the allocation tests caught this).
-  - Building takes values for the parameters (`buildDocument(document, { params })`, and the `params` option of the player), so one document yields a family of mascots.
+  - A reference is always a whole value, never one coordinate inside `{x, y, z}`, and validation refuses one there. `{x, y, z}` objects built alike share a V8 hidden class; one holding something other than a number in a coordinate generalizes that class, and every store into those vectors in the engine then allocates (the allocation tests caught this).
+  - Building overrides the parameters (`buildDocument(document, { params })`, the player's `params` option and `load(document, { params })`), so one document yields a family of mascots.
 - **Prefabs.** A prefab is a subtree with its own parameters.
-  - A node `{ prefab, id, params, props, children }` becomes that subtree. Its ids are prefixed with the instance id (`eye-left` + `pupil` gives `eye-left-pupil`), its root takes the instance's `props` and `name`, and the instance's children are added.
-  - The library has `eye` (white, pupil, highlight), `mouth` (a curve with a width and a depth), `ear` and `paw`. A document may add its own under `prefabs`.
+  - A node `{ prefab, id, params, props, children }` becomes that subtree. Its root gets the instance's `id` and `name`, with the instance's `props` over its own; the other ids are prefixed with the instance id (`eye-left` + `pupil` gives `eye-left-pupil`); the instance's children come before the prefab's.
+  - The library has `eye` (white, pupil, highlight), `mouth` (a curve with a width and a depth), `ear` and `paw`. A document may add its own under `prefabs` (checked once, used or not); one with a library name replaces it.
   - A prefab cannot hold prefabs yet.
-- **Validation and reading.** Validation checks the tree as it will be built, with the parameters set and the prefabs in place, and reports parameter, range and reference problems with paths. `readDocument` keeps the document as written; the editor saves prefabs and references, not their expansion.
+- **Validation and reading.** Validation checks the tree as it will be built, with the parameters set and the prefabs in place, and reports parameter, range and reference problems with paths. `readDocument` keeps the document as written, so the editor (stage 6) can save prefabs and references rather than their expansion; `writeNode` writes a built, expanded tree.
 
 Requirement check: by the end of stage 4 at least three mascots of different archetypes must work. All three are assembled only from documents and use the shared animation library.
 

@@ -7,13 +7,13 @@ import {
   PathShape,
   propertiesOf,
 } from '@mascotte/engine';
-import { color, type Quat, type Vec3 } from '@mascotte/math';
-import type { NodeDocument, PropertyValue } from './document.ts';
+import { color } from '@mascotte/math';
+import type { NodeDocument, PlainValue } from './document.ts';
 import { NODE_TYPES } from './nodes.ts';
 import { MAX_DEPTH } from './validate.ts';
 
 /** Throws unless JSON can hold the value and a document can read it back. */
-function storable(node: Node, name: string, value: Plain, isColor: boolean): void {
+function storable(node: Node, name: string, value: PlainValue, isColor: boolean): void {
   let numbers: number[] = [];
   if (typeof value === 'number') numbers = [value];
   else if (typeof value === 'object' && value !== null) numbers = Object.values(value);
@@ -33,10 +33,7 @@ function storable(node: Node, name: string, value: Plain, isColor: boolean): voi
   }
 }
 
-/** A property value as the registry reads it: plain numbers. */
-type Plain = number | boolean | string | null | Vec3 | Quat;
-
-function same(a: Plain, b: Plain): boolean {
+function same(a: PlainValue, b: PlainValue): boolean {
   if (typeof a !== 'object' || a === null || typeof b !== 'object' || b === null) return a === b;
   return (
     a.x === b.x && a.y === b.y && a.z === b.z && ('w' in a ? a.w === (b as { w: number }).w : true)
@@ -44,10 +41,10 @@ function same(a: Plain, b: Plain): boolean {
 }
 
 /** The node's properties (a camera's too) that differ from their defaults, by registry name. */
-export function writeProps(node: Node): Record<string, PropertyValue> {
-  const props: Record<string, PropertyValue> = {};
+export function writeProps(node: Node): Record<string, PlainValue> {
+  const props: Record<string, PlainValue> = {};
   for (const property of propertiesOf(node)) {
-    let value: Plain;
+    let value: PlainValue;
     if (property.type === 'vec3') value = property.get(node, { x: 0, y: 0, z: 0 });
     else if (property.type === 'quat') value = property.get(node, { x: 0, y: 0, z: 0, w: 1 });
     else value = property.get(node);
