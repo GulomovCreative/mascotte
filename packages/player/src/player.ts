@@ -58,7 +58,8 @@ export interface PlayerOptions {
   readonly turn?: DragRotateOptions | null;
   /**
    * Values for the document's shape parameters (`{ earLength: 20 }`): one document, a family of
-   * mascots. The document's defaults by default; `load` applies them to the new one too.
+   * mascots. Unset, the document's defaults are used. `load` keeps them unless it is given its
+   * own; a name the new document does not declare is a `DocumentError`.
    */
   readonly params?: Readonly<Record<string, number>>;
   /** Whether the animation runs from the start; true by default. */
@@ -166,6 +167,7 @@ function nodeOf(target: Target, scene: Scene, rig: Rig): Node | null {
 export class Player {
   readonly #canvas: PlayerCanvas;
   readonly #options: PlayerOptions;
+  #params: Readonly<Record<string, number>>;
   readonly #draw: Draw;
   readonly #invalidate: () => void;
   readonly #subscription: TickSubscription;
@@ -185,7 +187,8 @@ export class Player {
   constructor(canvas: PlayerCanvas, document: unknown, options: PlayerOptions = {}) {
     this.#canvas = canvas;
     this.#options = options;
-    this.#running = this.#start(readDocument(document));
+    this.#params = options.params ?? {};
+    this.#running = this.#start(readDocument(document), this.#params);
     const renderer = this.#renderer(options.renderer ?? 'auto');
     this.renderer = renderer.kind;
     this.#draw = renderer.draw;
@@ -260,12 +263,19 @@ export class Player {
 
   /**
    * Swaps in another document without recreating the player: the canvas, renderer, loop and
-   * pointer stay, and so does whether it plays. A document that cannot be read or built, or
-   * does not fit the options, throws as in the constructor and the running one stays.
+   * pointer stay, and so does whether it plays. `params` replace the shape parameters from now
+   * on (`{}` for the new document's defaults). A document that cannot be read or built, or does
+   * not fit the options, throws as in the constructor and the running one (and its
+   * parameters) stays.
    */
-  load(document: unknown): void {
+  load(
+    document: unknown,
+    options: { readonly params?: Readonly<Record<string, number>> } = {},
+  ): void {
     this.#check();
-    const next = this.#start(readDocument(document));
+    const params = options.params ?? this.#params;
+    const next = this.#start(readDocument(document), params);
+    this.#params = params;
     this.#running.pointer?.leave();
     this.#running = next;
     this.#invalidate();
@@ -302,8 +312,8 @@ export class Player {
     if (this.#destroyed) throw new Error('Player: it has been destroyed.');
   }
 
-  #start(document: MascotDocument): Running {
-    const built = buildDocument(document, { params: this.#options.params ?? {} });
+  #start(document: MascotDocument, params: Readonly<Record<string, number>>): Running {
+    const built = buildDocument(document, { params });
     const scene = new Scene(built.root);
     const animator = new Animator(scene, { rig: built.rig });
     const { machines, constraints } = built.animate(animator);

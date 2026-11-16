@@ -475,7 +475,10 @@ function checkNamed(
 
 /**
  * Checks a document, assumed to be of the current version (after `migrate`), and returns every
- * problem found; an empty list means it can be built.
+ * problem found; an empty list means it can be built. The tree is checked as `buildDocument`
+ * builds it with these `params`: references computed, prefabs expanded. A problem inside an
+ * expanded prefab is reported at its place in the expanded tree (an instance's own children
+ * keep their paths), one inside a prefab's definition at `prefabs.<name>`.
  */
 export function validateDocument(
   value: unknown,

@@ -1,6 +1,6 @@
 /*
  * Standard part prefabs: subtrees in the document's node form (see `NodeDocument` and
- * `PrefabDocument` in `@mascotte/format`, which checks them), whose values may be
+ * `PrefabDocument` in `@mascotte/format`, which expands them; a test checks each one), whose values may be
  * `{ param, times, plus }` references to their parameters. A reference is a whole value, a
  * vector one with vector `times`: never a coordinate inside `{x, y, z}` (see `ParamRef`). The
  * library holds data only, so the shapes are typed loosely here.

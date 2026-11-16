@@ -10,6 +10,7 @@ import {
   VERSION,
   validateDocument,
 } from '../src/index.ts';
+import { expandDocument } from '../src/prefabs.ts';
 
 /** A document whose tree is `children` under a root, with `params` and `prefabs`. */
 function doc(children: unknown[], extra: Record<string, unknown> = {}): MascotDocument {
@@ -56,10 +57,11 @@ describe('prefabs', () => {
     expect((scene.getById('eye-left-pupil') as Sphere).diameter).toBe(10);
     // A vector reference: (0, 0, 0.3) × size.
     expect(scene.getById('eye-left-iris')?.position.z).toBeCloseTo(6);
+    // The instance's own children first: they keep their paths in the document.
     expect(eye.children.map((child) => child.id)).toEqual([
+      'lid',
       'eye-left-white',
       'eye-left-iris',
-      'lid',
     ]);
   });
 
@@ -150,7 +152,7 @@ describe('prefabs', () => {
         /^root\.children\[0\]\.prefab: no prefab "tail" \(there are eye, mouth, ear, paw, bad\)\.$/,
       ),
       'root.children[1].id: a prefab instance needs an id, to name the ids of its nodes.',
-      'root.children[2].type: a prefab instance has no type.',
+      'root.children[2].type: a prefab instance has no type: its prefab does.',
       'root.children[2].params.size: expected at least 2, got 1.',
       'root.children[2].params.colour: no parameter "colour" (there are size).',
       'root.children[3].props.diameter.param: no parameter "girth" here (there are size).',
@@ -166,5 +168,178 @@ describe('prefabs', () => {
     const read = readDocument(JSON.stringify(written));
     expect(read.root.children?.[0]).toEqual({ prefab: 'paw', id: 'paw' });
     expect(read.params).toEqual({ k: { default: 1 } });
+  });
+
+  it('the library prefabs keep every {x, y, z} numeric, expanded or not', () => {
+    // A reference inside {x, y, z} would make engine vectors box their numbers (see VectorRef).
+    const bad: string[] = [];
+    const walk = (value: unknown, path: string) => {
+      if (Array.isArray(value)) value.forEach((item, i) => walk(item, `${path}[${i}]`));
+      else if (value && typeof value === 'object') {
+        const record = value as Record<string, unknown>;
+        if (['x', 'y', 'z'].some((axis) => axis in record)) {
+          for (const axis of ['x', 'y', 'z']) {
+            if (typeof record[axis] !== 'number') bad.push(`${path}.${axis}`);
+          }
+        }
+        for (const [key, item] of Object.entries(record)) walk(item, `${path}.${key}`);
+      }
+    };
+    for (const [name, prefab] of PREFABS) {
+      walk(prefab.root, name);
+      const big = Object.fromEntries(
+        Object.entries(prefab.params).map(([key, spec]) => [key, spec.max ?? spec.default * 2]),
+      );
+      const expanded = expandDocument(doc([{ prefab: name, id: 'p', params: big }]));
+      expect(expanded.issues, name).toEqual([]);
+      walk(expanded.document, `${name} expanded`);
+    }
+    expect(bad).toEqual([]);
+  });
+
+  it('refuses a reference inside {x, y, z}', () => {
+    expect(
+      issues(
+        doc([{ type: 'Node', props: { position: { x: { param: 'k' }, y: 0, z: 0 } } }], {
+          params: { k: { default: 1 } },
+        }),
+      ),
+    ).toEqual([
+      'root.children[0].props.position.x: a reference stands for a whole value, not one coordinate: use vector times and plus.',
+    ]);
+  });
+
+  it('ear, paw and mouth follow their parameters', () => {
+    const scene = sceneOf(
+      doc([
+        { prefab: 'ear', id: 'ear', params: { length: 20, width: 6 } },
+        { prefab: 'paw', id: 'paw', params: { size: 12 } },
+        { prefab: 'mouth', id: 'mouth', params: { stroke: 2 } },
+      ]),
+    );
+    const ear = scene.getById('ear') as PathShape;
+    expect(ear.path[1]).toEqual({ type: 'line', point: { x: 0, y: -20, z: 0 } });
+    expect(ear.style.stroke).toBe(6);
+    expect((scene.getById('paw') as Sphere).diameter).toBe(12);
+    expect((scene.getById('mouth') as PathShape).style.stroke).toBe(2);
+  });
+
+  it('merges the instance props over the prefab root, and catches ids made twice', () => {
+    const scene = sceneOf(
+      doc([
+        {
+          prefab: 'paw',
+          id: 'p',
+          params: { size: 12 },
+          props: { position: { x: 5, y: 0, z: 0 }, 'style.color': '#000000' },
+        },
+      ]),
+    );
+    const paw = scene.getById('p') as Sphere;
+    expect([paw.diameter, paw.style.color, paw.position.x]).toEqual([12, '#000000', 5]);
+    expect(
+      issues(
+        doc([
+          { prefab: 'eye', id: 'e' },
+          { type: 'Node', id: 'e-white' },
+        ]),
+      ),
+    ).toEqual([expect.stringMatching(/the id "e-white" is used twice\./)]);
+  });
+
+  it('expands instance children in the document scope, prefabs among them too', () => {
+    const scene = sceneOf(
+      doc([{ prefab: 'eye', id: 'e', children: [{ prefab: 'paw', id: 'p' }] }]),
+    );
+    expect(scene.getById('p')?.parent?.id).toBe('e');
+    // A child of an instance cannot see the prefab's parameters.
+    expect(
+      issues(
+        doc([
+          {
+            prefab: 'eye',
+            id: 'e',
+            children: [{ type: 'Sphere', props: { diameter: { param: 'size' } } }],
+          },
+        ]),
+      ),
+    ).toEqual([
+      'root.children[0].children[0].props.diameter.param: no parameter "size" here (there are none).',
+    ]);
+  });
+
+  it('reports bad references, roots and depths without throwing', () => {
+    const table: [unknown, RegExp][] = [
+      [
+        { param: 'k', times: 2, plus: { x: 1, y: 0, z: 0 } },
+        /times and plus must both be numbers or both be vectors/,
+      ],
+      [{ param: 'k', scale: 2 }, /\.scale: unknown field \(expected one of param, times, plus\)/],
+      [{ param: 'k', times: 'x' }, /\.times: expected a finite number or a vector/],
+      [{ param: 'k', times: 1e308 }, /param × times \+ plus is not a finite number \(Infinity\)/],
+    ];
+    for (const [ref, message] of table) {
+      const found = issues(
+        doc([{ type: 'Sphere', props: { diameter: ref } }], { params: { k: { default: 10 } } }),
+      );
+      expect(found.join('\n'), JSON.stringify(ref)).toMatch(message);
+    }
+    expect(
+      issues(
+        doc(
+          [
+            {
+              prefab: 'eye',
+              id: 'e',
+              params: { size: { param: 'k', times: { x: 1, y: 1, z: 1 } } },
+            },
+          ],
+          {
+            params: { k: { default: 10 } },
+          },
+        ),
+      ),
+    ).toEqual([
+      'root.children[0].params.size: expected a finite number, got {"x":10,"y":10,"z":10}.',
+    ]);
+    expect(
+      issues(
+        doc([{ prefab: 'p', id: 'a' }], {
+          prefabs: { p: { params: { s: { default: 1 } }, root: { param: 's' } } },
+        }),
+      ),
+    ).toEqual([
+      'prefabs.p: expected a prefab {params, root} whose root is a node.',
+      expect.stringMatching(/no prefab "p"/),
+    ]);
+    expect(issues(doc([{ type: 'Node', params: { k: 1 } }]))).toEqual([
+      'root.children[0].params: only a prefab instance has params.',
+    ]);
+    expect(issues(doc([{ prefab: 'paw', id: 'p', path: [] }]))).toEqual([
+      'root.children[0].path: a prefab instance has no path: its prefab does.',
+    ]);
+    let deep: unknown = 0;
+    for (let i = 0; i < 100_000; i++) deep = [deep];
+    expect(issues(doc([{ type: 'Node', props: { opacity: deep } }])).join()).toMatch(
+      /nested deeper than 64 levels/,
+    );
+  });
+
+  it('checks a document prefab once, whether or not it is used', () => {
+    const prefabs = { p: { root: { type: 'Sphere', props: { diameter: { param: 'nope' } } } } };
+    expect(issues(doc([], { prefabs }))).toEqual([
+      'prefabs.p.root.props.diameter.param: no parameter "nope" here (there are none).',
+    ]);
+    expect(
+      issues(
+        doc(
+          [
+            { prefab: 'p', id: 'a' },
+            { prefab: 'p', id: 'b' },
+          ],
+          { prefabs },
+        ),
+      ),
+    ).toHaveLength(1);
   });
 });

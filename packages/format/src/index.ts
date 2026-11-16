@@ -22,10 +22,13 @@ export {
   type NodeDocument,
   type Num,
   type ParamRef,
-  type ParamSpec,
   type PathCommandDocument,
+  type PlainValue,
   type PrefabDocument,
   type PropertyValue,
+  type ScalarRef,
+  type ShapeParam,
+  type VectorRef,
 } from './document.ts';
 export { MIGRATIONS, type Migration, migrate, VERSION } from './migrate.ts';
 export { NODE_TYPES, type NodeType } from './nodes.ts';

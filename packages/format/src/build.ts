@@ -79,7 +79,7 @@ function buildNode(document: NodeDocument, path: string): Node {
       new type({
         ...(document.id === undefined ? {} : { id: document.id }),
         ...(document.name === undefined ? {} : { name: document.name }),
-        // Expanded: every number in the path is a number now.
+        // After expansion no point is a reference.
         ...(document.path === undefined ? {} : { path: document.path as readonly PathCommand[] }),
         ...(document.faces === undefined ? {} : { faces: document.faces }),
       }),
@@ -231,7 +231,8 @@ export function animateDocument(document: AnimationDocument, animator: Animator)
 }
 
 /**
- * Builds a document of the current version into engine objects; it is validated first. Errors
+ * Builds a document of the current version into engine objects; it is validated first.
+ * `params` override the document's shape parameter defaults. Errors
  * come as a `DocumentError` with a path: from here for the tree, camera and rig, from
  * `animate` for clips, machines, constraints and springs.
  */

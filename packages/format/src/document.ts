@@ -12,47 +12,58 @@ import type {
   StateSpec,
   Target,
 } from '@mascotte/engine';
+import type { PrefabParam } from '@mascotte/library';
 import type { Quat, Vec3 } from '@mascotte/math';
 
 /** The `format` field every mascot document carries. */
 export const FORMAT = 'mascotte';
 
 /**
- * A value computed from a shape parameter: `param × times + plus`. `times` (1 by default) and
- * `plus` (0 by default) are numbers for a number, or vectors `{x, y, z}` for a vector; `plus`
- * may itself be a reference, so a vector can depend on several parameters. Inside a prefab it
- * names the prefab's parameters, elsewhere the document's.
- *
- * A reference stands for a whole value, never for one coordinate inside `{x, y, z}`: V8 shares
- * one hidden class among all `{x, y, z}` objects, and a single one holding something other than
- * numbers there makes every vector in the engine box its numbers.
+ * A number computed from a shape parameter: `param × times + plus` (`times` 1 and `plus` 0 by
+ * default); `plus` may itself be a reference, so a number can depend on several parameters.
+ * Inside a prefab it names the prefab's parameters, elsewhere the document's.
  */
-export interface ParamRef {
+export interface ScalarRef {
   readonly param: string;
-  readonly times?: number | Readonly<Vec3>;
-  readonly plus?: number | Readonly<Vec3> | ParamRef;
+  readonly times?: number;
+  readonly plus?: number | ScalarRef;
 }
 
-/** A number as stored: a literal, or computed from a parameter. */
-export type Num = number | ParamRef;
+/**
+ * A vector computed from shape parameters: `param × times + plus`, with vectors for `times` and
+ * `plus` (which may itself be a reference). A reference stands for a whole vector, never for one
+ * coordinate inside `{x, y, z}`, and validation refuses one there: `{x, y, z}` objects built
+ * alike share a V8 hidden class, and one holding something other than a number in a coordinate
+ * generalizes that class, so every store into those vectors in the engine then allocates (the
+ * allocation tests caught this).
+ */
+export interface VectorRef {
+  readonly param: string;
+  readonly times: Readonly<Vec3>;
+  readonly plus?: Readonly<Vec3> | VectorRef;
+}
 
-/** A property value as stored: what the property registry reads and writes, as JSON. */
-export type PropertyValue = number | boolean | string | null | Vec3 | Quat | ParamRef;
+/** Any reference to a shape parameter. */
+export type ParamRef = ScalarRef | VectorRef;
+
+/** A number as stored: a literal, or computed from a parameter. */
+export type Num = number | ScalarRef;
+
+/** A property value as the registry reads and writes it, as JSON: plain, with no references. */
+export type PlainValue = number | boolean | string | null | Vec3 | Quat;
+
+/** A property value as stored in the tree: plain, or computed from parameters. */
+export type PropertyValue = PlainValue | ParamRef;
 
 /** A path command as stored: each of its points may be computed from parameters. */
 export type PathCommandDocument = PathCommand extends infer C
   ? C extends PathCommand
-    ? { readonly [K in keyof C]: C[K] extends PathPoint ? PathPoint | ParamRef : C[K] }
+    ? { readonly [K in keyof C]: C[K] extends PathPoint ? PathPoint | VectorRef : C[K] }
     : never
   : never;
 
-/** A shape parameter: a number with a default and an optional range. */
-export interface ParamSpec {
-  readonly default: number;
-  readonly min?: number;
-  readonly max?: number;
-  readonly description?: string;
-}
+/** A shape parameter: a number with a default and an optional range (the library's own type). */
+export type ShapeParam = PrefabParam;
 
 /**
  * A prefab: a subtree with its own parameters, put into a tree by `{ prefab, id, params }`.
@@ -60,7 +71,7 @@ export interface ParamSpec {
  */
 export interface PrefabDocument {
   readonly description?: string;
-  readonly params?: Readonly<Record<string, ParamSpec>>;
+  readonly params?: Readonly<Record<string, ShapeParam>>;
   readonly root: NodeDocument;
 }
 
@@ -71,10 +82,11 @@ export interface PrefabDocument {
  * A `PathShape` keeps its `path`, a `Box` its face settings. The child nodes a solid makes
  * itself (a box's face rects, a cylinder's bases) are not stored.
  *
- * Instead of a `type`, a node may name a `prefab` (the document's own or the library's) with
- * an `id` and values for its `params`: it becomes the prefab's subtree, whose ids are prefixed
- * with this id (`eye-left` + `pupil` → `eye-left-pupil`), whose root takes these `props` and
- * `name`, and which gets these `children` as well.
+ * Instead of a `type` (and a `path` or `faces`), a node may name a `prefab` (the document's own
+ * or the library's) with an `id` and values for its `params`: it becomes the prefab's subtree.
+ * Its root gets this `id` and `name`, with these `props` over its own; the other ids are
+ * prefixed with this id (`eye-left` + `pupil` → `eye-left-pupil`); these `children` come before
+ * its own.
  */
 export interface NodeDocument {
   readonly type?: string;
@@ -134,9 +146,12 @@ export interface MascotDocument {
   readonly format: typeof FORMAT;
   readonly version: number;
   readonly meta: { readonly name: string; readonly description?: string };
-  /** Shape parameters: numbers the tree's geometry is computed from, set again when built. */
-  readonly params?: Readonly<Record<string, ParamSpec>>;
-  /** The document's own prefabs, by name; the library's are there too. */
+  /**
+   * Shape parameters: numbers the tree's values are computed from, overridden at build time
+   * (`buildDocument`'s `params`, the player's `params` option).
+   */
+  readonly params?: Readonly<Record<string, ShapeParam>>;
+  /** The document's own prefabs, by name, next to the library's; one with a library name replaces it. */
   readonly prefabs?: Readonly<Record<string, PrefabDocument>>;
   /**
    * The archetype (`ARCHETYPES` in `@mascotte/library`): the rig binds its slots, and library
@@ -146,7 +161,7 @@ export interface MascotDocument {
   /** The frame size in CSS pixels (before devicePixelRatio) and its background color. */
   readonly view: { readonly width: number; readonly height: number; readonly background?: string };
   /** Camera properties by registry name (`zoom`, `projection`, `distance`, …). */
-  readonly camera?: { readonly props?: Readonly<Record<string, PropertyValue>> };
+  readonly camera?: { readonly props?: Readonly<Record<string, PlainValue>> };
   readonly root: NodeDocument;
   /** Rig slots bound to node ids. */
   readonly rig?: { readonly slots?: Readonly<Record<string, string>> };
