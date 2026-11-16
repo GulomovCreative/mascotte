@@ -1,4 +1,5 @@
 import {
+  Animator,
   Camera,
   Ellipse,
   Node,
@@ -10,7 +11,7 @@ import {
 } from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
 import { commands } from 'vitest/browser';
-import { engineScenes, referenceScenes } from '../src/index.ts';
+import { engineScenes, pip, referenceScenes } from '../src/index.ts';
 
 /* WebGLRenderer frames in the browser: scene snapshots and spot pixel checks. */
 
@@ -89,6 +90,33 @@ describe('WebGL snapshots', () => {
         await expectSnapshot(name, canvas);
       });
     }
+  }
+});
+
+describe('WebGL snapshots of Pip', () => {
+  // Each emotion half a second after its input, with springs off so the crest shows the pose.
+  const emotions: [string, (animator: Animator) => void][] = [
+    ['calm', () => {}],
+    ['happy', (animator) => animator.inputs.set('hover', true)],
+    ['surprised', (animator) => animator.inputs.fire('poke')],
+  ];
+  for (const [emotion, act] of emotions) {
+    it(`Pip ${emotion}`, async () => {
+      const { root, camera, rig } = pip.build();
+      const world = new Scene(root);
+      const animator = new Animator(world, { rig });
+      pip.animate(animator);
+      animator.springsEnabled = false;
+      act(animator);
+      for (let frame = 0; frame < 30; frame++) animator.update(1 / 60);
+      const canvas = draw(world, camera, {
+        width: pip.width,
+        height: pip.height,
+        pixelRatio: 2,
+        background: pip.background,
+      });
+      await expectSnapshot(`${pip.id}-${emotion}`, canvas);
+    });
   }
 });
 

@@ -1,12 +1,16 @@
 import {
+  type AimConstraint,
   Animator,
   bindClip,
   Camera,
   CanvasRenderer,
   DragRotate,
   HitTester,
+  type Node,
   type PointerHandler,
   PointerInputs,
+  type PointerInputsSpec,
+  type Rig,
   Scene,
   SPRING_MAX_DT,
   Ticker,
@@ -19,6 +23,7 @@ import {
   type EngineScene,
   engineScenes,
   lookAroundClip,
+  pip,
   type ReferenceScene,
   referenceScenes,
 } from '@mascotte/reference';
@@ -476,21 +481,54 @@ function clipExampleGL(): Example {
   };
 }
 
+/** A mascot from `@mascotte/reference` that the pointer plays with. */
+interface PointerMascot {
+  readonly id: string;
+  readonly title: string;
+  readonly width: number;
+  readonly height: number;
+  readonly background: string;
+  build(): { root: Node; camera: Camera; rig: Rig };
+  animate(animator: Animator): { gaze: AimConstraint };
+}
+
 /**
- * The animated mascot on animation layers; its head follows the pointer over the canvas (the
- * gaze eases in and out; outside the canvas it lets go, unless a press holds the pointer), it
- * smiles wider while the pointer is over the mascot (the `mood` input eases towards the hover
- * of `PointerInputs`), a click on the mascot pokes it (the `poke` trigger: it hops and gasps;
- * not while the animation is paused, when the machines could switch states but not play them)
- * and a drag turns it (`DragRotate` on its root, which turns back after the drag, once the
- * animation runs). Every frame advances the layers, the machines,
- * the gaze, the turn and the springs by the step of the example's time. The first frame, or a
- * step back or longer than `SPRING_MAX_DT`, seeks instead: the machines start again from their
- * initial states, the turn and the springs rest; while the animation is paused the step is 0
- * and the springs hold still.
+ * How a mascot example uses the pointer: which inputs a `PointerInputs` drives over the
+ * mascot, and what else follows its hover every frame (`ease` is the step towards it).
  */
-function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
-  const scene = animatedMascot;
+interface PointerPlay {
+  readonly inputs: Pick<PointerInputsSpec, 'hover' | 'click'>;
+  hover?(animator: Animator, hovering: boolean, ease: number): void;
+}
+
+/** The old mascot smiles wider while the pointer is over it: `mood` eases towards the hover. */
+function moodFollowsHover(): PointerPlay {
+  let mood = 0;
+  return {
+    inputs: { click: 'poke' },
+    hover(animator, hovering, ease) {
+      mood = Math.min(1, Math.max(0, mood + ((hovering ? 1 : 0) - mood) * ease));
+      animator.inputs.set('mood', mood);
+    },
+  };
+}
+
+/**
+ * A mascot on animation layers; its head follows the pointer over the canvas (the gaze eases
+ * in and out; outside the canvas it lets go, unless a press holds the pointer), the pointer
+ * over the mascot and a click on it drive its inputs (`PointerPlay`; a click is not passed on
+ * while the animation is paused, when the machines could switch states but not play them) and
+ * a drag turns it (`DragRotate` on its root, which turns back after the drag, once the
+ * animation runs). Every frame advances the layers, the machines, the gaze, the turn and the
+ * springs by the step of the example's time. The first frame, or a step back or longer than
+ * `SPRING_MAX_DT`, seeks instead: the machines start again from their initial states, the turn
+ * and the springs rest; while the animation is paused the step is 0 and the springs hold still.
+ */
+function mascotExample(
+  scene: PointerMascot,
+  backend: 'gl' | 'canvas',
+  play: () => PointerPlay,
+): Example {
   return {
     id: `${backend === 'gl' ? 'webgl' : 'engine'}/${scene.id}`,
     title: scene.title,
@@ -502,11 +540,11 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const { gaze } = scene.animate(animator);
       const head = rig.node('head');
       const body = rig.node('root');
-      if (!head || !body) throw new Error('The animated mascot has no head or root slot.');
+      if (!head || !body) throw new Error(`${scene.id} has no head or root slot.`);
       const frame = { width: scene.width, height: scene.height };
-      const poke = new PointerInputs(animator, { camera, viewport: frame, click: 'poke' });
+      const reaction = play();
+      const poke = new PointerInputs(animator, { camera, viewport: frame, ...reaction.inputs });
       const turn = new DragRotate(body, { settle: 0.5 });
-      let mood = 0;
       // The pointer over the canvas in frame units from the center, or null elsewhere.
       let pointer: { x: number; y: number } | null = null;
       const center = { x: 0, y: 0, z: 0 };
@@ -518,8 +556,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
         const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
         const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
         gaze.weight = Math.min(1, Math.max(0, weight));
-        mood = Math.min(1, Math.max(0, mood + ((poke.hovering ? 1 : 0) - mood) * ease));
-        animator.inputs.set('mood', mood);
+        reaction.hover?.(animator, poke.hovering, ease);
         if (!pointer) return;
         // The point under the pointer, 120 units in front of the head.
         camera.toView(view, head.localToWorld(center, head.pivot));
@@ -587,7 +624,7 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
       const canvas = container.querySelector('canvas');
       if (!canvas) {
         unmount();
-        throw new Error('The animated mascot example has no canvas.');
+        throw new Error(`The ${scene.id} example has no canvas.`);
       }
       // A release while paused ends the press without a click.
       const pokeWhilePlaying: PointerHandler = {
@@ -612,14 +649,20 @@ function animatedMascotExample(backend: 'gl' | 'canvas'): Example {
   };
 }
 
+/** Pip cheers up while hovered and startles on a click. */
+const pipPlay = (): PointerPlay => ({ inputs: { hover: 'hover', click: 'poke' } });
+
+/** Pip, the showcase mascot, comes first: the page opens on it. */
 export const examples: Example[] = [
+  mascotExample(pip, 'gl', pipPlay),
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
   clipExampleGL(),
-  animatedMascotExample('gl'),
+  mascotExample(animatedMascot, 'gl', moodFollowsHover),
   benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
-  animatedMascotExample('canvas'),
+  mascotExample(pip, 'canvas', pipPlay),
+  mascotExample(animatedMascot, 'canvas', moodFollowsHover),
   benchmarkCanvas(),
 ];
