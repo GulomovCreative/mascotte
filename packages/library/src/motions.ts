@@ -235,16 +235,11 @@ export const MOTIONS: ReadonlyMap<string, LibraryMotion> = new Map(
   ).map((motion) => [motion.name, motion]),
 );
 
-function slotOf(target: Target): string | null {
-  return typeof target === 'string' ? null : target.slot;
-}
-
 /** The slots a motion addresses, in the order it first does; node ids are not slots. */
 export function slotsOf(motion: Motion): string[] {
   const slots = new Set<string>();
   const add = (target: Target) => {
-    const slot = slotOf(target);
-    if (slot !== null) slots.add(slot);
+    if (typeof target !== 'string') slots.add(target.slot);
   };
   if ('tracks' in motion) for (const track of motion.tracks) add(track.target);
   else if ('behaviors' in motion) for (const behavior of motion.behaviors) add(behavior.target);
@@ -252,9 +247,7 @@ export function slotsOf(motion: Motion): string[] {
   return [...slots];
 }
 
-type Value = unknown;
-
-function scaleValue(value: Value, size: number): Value {
+function scaleValue(value: unknown, size: number): unknown {
   const v = value as { x: number; y: number; z: number };
   return { x: v.x * size, y: v.y * size, z: v.z * size };
 }

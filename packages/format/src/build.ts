@@ -125,7 +125,6 @@ export type AnimationDocument = Pick<
 function sizeOf(archetypeName: string | undefined, animator: Animator): number {
   const archetype = archetypeName === undefined ? undefined : ARCHETYPES.get(archetypeName);
   if (!archetype) throw new Error('library motions that move positions need an archetype.');
-  // Offsets move the root within its parent, so the size is measured there too.
   const space = animator.rig?.node('root')?.parent ?? null;
   const [from, to] = archetype.size.map((slot) => {
     const node = animator.rig?.node(slot);
@@ -186,12 +185,11 @@ export function animateDocument(document: AnimationDocument, animator: Animator)
     }
   });
   // A library motion is written for one kind of layer; on the other it fails without a word.
-  const kindOf = (name: string) =>
-    document.layers?.find((layer) => layer.name === name)?.mode === 'additive'
-      ? 'additive'
-      : 'override';
-  const checkKind = (ref: MotionRef, layer: string) => {
-    const problem = layerKindProblem(ref, motions, layer, kindOf(layer));
+  const checkKind = (ref: MotionRef, name: string) => {
+    // A layer that is not there is the engine's to report.
+    const layer = document.layers?.find((spec) => spec.name === name);
+    if (!layer) return;
+    const problem = layerKindProblem(ref, motions, name, layer.mode ?? 'override');
     if (problem) throw new Error(problem);
   };
   document.layers?.forEach((spec, i) => {
