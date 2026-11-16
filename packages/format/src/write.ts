@@ -10,21 +10,23 @@ import {
 import { color } from '@mascotte/math';
 import type { NodeDocument, PropertyValue } from './document.ts';
 import { NODE_TYPES } from './nodes.ts';
+import { MAX_DEPTH } from './validate.ts';
 
 /** Throws unless JSON can hold the value and a document can read it back. */
 function storable(node: Node, name: string, value: PropertyValue, isColor: boolean): void {
-  const numbers =
-    typeof value === 'number'
-      ? [value]
-      : typeof value === 'object' && value !== null
-        ? Object.values(value)
-        : [];
+  let numbers: number[] = [];
+  if (typeof value === 'number') numbers = [value];
+  else if (typeof value === 'object' && value !== null) numbers = Object.values(value);
   // упрощение: zBias ±Infinity (разрешён движком) не записывается — в JSON нет бесконечности;
   // вернуться, когда редактору понадобится «всегда сверху/снизу» в документе.
   const finite = numbers.every(Number.isFinite);
+  // The reader takes only unit rotations: any other quaternion would scale the node too.
+  const unit =
+    !(typeof value === 'object' && value !== null && 'w' in value) ||
+    Math.abs(Math.hypot(...numbers) - 1) <= 1e-6;
   const parsed =
     !isColor || value === null || (typeof value === 'string' && color.parse(value) !== null);
-  if (!finite || !parsed) {
+  if (!finite || !unit || !parsed) {
     throw new Error(
       `writeNode: ${node.id}: ${name} = ${String(JSON.stringify(value) ?? value)} cannot be stored in a document.`,
     );
@@ -57,10 +59,17 @@ export function writeProps(node: Node): Record<string, PropertyValue> {
  * Writes a node and its subtree as a document node: its type, a set id (not a generated one),
  * its name, the properties that differ from their defaults, a `PathShape`'s path and a `Box`'s
  * changed faces. Parts a solid made itself are left out. Throws an `Error` for a node type the
- * document cannot make, a value JSON cannot hold (NaN, ±Infinity) or a color it cannot read, and
- * a node added under a solid's part.
+ * document cannot make, a value JSON cannot hold (NaN, ±Infinity), a color or a rotation it cannot
+ * read, a tree deeper than `MAX_DEPTH`, and a node added under a solid's part.
  */
 export function writeNode(node: Node): NodeDocument {
+  return write(node, 0);
+}
+
+function write(node: Node, depth: number): NodeDocument {
+  if (depth > MAX_DEPTH) {
+    throw new Error(`writeNode: ${node.id}: the tree is nested deeper than ${MAX_DEPTH} levels.`);
+  }
   const typeName = (node.constructor as { typeName?: string }).typeName ?? '';
   if (NODE_TYPES.get(typeName) !== node.constructor) {
     throw new Error(`writeNode: a document cannot hold a node of type ${typeName || 'unknown'}.`);
@@ -82,7 +91,9 @@ export function writeNode(node: Node): NodeDocument {
       );
     }
   }
-  const children = node.children.filter((child) => child.owner === null).map(writeNode);
+  const children = node.children
+    .filter((child) => child.owner === null)
+    .map((child) => write(child, depth + 1));
   return {
     type: typeName,
     ...(node.id.startsWith('~') ? {} : { id: node.id }),

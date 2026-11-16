@@ -36,7 +36,8 @@ function isObject(value: unknown): value is Json {
 
 function show(value: unknown): string {
   const text = JSON.stringify(value);
-  return text === undefined ? String(value) : text.length > 40 ? `${text.slice(0, 37)}...` : text;
+  if (text === undefined) return String(value);
+  return text.length > 40 ? `${text.slice(0, 37)}...` : text;
 }
 
 function list(values: Iterable<string>): string {
@@ -83,7 +84,8 @@ class Checker {
       Number.isFinite(value) &&
       (exclusive ? value > min : value >= min);
     if (ok) return true;
-    const range = min === -Infinity ? '' : exclusive ? ` above ${min}` : ` at least ${min}`;
+    let range = '';
+    if (min !== -Infinity) range = exclusive ? ` above ${min}` : ` at least ${min}`;
     this.fail(path, `expected a finite number${range}, got ${show(value)}.`);
     return false;
   }
@@ -307,69 +309,62 @@ function checkNode(
   }
 }
 
-/** Checks a motion reference: a name in `motions`, or an inline motion. */
+function isBlend(value: unknown): boolean {
+  return isObject(value) && Array.isArray(value.blend);
+}
+
+const NESTED_BLEND = 'a blend point cannot be a blend: blends do not nest.';
+
+/**
+ * Checks a motion reference: a name in `motions`, or an inline motion. Inside a blend
+ * (`inBlend`) it must not be a blend, as in the engine, so a document cannot nest them deeply
+ * or blend a motion back into itself.
+ */
 function checkMotionRef(
   c: Checker,
   value: unknown,
   path: string,
-  names: ReadonlySet<string>,
+  motions: Json,
+  inBlend: boolean,
 ): void {
-  if (typeof value === 'string') {
-    if (!names.has(value)) {
-      c.fail(path, `no motion "${value}" in motions (there are ${list(names) || 'none'}).`);
-    }
+  if (typeof value !== 'string') {
+    checkMotion(c, value, path, motions, inBlend);
     return;
   }
-  checkMotion(c, value, path, names);
+  if (!Object.hasOwn(motions, value)) {
+    const names = list(Object.keys(motions)) || 'none';
+    c.fail(path, `no motion "${value}" in motions (there are ${names}).`);
+  } else if (inBlend && isBlend(motions[value])) {
+    c.fail(path, NESTED_BLEND);
+  }
 }
 
-function checkMotion(c: Checker, value: unknown, path: string, names: ReadonlySet<string>): void {
+function checkMotion(
+  c: Checker,
+  value: unknown,
+  path: string,
+  motions: Json,
+  inBlend: boolean,
+): void {
   if (!c.object(value, path, 'a clip {tracks}, behaviors {behaviors} or blend {input, blend}')) {
     return;
   }
-  if (Array.isArray(value.blend)) {
+  if (isBlend(value)) {
+    if (inBlend) {
+      c.fail(path, NESTED_BLEND);
+      return;
+    }
     c.string(value.input, join(path, 'input'));
-    value.blend.forEach((point, i) => {
+    (value.blend as unknown[]).forEach((point, i) => {
       const at = join(join(path, 'blend'), i);
       if (c.object(point, at, 'a blend point {at, motion}')) {
         c.number(point.at, join(at, 'at'));
-        checkMotionRef(c, point.motion, join(at, 'motion'), names);
+        checkMotionRef(c, point.motion, join(at, 'motion'), motions, true);
       }
     });
   } else if (!Array.isArray(value.tracks) && !Array.isArray(value.behaviors)) {
     c.fail(path, 'expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.');
   }
-}
-
-/** The motion names a motion's blends refer to, at any depth of inline blends. */
-function namesIn(motion: unknown, out: string[]): string[] {
-  if (!isObject(motion) || !Array.isArray(motion.blend)) return out;
-  for (const point of motion.blend) {
-    if (!isObject(point)) continue;
-    if (typeof point.motion === 'string') out.push(point.motion);
-    else namesIn(point.motion, out);
-  }
-  return out;
-}
-
-/** Reports named motions whose blends lead back to themselves, which could never be built. */
-function checkCycles(c: Checker, motions: Json): void {
-  const done = new Set<string>();
-  const trail: string[] = [];
-  const visit = (name: string): void => {
-    if (done.has(name) || !Object.hasOwn(motions, name)) return;
-    const start = trail.indexOf(name);
-    if (start >= 0) {
-      const cycle = [...trail.slice(start), name].join(' → ');
-      c.fail(join('motions', name), `the motion refers back to itself: ${cycle}.`);
-      return;
-    }
-    trail.push(name);
-    for (const next of namesIn(motions[name], [])) visit(next);
-    trail.pop();
-    done.add(name);
-  };
-  for (const name of Object.keys(motions)) visit(name);
 }
 
 /** Checks a list of named entries: each an object, names unique when given (or required). */
@@ -442,13 +437,12 @@ export function validateDocument(value: unknown): Issue[] {
       }
     }
   }
-  const motions = new Set<string>();
+  let motions: Json = {};
   if (value.motions !== undefined && c.object(value.motions, 'motions', 'an object of motions')) {
-    for (const name of Object.keys(value.motions)) motions.add(name);
-    for (const [name, motion] of Object.entries(value.motions)) {
-      checkMotion(c, motion, join('motions', name), motions);
+    motions = value.motions;
+    for (const [name, motion] of Object.entries(motions)) {
+      checkMotion(c, motion, join('motions', name), motions, false);
     }
-    checkCycles(c, value.motions);
   }
   const layers = checkNamed(c, value.layers, 'layers', 'layers', true, (layer, at) => {
     c.keys(layer, LAYER_KEYS, at);
@@ -458,7 +452,7 @@ export function validateDocument(value: unknown): Issue[] {
     }
     if (layer.weight !== undefined) c.number(layer.weight, join(at, 'weight'), 0);
     if (layer.play !== undefined && layer.play !== null) {
-      checkMotionRef(c, layer.play, join(at, 'play'), motions);
+      checkMotionRef(c, layer.play, join(at, 'play'), motions, false);
     }
   });
   checkNamed(c, value.machines, 'machines', 'state machines', false, (machine, at) => {
@@ -470,7 +464,7 @@ export function validateDocument(value: unknown): Issue[] {
         const where = join(join(at, 'states'), i);
         if (!c.object(state, where, 'a state {name, motion}')) return;
         if (state.motion !== undefined && state.motion !== null) {
-          checkMotionRef(c, state.motion, join(where, 'motion'), motions);
+          checkMotionRef(c, state.motion, join(where, 'motion'), motions, false);
         }
       });
     }

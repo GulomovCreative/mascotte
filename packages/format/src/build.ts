@@ -123,26 +123,18 @@ export type AnimationDocument = Pick<
  */
 export function animateDocument(document: AnimationDocument, animator: Animator): Animated {
   const motions = document.motions ?? {};
-  // Names being resolved, so a blend that leads back to itself fails instead of recursing.
-  const resolving: string[] = [];
-  const resolve = (ref: MotionRef): Motion => {
-    if (typeof ref !== 'string') return resolveInline(ref);
+  const named = (ref: MotionRef): MotionDocument => {
+    if (typeof ref !== 'string') return ref;
     if (!Object.hasOwn(motions, ref)) throw new Error(`no motion "${ref}" in motions.`);
-    if (resolving.includes(ref)) {
-      throw new Error(`the motion refers back to itself: ${[...resolving, ref].join(' → ')}.`);
-    }
-    resolving.push(ref);
-    try {
-      return resolveInline(motions[ref] as MotionDocument);
-    } finally {
-      resolving.pop();
-    }
+    return motions[ref] as MotionDocument;
   };
-  const resolveInline = (motion: MotionDocument): Motion => {
+  // Blends do not nest (the engine refuses a blend point that is a blend), so one level.
+  const resolve = (ref: MotionRef): Motion => {
+    const motion = named(ref);
     if (!('blend' in motion) || !Array.isArray(motion.blend)) return motion as Motion;
     return {
       ...motion,
-      blend: motion.blend.map((point) => ({ ...point, motion: resolve(point.motion) })),
+      blend: motion.blend.map((point) => ({ ...point, motion: named(point.motion) as Motion })),
     };
   };
   document.machines?.forEach((spec, i) => {
