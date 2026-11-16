@@ -279,6 +279,21 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
   - A document written by a newer version is refused.
 - **Pip** is defined as document data: `pipDocument()` in `@mascotte/reference` writes its tree and adds its animation. A test reads the JSON back and checks that it gives the same frames as Pip built in code.
 
+**The player** (`Player` in `@mascotte/player`) plays a document on a canvas: `new Player(canvas, json, options)`.
+- It reads and builds the document, then draws with WebGL2. With `renderer: 'auto'`, the default, it falls back to Canvas 2D where WebGL2 is missing.
+- **Fitting.** The document's frame (`view`) is fitted into the canvas's CSS size, whole and centered, at the device pixel ratio. The canvas is checked every frame, so a resize or a move to another screen needs no observer.
+- **Loop.** It runs on a ticker (`Ticker.shared` by default) and pauses while the canvas is off screen. `play()` and `pause()` stop and resume time. An error in a frame stops the loop and goes to `onError`.
+- **Inputs.** `player.inputs` is the inputs API of the document's machines: `inputs.set('happy', true)`, `inputs.fire('poke')`. `machines` and the named `constraints` are exposed as well.
+- **Pointer**, all options and off by default:
+  - `pointer` names the hover, press, drag and click inputs over the mascot;
+  - `gaze` names an `aim` or `lookAt` constraint that follows the pointer, easing in and out;
+  - `turn` turns the mascot's root while it is dragged (`DragRotate`).
+
+  A click while paused does not fire.
+- **Hot swap.** `load(json)` swaps the document in place: the canvas, renderer, loop and pointer stay. A bad document throws and the running one stays.
+- **Cleanup.** `destroy()` stops the loop, unbinds the pointer and frees the renderer.
+- The playground shows Pip through the player, from its JSON document.
+
 ## 8. Editor requirements for the engine
 
 So that the editor does not need hacks, the engine provides from the start:
@@ -366,7 +381,7 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
 
 - [x] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
-- [ ] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
+- [x] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
 - [ ] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
 - [ ] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))
 - [ ] Palettes and skins ([#30](https://github.com/GulomovCreative/mascotte/issues/30))

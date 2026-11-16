@@ -13,9 +13,10 @@
     "@mascotte/math": "workspace:*"
   },
   "devDependencies": {
+    "@mascotte/player": "workspace:*",
     "@napi-rs/canvas": "1.1.0",
+    "@types/pngjs": "6.0.5",
     "pixelmatch": "8.0.0",
-    "pngjs": "7.0.0",
-    "@types/pngjs": "6.0.5"
+    "pngjs": "7.0.0"
   }
 }
