@@ -15,6 +15,10 @@ function isObject(value: unknown): value is Json {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 function join(path: string, key: string | number): string {
   return typeof key === 'number' ? `${path}[${key}]` : `${path}.${key}`;
 }
@@ -32,7 +36,7 @@ function checkSpecs(specs: unknown, path: string, issues: Issue[]): Map<string, 
   }
   for (const [name, spec] of Object.entries(specs)) {
     const at = join(path, name);
-    if (!isObject(spec) || typeof spec.default !== 'number' || !Number.isFinite(spec.default)) {
+    if (!isObject(spec) || !isFiniteNumber(spec.default)) {
       issues.push({
         path: at,
         message: 'expected a parameter {default, min, max} with a finite default.',
@@ -47,20 +51,18 @@ function checkSpecs(specs: unknown, path: string, issues: Issue[]): Map<string, 
         });
       }
     }
-    const { min, max } = spec;
-    for (const [key, bound] of [
-      ['min', min],
-      ['max', max],
-    ] as const) {
-      if (bound !== undefined && (typeof bound !== 'number' || !Number.isFinite(bound))) {
+    for (const key of ['min', 'max']) {
+      const bound = spec[key];
+      if (bound !== undefined && !isFiniteNumber(bound)) {
         issues.push({
           path: join(at, key),
           message: `expected a finite number, got ${JSON.stringify(bound)}.`,
         });
       }
     }
-    out.set(name, spec as unknown as ShapeParam);
-    const problem = rangeProblem(spec.default, spec as unknown as ShapeParam);
+    const param = spec as unknown as ShapeParam;
+    out.set(name, param);
+    const problem = rangeProblem(param.default, param);
     if (problem) issues.push({ path: join(at, 'default'), message: problem });
   }
   return out;
@@ -82,7 +84,7 @@ function isVector(value: unknown): value is Vector {
   return (
     isObject(value) &&
     Object.keys(value).length === 3 &&
-    [value.x, value.y, value.z].every((n) => typeof n === 'number' && Number.isFinite(n))
+    [value.x, value.y, value.z].every(isFiniteNumber)
   );
 }
 
@@ -113,7 +115,7 @@ function evaluate(
     return null;
   }
   const times = ref.times ?? 1;
-  if (!(typeof times === 'number' && Number.isFinite(times)) && !isVector(times)) {
+  if (!isFiniteNumber(times) && !isVector(times)) {
     issues.push({
       path: join(path, 'times'),
       message: 'expected a finite number or a vector {x, y, z}.',
@@ -131,7 +133,7 @@ function evaluate(
     plus = evaluate(ref.plus, scope, join(path, 'plus'), issues, depth + 1);
   } else if (ref.plus !== undefined) {
     plus = ref.plus as number | Vector;
-    if (!(typeof plus === 'number' && Number.isFinite(plus)) && !isVector(plus)) {
+    if (!isFiniteNumber(plus) && !isVector(plus)) {
       issues.push({
         path: join(path, 'plus'),
         message: 'expected a finite number, a vector {x, y, z} or a reference.',
@@ -217,7 +219,7 @@ function valuesOf(
       continue;
     }
     const value = isObject(raw) ? evaluate(raw, outer, at, issues) : raw;
-    if (typeof value !== 'number' || !Number.isFinite(value)) {
+    if (!isFiniteNumber(value)) {
       if (value !== null)
         issues.push({
           path: at,
@@ -274,6 +276,7 @@ function expandNode(
 ): unknown {
   // Deeper trees are refused by validation; leave them as they are.
   if (!isObject(node) || depth > LIMIT) return node;
+  const { issues } = context;
   const children = Array.isArray(node.children)
     ? node.children.map((child, i) =>
         expandNode(child, scope, join(join(path, 'children'), i), context, depth + 1),
@@ -281,16 +284,15 @@ function expandNode(
     : node.children;
   if (node.prefab === undefined) {
     if (node.params !== undefined) {
-      context.issues.push({
+      issues.push({
         path: join(path, 'params'),
         message: 'only a prefab instance has params.',
       });
     }
     const { children: _, params: __, ...rest } = node;
-    const own = substitute(rest, scope, path, context.issues) as Json;
+    const own = substitute(rest, scope, path, issues) as Json;
     return children === undefined ? own : { ...own, children };
   }
-  const { issues } = context;
   const name = node.prefab;
   const found = typeof name === 'string' ? context.prefabs.get(name) : undefined;
   if (!found) {
@@ -318,7 +320,18 @@ function expandNode(
   // The prefab's own specs and references were checked once, with its definition.
   const specs = checkSpecs(found.def.params, join(found.path, 'params'), []);
   const values = valuesOf(specs, node.params, scope, join(path, 'params'), issues);
-  const root = substitute(found.def.root, values, join(found.path, 'root'), []);
+  // Its references were checked with its definition; what these values make of them (a number
+  // too large, say) is this instance's problem, reported at its params.
+  const made: Issue[] = [];
+  const root = substitute(found.def.root, values, join(found.path, 'root'), made);
+  for (const issue of made) {
+    // The rest (unknown names, shapes) does not depend on values and was reported already.
+    if (!issue.message.includes('not a finite')) continue;
+    issues.push({
+      path: join(path, 'params'),
+      message: `with these values, ${issue.path}: ${issue.message}`,
+    });
+  }
   // Unreachable for a checked prefab: its root is a node.
   if (!isObject(root)) {
     issues.push({ path: join(found.path, 'root'), message: 'a prefab root must be a node.' });

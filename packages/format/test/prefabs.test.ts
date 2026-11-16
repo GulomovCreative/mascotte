@@ -173,9 +173,10 @@ describe('prefabs', () => {
   it('the library prefabs keep every {x, y, z} numeric, expanded or not', () => {
     // A reference inside {x, y, z} would make engine vectors box their numbers (see VectorRef).
     const bad: string[] = [];
-    const walk = (value: unknown, path: string) => {
-      if (Array.isArray(value)) value.forEach((item, i) => walk(item, `${path}[${i}]`));
-      else if (value && typeof value === 'object') {
+    function walk(value: unknown, path: string): void {
+      if (Array.isArray(value)) {
+        for (const [i, item] of value.entries()) walk(item, `${path}[${i}]`);
+      } else if (value && typeof value === 'object') {
         const record = value as Record<string, unknown>;
         if (['x', 'y', 'z'].some((axis) => axis in record)) {
           for (const axis of ['x', 'y', 'z']) {
@@ -184,7 +185,7 @@ describe('prefabs', () => {
         }
         for (const [key, item] of Object.entries(record)) walk(item, `${path}.${key}`);
       }
-    };
+    }
     for (const [name, prefab] of PREFABS) {
       walk(prefab.root, name);
       const big = Object.fromEntries(
@@ -323,6 +324,18 @@ describe('prefabs', () => {
     expect(issues(doc([{ type: 'Node', props: { opacity: deep } }])).join()).toMatch(
       /nested deeper than 64 levels/,
     );
+  });
+
+  it('reports what the values of an instance make of its prefab', () => {
+    const prefabs = {
+      p: {
+        params: { a: { default: 1 } },
+        root: { type: 'Node', props: { opacity: { param: 'a', times: 1e308 } } },
+      },
+    };
+    expect(issues(doc([{ prefab: 'p', id: 'i', params: { a: 10 } }], { prefabs }))).toEqual([
+      'root.children[0].params: with these values, prefabs.p.root.props.opacity: param × times + plus is not a finite number (Infinity).',
+    ]);
   });
 
   it('checks a document prefab once, whether or not it is used', () => {
