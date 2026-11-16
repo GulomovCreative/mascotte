@@ -29,7 +29,7 @@ describe('archetypes', () => {
 });
 
 describe('the motion library', () => {
-  it('every motion fits some archetype and plays on a rig that binds its slots', () => {
+  it('every motion fits some archetype and moves each of its slots on its kind of layer', () => {
     for (const entry of MOTIONS.values()) {
       const slots = slotsOf(entry.motion);
       expect(slots.length, entry.name).toBeGreaterThan(0);
@@ -42,11 +42,24 @@ describe('the motion library', () => {
       animator
         .addLayer({ name: entry.name, mode: entry.layer })
         .play(scaleMotion(entry.motion, 100));
-      for (let frame = 0; frame < 120; frame++) animator.update(1 / 60);
+      const state = (slot: string) => {
+        const node = rig.node(slot);
+        if (!node) throw new Error(slot);
+        const { position: p, rotation: r, scale: s } = node;
+        return [p.x, p.y, p.z, r.x, r.y, r.z, r.w, s.x, s.y, s.z, node.visible].join();
+      };
+      const rest = new Map(slots.map((slot) => [slot, state(slot)]));
+      const moved = new Set<string>();
+      // Long enough for the rarest blink (every 6 s at most).
+      for (let frame = 0; frame < 60 * 7; frame++) {
+        animator.update(1 / 60);
+        for (const slot of slots) if (state(slot) !== rest.get(slot)) moved.add(slot);
+      }
+      expect([...moved].sort(), entry.name).toEqual([...slots].sort());
     }
   });
 
-  it('shared motions use only the slots every archetype has, or the head', () => {
+  it('shared motions use only the slots every archetype has, or the head (sway, tilt)', () => {
     const everywhere = new Set(['root', 'body', 'eyes', 'lids', 'head']);
     for (const name of ['breathe', 'blink', 'hop', 'bob', 'sway', 'tilt']) {
       const motion = MOTIONS.get(name)?.motion;
@@ -54,9 +67,9 @@ describe('the motion library', () => {
       for (const slot of slotsOf(motion))
         expect(everywhere.has(slot), `${name}: ${slot}`).toBe(true);
     }
-    expect(slotsOf((MOTIONS.get('wave') ?? { motion: { tracks: [] } }).motion as never)).toEqual([
-      'arm.R',
-    ]);
+    const wave = MOTIONS.get('wave');
+    if (!wave) throw new Error('no wave');
+    expect(slotsOf(wave.motion)).toEqual(['arm.R']);
   });
 
   it('scales positions by the size and leaves everything else', () => {
@@ -70,5 +83,28 @@ describe('the motion library', () => {
     expect(scaled.tracks[0]?.keys[1]?.value).toEqual({ x: 0, y: -10, z: 0 });
     expect(hop.tracks[0]?.keys[1]?.value).toEqual({ x: 0, y: -0.2, z: 0 });
     expect(scaleMotion(breathe, 50)).toEqual(breathe);
+    const bob = MOTIONS.get('bob')?.motion;
+    if (!bob || !('behaviors' in bob)) throw new Error('no bob');
+    const bobbed = scaleMotion(bob, 50);
+    if (!('behaviors' in bobbed)) throw new Error('not behaviors');
+    expect(bobbed.behaviors[0]?.to).toEqual({ x: 0, y: -1, z: 0 });
+    expect(bob.behaviors[0]?.to).toEqual({ x: 0, y: -0.02, z: 0 });
+  });
+
+  it('has one entry per name', () => {
+    expect([...MOTIONS.keys()]).toEqual([
+      'breathe',
+      'blink',
+      'hop',
+      'bob',
+      'sway',
+      'tilt',
+      'wave',
+      'flap',
+      'chirp',
+      'wag',
+    ]);
+    for (const [name, entry] of MOTIONS) expect(entry.name).toBe(name);
+    for (const [name, archetype] of ARCHETYPES) expect(archetype.name).toBe(name);
   });
 });

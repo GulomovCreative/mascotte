@@ -251,6 +251,9 @@ importers:
         specifier: workspace:*
         version: link:../packages/math
     devDependencies:
+      '@mascotte/library':
+        specifier: workspace:*
+        version: link:../packages/library
       '@mascotte/player':
         specifier: workspace:*
         version: link:../packages/player

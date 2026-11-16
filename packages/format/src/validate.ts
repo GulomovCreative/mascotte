@@ -1,5 +1,6 @@
 import {
   BLEND_MODES,
+  type BlendMode,
   BOX_FACES,
   Camera,
   CONSTRAINT_KINDS,
@@ -9,7 +10,7 @@ import {
   propertiesOf,
   SLOT_NAME_PATTERN,
 } from '@mascotte/engine';
-import { ARCHETYPES, MOTIONS, slotsOf, usesSize } from '@mascotte/library';
+import { ARCHETYPES, type LibraryMotion, MOTIONS, slotsOf, usesSize } from '@mascotte/library';
 import { color } from '@mascotte/math';
 import {
   FORMAT,
@@ -23,7 +24,9 @@ import { NODE_TYPES, type NodeType } from './nodes.ts';
 /*
  * Structural validation of a document of the current version. Node properties are checked
  * against the engine's property registry (types, ranges, enum values, colors), and names that
- * refer to each other (slot ids, motion names, machine layers) are checked to exist. The
+ * refer to each other (slot ids, motion names, machine layers, the archetype, library motions)
+ * are checked to exist; the rig must bind the slots of the archetype and of every library motion,
+ * which must play on its kind of layer. The
  * contents of clips, behaviors, machines, constraints and springs are checked by the engine
  * when the animation is set up (`animateDocument`); its errors carry the path of the entry (a
  * layer, a machine, a constraint, a spring), and a named motion is reported where it is played.
@@ -326,6 +329,40 @@ interface MotionContext {
   readonly archetype: boolean;
 }
 
+/**
+ * The library motions a motion reference plays: itself (by name or inline), or its blend's
+ * points. Unknown names find nothing (they are reported elsewhere).
+ */
+export function librariesIn(
+  ref: unknown,
+  motions: Readonly<Record<string, unknown>>,
+  inBlend = false,
+): LibraryMotion[] {
+  const value =
+    typeof ref === 'string' ? (Object.hasOwn(motions, ref) ? motions[ref] : undefined) : ref;
+  if (!isObject(value)) return [];
+  if (typeof value.library === 'string') {
+    const entry = MOTIONS.get(value.library);
+    return entry ? [entry] : [];
+  }
+  if (inBlend || !isBlend(value)) return [];
+  return (value.blend as unknown[]).flatMap((point) =>
+    isObject(point) ? librariesIn(point.motion, motions, true) : [],
+  );
+}
+
+/** The problem with playing `ref` on a layer of blend mode `mode`, if a library motion is for the other kind. */
+export function layerKindProblem(
+  ref: unknown,
+  motions: Readonly<Record<string, unknown>>,
+  layer: string,
+  mode: BlendMode,
+): string | null {
+  const entry = librariesIn(ref, motions).find((library) => library.layer !== mode);
+  if (!entry) return null;
+  return `the library motion "${entry.name}" is written for an ${entry.layer} layer, but layer "${layer}" is ${mode}.`;
+}
+
 /** Checks a library motion: it exists, the rig binds its slots, and it has a size if it needs one. */
 function checkLibrary(c: Checker, name: unknown, path: string, context: MotionContext): void {
   const motion = typeof name === 'string' ? MOTIONS.get(name) : undefined;
@@ -498,10 +535,12 @@ export function validateDocument(value: unknown): Issue[] {
   if (value.motions !== undefined && c.object(value.motions, 'motions', 'an object of motions')) {
     motions = value.motions;
   }
-  const context: MotionContext = { motions, slots, archetype: archetype !== undefined };
+  // An unknown archetype is reported once, above; motions needing a size do not repeat it.
+  const context: MotionContext = { motions, slots, archetype: value.archetype !== undefined };
   for (const [name, motion] of Object.entries(motions)) {
     checkMotion(c, motion, join('motions', name), context, false);
   }
+  const modes = new Map<string, BlendMode>();
   const layers = checkNamed(c, value.layers, 'layers', 'layers', true, (layer, at) => {
     c.keys(layer, LAYER_KEYS, at);
     const { mode } = layer;
@@ -509,8 +548,12 @@ export function validateDocument(value: unknown): Issue[] {
       c.fail(join(at, 'mode'), `expected one of ${list(BLEND_MODES)}, got ${show(mode)}.`);
     }
     if (layer.weight !== undefined) c.number(layer.weight, join(at, 'weight'), 0);
+    const kind: BlendMode = mode === 'additive' ? 'additive' : 'override';
+    if (typeof layer.name === 'string') modes.set(layer.name, kind);
     if (layer.play !== undefined && layer.play !== null) {
       checkMotionRef(c, layer.play, join(at, 'play'), context, false);
+      const problem = layerKindProblem(layer.play, motions, String(layer.name), kind);
+      if (problem) c.fail(join(at, 'play'), problem);
     }
   });
   checkNamed(c, value.machines, 'machines', 'state machines', false, (machine, at) => {
@@ -523,6 +566,10 @@ export function validateDocument(value: unknown): Issue[] {
         if (!c.object(state, where, 'a state {name, motion}')) return;
         if (state.motion !== undefined && state.motion !== null) {
           checkMotionRef(c, state.motion, join(where, 'motion'), context, false);
+          const kind = modes.get(String(machine.layer));
+          const problem =
+            kind && layerKindProblem(state.motion, motions, String(machine.layer), kind);
+          if (problem) c.fail(join(where, 'motion'), problem);
         }
       });
     }
