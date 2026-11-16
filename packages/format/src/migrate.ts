@@ -33,7 +33,8 @@ export function migrate(
   try {
     document = structuredClone(value) as Record<string, unknown>;
   } catch (error) {
-    const message = 'the document holds values JSON cannot (functions, say).';
+    const reason = error instanceof Error ? error.message : String(error);
+    const message = `the document cannot be copied (nested too deeply, or holding values JSON cannot): ${reason}`;
     throw new DocumentError([{ path: '', message }], { cause: error });
   }
   if (document.format !== FORMAT) {
