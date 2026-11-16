@@ -126,9 +126,9 @@ class Gaze {
     // Ease towards the pointer, or back to the pose (time constant 1/6 s); a long step snaps.
     const ease = dt >= 0 && dt <= SPRING_MAX_DT ? 1 - Math.exp(-dt * 6) : 1;
     const gaze = this.#constraint;
-    const weight = gaze.weight + ((this.#pointer ? 1 : 0) - gaze.weight) * ease;
-    gaze.weight = Math.min(1, Math.max(0, weight));
     const pointer = this.#pointer;
+    const weight = gaze.weight + ((pointer ? 1 : 0) - gaze.weight) * ease;
+    gaze.weight = Math.min(1, Math.max(0, weight));
     if (!pointer) return;
     // The point under the pointer, 120 units in front of the head.
     const head = this.#head;
@@ -393,12 +393,12 @@ export class Player {
     const cssWidth = this.#canvas.clientWidth || width;
     const cssHeight = this.#canvas.clientHeight || height;
     const scale = Math.min(cssWidth / width, cssHeight / height);
-    const ratio = (globalThis.devicePixelRatio || 1) * scale;
+    const dpr = globalThis.devicePixelRatio || 1;
     this.#frame.width = cssWidth / scale;
     this.#frame.height = cssHeight / scale;
-    this.#frame.pixelRatio = ratio;
-    const pixelWidth = Math.round(cssWidth * (globalThis.devicePixelRatio || 1));
-    const pixelHeight = Math.round(cssHeight * (globalThis.devicePixelRatio || 1));
+    this.#frame.pixelRatio = dpr * scale;
+    const pixelWidth = Math.round(cssWidth * dpr);
+    const pixelHeight = Math.round(cssHeight * dpr);
     // Setting the size clears the canvas, so only when it changes.
     if (this.#canvas.width !== pixelWidth) this.#canvas.width = pixelWidth;
     if (this.#canvas.height !== pixelHeight) this.#canvas.height = pixelHeight;

@@ -292,14 +292,13 @@ describe('Player', () => {
   it('a constructor that fails leaves nothing bound', () => {
     const { canvas, surface, listening } = fakeCanvas();
     const { ticker } = manualTicker();
+    // The first draw fails, after the loop and the pointer are bound.
     const context = surface.getContext('2d');
-    canvas.getContext = (() => ({
-      ...context,
-      clearRect: () => {
-        throw new Error('no drawing');
-      },
-    })) as never;
-    expect(() => new Player(canvas, json(), { renderer: 'canvas', ticker })).toThrow();
+    context.clearRect = () => {
+      throw new Error('no drawing');
+    };
+    canvas.getContext = (() => context) as never;
+    expect(() => new Player(canvas, json(), { renderer: 'canvas', ticker })).toThrow('no drawing');
     expect(ticker.running).toBe(false);
     expect(listening()).toBe(0);
     expect(canvas.style.touchAction).toBe('');
