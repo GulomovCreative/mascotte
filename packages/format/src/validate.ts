@@ -26,10 +26,10 @@ import { NODE_TYPES, type NodeType } from './nodes.ts';
  * against the engine's property registry (types, ranges, enum values, colors), and names that
  * refer to each other (slot ids, motion names, machine layers, the archetype, library motions)
  * are checked to exist; the rig must bind the slots of the archetype and of every library motion,
- * which must play on its kind of layer. The
- * contents of clips, behaviors, machines, constraints and springs are checked by the engine
- * when the animation is set up (`animateDocument`); its errors carry the path of the entry (a
- * layer, a machine, a constraint, a spring), and a named motion is reported where it is played.
+ * which must play on its kind of layer. The contents of clips, behaviors, machines, constraints
+ * and springs are checked by the engine when the animation is set up (`animateDocument`); its
+ * errors carry the path of the entry (a layer, a machine, a constraint, a spring), and a named
+ * motion is reported where it is played.
  */
 
 type Json = Record<string, unknown>;
@@ -333,7 +333,7 @@ interface MotionContext {
  * The library motions a motion reference plays: itself (by name or inline), or its blend's
  * points. Unknown names find nothing (they are reported elsewhere).
  */
-export function librariesIn(
+function librariesIn(
   ref: unknown,
   motions: Readonly<Record<string, unknown>>,
   inBlend = false,
@@ -548,11 +548,17 @@ export function validateDocument(value: unknown): Issue[] {
       c.fail(join(at, 'mode'), `expected one of ${list(BLEND_MODES)}, got ${show(mode)}.`);
     }
     if (layer.weight !== undefined) c.number(layer.weight, join(at, 'weight'), 0);
-    const kind: BlendMode = mode === 'additive' ? 'additive' : 'override';
-    if (typeof layer.name === 'string') modes.set(layer.name, kind);
+    // A bad mode is reported above; the kind of its motions is not checked against it.
+    const kind =
+      mode === undefined
+        ? 'override'
+        : (BLEND_MODES as readonly unknown[]).includes(mode)
+          ? (mode as BlendMode)
+          : null;
+    if (kind && typeof layer.name === 'string') modes.set(layer.name, kind);
     if (layer.play !== undefined && layer.play !== null) {
       checkMotionRef(c, layer.play, join(at, 'play'), context, false);
-      const problem = layerKindProblem(layer.play, motions, String(layer.name), kind);
+      const problem = kind && layerKindProblem(layer.play, motions, String(layer.name), kind);
       if (problem) c.fail(join(at, 'play'), problem);
     }
   });
