@@ -417,3 +417,35 @@ describe('skipping an unchanged frame', () => {
     renderer.destroy();
   });
 });
+
+describe('Player on WebGL2', () => {
+  it('draws Pip from its JSON document, fitted to the canvas', async () => {
+    const { Player } = await import('@mascotte/player');
+    const { pipDocument } = await import('../src/index.ts');
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '480px';
+    canvas.style.height = '240px';
+    document.body.append(canvas);
+    const player = new Player(canvas, JSON.stringify(pipDocument()), {
+      renderer: 'webgl',
+      autoplay: false,
+    });
+    try {
+      // 480×240 CSS pixels at devicePixelRatio: the frame is centered with sky at the sides.
+      const ratio = window.devicePixelRatio || 1;
+      expect([canvas.width, canvas.height]).toEqual([480 * ratio, 240 * ratio]);
+      const copy = document.createElement('canvas');
+      copy.width = canvas.width;
+      copy.height = canvas.height;
+      const ctx = copy.getContext('2d');
+      if (!ctx) throw new Error('No 2D context.');
+      ctx.drawImage(canvas, 0, 0);
+      const at = (x: number, y: number) => [...ctx.getImageData(x * ratio, y * ratio, 1, 1).data];
+      expect(at(10, 120)).toEqual([0xe6, 0xf0, 0xff, 255]);
+      expect(at(270, 100)).toEqual([0xff, 0xd5, 0x4a, 255]);
+    } finally {
+      player.destroy();
+      canvas.remove();
+    }
+  });
+});

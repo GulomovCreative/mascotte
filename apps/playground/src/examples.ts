@@ -13,7 +13,7 @@ import {
   Ticker,
   WebGLRenderer,
 } from '@mascotte/engine';
-import { bindPointer, pauseWhenOffscreen } from '@mascotte/player';
+import { bindPointer, Player, pauseWhenOffscreen } from '@mascotte/player';
 import {
   type AnimatedScene,
   animatedMascot,
@@ -22,6 +22,7 @@ import {
   engineScenes,
   lookAroundClip,
   pip,
+  pipDocument,
   type ReferenceScene,
   referenceScenes,
 } from '@mascotte/reference';
@@ -643,14 +644,56 @@ function mascotExample(
   };
 }
 
-/** Pip cheers up while hovered and startles on a click. */
-function pipPlay(): PointerPlay {
-  return { inputs: { hover: 'hover', click: 'poke' } };
+/**
+ * Pip played the way a page embeds a mascot: its JSON document in a `Player`, which fits it to
+ * the canvas, follows the pointer with its gaze, cheers up on hover, startles on a click and
+ * turns while dragged. The example's animation switch plays and pauses it.
+ */
+function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
+  return {
+    id: `${backend === 'gl' ? 'webgl' : 'engine'}/${pip.id}`,
+    title: `${pip.title} (from its JSON document)`,
+    group: backend === 'gl' ? 'WebGL2' : 'Canvas 2D',
+    mount(container, controls) {
+      const canvas = document.createElement('canvas');
+      canvas.style.width = `${pip.width * displayScale}px`;
+      canvas.style.maxWidth = '100%';
+      canvas.style.aspectRatio = `${pip.width} / ${pip.height}`;
+      container.append(canvas);
+      let player: Player;
+      try {
+        player = new Player(canvas, JSON.stringify(pipDocument()), {
+          renderer: backend === 'gl' ? 'webgl' : 'canvas',
+          pointer: { hover: 'hover', click: 'poke' },
+          gaze: 'gaze',
+          turn: { settle: 0.5 },
+          onError: (error) => controls.error(error),
+        });
+      } catch (error) {
+        canvas.remove();
+        throw error;
+      }
+      const sync = Ticker.shared.add(() => {
+        if (controls.animate !== player.playing) {
+          if (controls.animate) player.play();
+          else player.pause();
+        }
+        controls.frame();
+      });
+      const unobserve = pauseWhenOffscreen(sync, canvas);
+      return () => {
+        unobserve();
+        sync.remove();
+        player.destroy();
+        canvas.remove();
+      };
+    },
+  };
 }
 
 /** Pip, the showcase mascot, comes first: the page opens on it. */
 export const examples: Example[] = [
-  mascotExample(pip, 'gl', pipPlay),
+  pipPlayerExample('gl'),
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
   clipExampleGL(),
@@ -658,7 +701,7 @@ export const examples: Example[] = [
   benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
-  mascotExample(pip, 'canvas', pipPlay),
+  pipPlayerExample('canvas'),
   mascotExample(animatedMascot, 'canvas', moodFollowsHover),
   benchmarkCanvas(),
 ];
