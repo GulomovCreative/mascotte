@@ -10,7 +10,13 @@ import {
   SLOT_NAME_PATTERN,
 } from '@mascotte/engine';
 import { color } from '@mascotte/math';
-import { FORMAT, type Issue } from './document.ts';
+import {
+  FORMAT,
+  type Issue,
+  type LayerDocument,
+  type MascotDocument,
+  type NodeDocument,
+} from './document.ts';
 import { NODE_TYPES, type NodeType } from './nodes.ts';
 
 /*
@@ -18,7 +24,8 @@ import { NODE_TYPES, type NodeType } from './nodes.ts';
  * against the engine's property registry (types, ranges, enum values, colors), and names that
  * refer to each other (slot ids, motion names, machine layers) are checked to exist. The
  * contents of clips, behaviors, machines, constraints and springs are checked by the engine
- * when the document is built, with the same paths in the messages.
+ * when the animation is set up (`animateDocument`); its errors carry the path of the entry (a
+ * layer, a machine, a constraint, a spring), and a named motion is reported where it is played.
  */
 
 type Json = Record<string, unknown>;
@@ -87,8 +94,26 @@ function join(path: string, key: string | number): string {
   return path === '' ? key : `${path}.${key}`;
 }
 
-const NODE_KEYS = ['type', 'id', 'name', 'props', 'path', 'faces', 'children'] as const;
-const DOCUMENT_KEYS = [
+/**
+ * The fields of a document type, listed once: the compiler checks they are all its fields and
+ * none is missing, so the list cannot drift from the type.
+ */
+function fields<T>() {
+  return <const K extends readonly (keyof T & string)[]>(
+    keys: K & (Exclude<keyof T, K[number]> extends never ? unknown : never),
+  ): K => keys;
+}
+
+const NODE_KEYS = fields<NodeDocument>()([
+  'type',
+  'id',
+  'name',
+  'props',
+  'path',
+  'faces',
+  'children',
+]);
+const DOCUMENT_KEYS = fields<MascotDocument>()([
   'format',
   'version',
   'meta',
@@ -101,7 +126,13 @@ const DOCUMENT_KEYS = [
   'machines',
   'constraints',
   'springs',
-] as const;
+]);
+const META_KEYS = fields<MascotDocument['meta']>()(['name', 'description']);
+const VIEW_KEYS = fields<MascotDocument['view']>()(['width', 'height', 'background']);
+const LAYER_KEYS = fields<LayerDocument>()(['name', 'mode', 'weight', 'mask', 'play']);
+
+/** Trees deeper than this are refused, so checking and building them cannot overflow the stack. */
+export const MAX_DEPTH = 64;
 
 function checkVector(c: Checker, value: unknown, path: string, axes: readonly string[]): void {
   if (!c.object(value, path, `an object with ${list(axes)}`)) return;
@@ -147,7 +178,11 @@ function checkValue(c: Checker, property: Property, value: unknown, path: string
       checkVector(c, value, path, ['x', 'y', 'z', 'w']);
       if (!isObject(value)) return;
       const { x = 0, y = 0, z = 0, w = 0 } = value as Record<string, number>;
-      if (Math.hypot(x, y, z, w) < 1e-6) c.fail(path, 'expected a rotation quaternion, got zero.');
+      // A longer or shorter quaternion would scale the node as well as turn it.
+      const length = Math.hypot(x, y, z, w);
+      if (Math.abs(length - 1) > 1e-6) {
+        c.fail(path, `expected a unit quaternion, got one of length ${length}.`);
+      }
     }
   }
 }
@@ -181,23 +216,24 @@ function checkPoint(c: Checker, value: unknown, path: string): void {
   }
 }
 
-const COMMAND_POINTS: Record<string, readonly string[]> = {
-  move: ['point'],
-  line: ['point'],
-  bezier: ['control1', 'control2', 'point'],
-  arc: ['corner', 'point'],
-};
+// A map, so a command type such as "constructor" finds nothing.
+const COMMAND_POINTS: ReadonlyMap<string, readonly string[]> = new Map([
+  ['move', ['point']],
+  ['line', ['point']],
+  ['bezier', ['control1', 'control2', 'point']],
+  ['arc', ['corner', 'point']],
+]);
 
 function checkPath(c: Checker, value: unknown, path: string): void {
   if (!c.array(value, path, 'path commands')) return;
   value.forEach((command, i) => {
     const at = join(path, i);
     if (!c.object(command, at, 'a path command')) return;
-    const points = typeof command.type === 'string' ? COMMAND_POINTS[command.type] : undefined;
+    const points = typeof command.type === 'string' ? COMMAND_POINTS.get(command.type) : undefined;
     if (!points) {
       c.fail(
         join(at, 'type'),
-        `expected one of ${list(Object.keys(COMMAND_POINTS))}, got ${show(command.type)}.`,
+        `expected one of ${list(COMMAND_POINTS.keys())}, got ${show(command.type)}.`,
       );
       return;
     }
@@ -223,7 +259,17 @@ function checkFaces(c: Checker, value: unknown, path: string): void {
   }
 }
 
-function checkNode(c: Checker, value: unknown, path: string, ids: Set<string>): void {
+function checkNode(
+  c: Checker,
+  value: unknown,
+  path: string,
+  ids: Set<string>,
+  depth: number,
+): void {
+  if (depth > MAX_DEPTH) {
+    c.fail(path, `the tree is nested deeper than ${MAX_DEPTH} levels.`);
+    return;
+  }
   if (!c.object(value, path, 'a node')) return;
   c.keys(value, NODE_KEYS, path);
   const type = typeof value.type === 'string' ? NODE_TYPES.get(value.type) : undefined;
@@ -256,7 +302,7 @@ function checkNode(c: Checker, value: unknown, path: string, ids: Set<string>): 
   }
   if (value.children !== undefined && c.array(value.children, join(path, 'children'), 'nodes')) {
     value.children.forEach((child, i) => {
-      checkNode(c, child, join(join(path, 'children'), i), ids);
+      checkNode(c, child, join(join(path, 'children'), i), ids, depth + 1);
     });
   }
 }
@@ -295,6 +341,37 @@ function checkMotion(c: Checker, value: unknown, path: string, names: ReadonlySe
   }
 }
 
+/** The motion names a motion's blends refer to, at any depth of inline blends. */
+function namesIn(motion: unknown, out: string[]): string[] {
+  if (!isObject(motion) || !Array.isArray(motion.blend)) return out;
+  for (const point of motion.blend) {
+    if (!isObject(point)) continue;
+    if (typeof point.motion === 'string') out.push(point.motion);
+    else namesIn(point.motion, out);
+  }
+  return out;
+}
+
+/** Reports named motions whose blends lead back to themselves, which could never be built. */
+function checkCycles(c: Checker, motions: Json): void {
+  const done = new Set<string>();
+  const trail: string[] = [];
+  const visit = (name: string): void => {
+    if (done.has(name) || !Object.hasOwn(motions, name)) return;
+    const start = trail.indexOf(name);
+    if (start >= 0) {
+      const cycle = [...trail.slice(start), name].join(' → ');
+      c.fail(join('motions', name), `the motion refers back to itself: ${cycle}.`);
+      return;
+    }
+    trail.push(name);
+    for (const next of namesIn(motions[name], [])) visit(next);
+    trail.pop();
+    done.add(name);
+  };
+  for (const name of Object.keys(motions)) visit(name);
+}
+
 /** Checks a list of named entries: each an object, names unique when given (or required). */
 function checkNamed(
   c: Checker,
@@ -309,7 +386,8 @@ function checkNamed(
   value.forEach((item, i) => {
     const at = join(path, i);
     if (!c.object(item, at, what)) return;
-    if (required || item.name !== undefined) {
+    // A machine's name may be null, as in the engine's spec.
+    if (required || (item.name !== undefined && item.name !== null)) {
       if (c.string(item.name, join(at, 'name'))) {
         if (names.has(item.name))
           c.fail(join(at, 'name'), `the name "${item.name}" is used twice.`);
@@ -322,8 +400,8 @@ function checkNamed(
 }
 
 /**
- * Checks a document of the current version (after `migrate`) and returns every problem found;
- * an empty list means it can be built.
+ * Checks a document, assumed to be of the current version (after `migrate`), and returns every
+ * problem found; an empty list means it can be built.
  */
 export function validateDocument(value: unknown): Issue[] {
   const c = new Checker();
@@ -331,7 +409,7 @@ export function validateDocument(value: unknown): Issue[] {
   c.keys(value, DOCUMENT_KEYS, '');
   if (value.format !== FORMAT) c.fail('format', `expected "${FORMAT}", got ${show(value.format)}.`);
   if (c.object(value.meta, 'meta', 'an object {name, description}')) {
-    c.keys(value.meta, ['name', 'description'], 'meta');
+    c.keys(value.meta, META_KEYS, 'meta');
     c.string(value.meta.name, 'meta.name');
     const { description } = value.meta;
     if (description !== undefined && typeof description !== 'string') {
@@ -339,7 +417,7 @@ export function validateDocument(value: unknown): Issue[] {
     }
   }
   if (c.object(value.view, 'view', 'an object {width, height, background}')) {
-    c.keys(value.view, ['width', 'height', 'background'], 'view');
+    c.keys(value.view, VIEW_KEYS, 'view');
     c.number(value.view.width, 'view.width', 0, true);
     c.number(value.view.height, 'view.height', 0, true);
     const { background } = value.view;
@@ -352,7 +430,7 @@ export function validateDocument(value: unknown): Issue[] {
     if (value.camera.props !== undefined) checkProps(c, Camera, value.camera.props, 'camera.props');
   }
   const ids = new Set<string>();
-  checkNode(c, value.root, 'root', ids);
+  checkNode(c, value.root, 'root', ids, 0);
   if (value.rig !== undefined && c.object(value.rig, 'rig', 'an object {slots}')) {
     c.keys(value.rig, ['slots'], 'rig');
     const given = value.rig.slots;
@@ -370,9 +448,10 @@ export function validateDocument(value: unknown): Issue[] {
     for (const [name, motion] of Object.entries(value.motions)) {
       checkMotion(c, motion, join('motions', name), motions);
     }
+    checkCycles(c, value.motions);
   }
   const layers = checkNamed(c, value.layers, 'layers', 'layers', true, (layer, at) => {
-    c.keys(layer, ['name', 'mode', 'weight', 'mask', 'play'], at);
+    c.keys(layer, LAYER_KEYS, at);
     const { mode } = layer;
     if (mode !== undefined && !(BLEND_MODES as readonly unknown[]).includes(mode)) {
       c.fail(join(at, 'mode'), `expected one of ${list(BLEND_MODES)}, got ${show(mode)}.`);
