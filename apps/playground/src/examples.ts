@@ -660,6 +660,8 @@ function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
       canvas.style.maxWidth = '100%';
       canvas.style.aspectRatio = `${pip.width} / ${pip.height}`;
       container.append(canvas);
+      // An error pauses the player; the example stops with it rather than restarting it.
+      let stopped = false;
       let player: Player;
       try {
         player = new Player(canvas, JSON.stringify(pipDocument()), {
@@ -667,13 +669,17 @@ function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
           pointer: { hover: 'hover', click: 'poke' },
           gaze: 'gaze',
           turn: { settle: 0.5 },
-          onError: (error) => controls.error(error),
+          onError: (error) => {
+            stopped = true;
+            controls.error(error);
+          },
         });
       } catch (error) {
         canvas.remove();
         throw error;
       }
       const sync = Ticker.shared.add(() => {
+        if (stopped) return;
         if (controls.animate !== player.playing) {
           if (controls.animate) player.play();
           else player.pause();
