@@ -207,7 +207,14 @@ importers:
         specifier: workspace:*
         version: link:../math
 
-  packages/format: {}
+  packages/format:
+    dependencies:
+      '@mascotte/engine':
+        specifier: workspace:*
+        version: link:../engine
+      '@mascotte/math':
+        specifier: workspace:*
+        version: link:../math
 
   packages/math: {}
 
@@ -222,6 +229,9 @@ importers:
       '@mascotte/engine':
         specifier: workspace:*
         version: link:../packages/engine
+      '@mascotte/format':
+        specifier: workspace:*
+        version: link:../packages/format
       '@mascotte/math':
         specifier: workspace:*
         version: link:../packages/math

@@ -1,0 +1,413 @@
+import {
+  BLEND_MODES,
+  BOX_FACES,
+  Camera,
+  CONSTRAINT_KINDS,
+  findProperty,
+  type Node,
+  type Property,
+  propertiesOf,
+  SLOT_NAME_PATTERN,
+} from '@mascotte/engine';
+import { color } from '@mascotte/math';
+import { FORMAT, type Issue } from './document.ts';
+import { NODE_TYPES, type NodeType } from './nodes.ts';
+
+/*
+ * Structural validation of a document of the current version. Node properties are checked
+ * against the engine's property registry (types, ranges, enum values, colors), and names that
+ * refer to each other (slot ids, motion names, machine layers) are checked to exist. The
+ * contents of clips, behaviors, machines, constraints and springs are checked by the engine
+ * when the document is built, with the same paths in the messages.
+ */
+
+type Json = Record<string, unknown>;
+
+function isObject(value: unknown): value is Json {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function show(value: unknown): string {
+  const text = JSON.stringify(value);
+  return text === undefined ? String(value) : text.length > 40 ? `${text.slice(0, 37)}...` : text;
+}
+
+function list(values: Iterable<string>): string {
+  return [...values].join(', ');
+}
+
+class Checker {
+  readonly issues: Issue[] = [];
+
+  fail(path: string, message: string): void {
+    this.issues.push({ path, message });
+  }
+
+  /** Reports keys of `value` not in `known`. */
+  keys(value: Json, known: readonly string[], path: string): void {
+    for (const key of Object.keys(value)) {
+      if (!known.includes(key)) {
+        this.fail(join(path, key), `unknown field (expected one of ${list(known)}).`);
+      }
+    }
+  }
+
+  object(value: unknown, path: string, what: string): value is Json {
+    if (isObject(value)) return true;
+    this.fail(path, `expected ${what}, got ${show(value)}.`);
+    return false;
+  }
+
+  array(value: unknown, path: string, what: string): value is unknown[] {
+    if (Array.isArray(value)) return true;
+    this.fail(path, `expected an array of ${what}, got ${show(value)}.`);
+    return false;
+  }
+
+  string(value: unknown, path: string): value is string {
+    if (typeof value === 'string' && value !== '') return true;
+    this.fail(path, `expected a non-empty string, got ${show(value)}.`);
+    return false;
+  }
+
+  number(value: unknown, path: string, min = -Infinity, exclusive = false): value is number {
+    const ok =
+      typeof value === 'number' &&
+      Number.isFinite(value) &&
+      (exclusive ? value > min : value >= min);
+    if (ok) return true;
+    const range = min === -Infinity ? '' : exclusive ? ` above ${min}` : ` at least ${min}`;
+    this.fail(path, `expected a finite number${range}, got ${show(value)}.`);
+    return false;
+  }
+}
+
+function join(path: string, key: string | number): string {
+  if (typeof key === 'number') return `${path}[${key}]`;
+  return path === '' ? key : `${path}.${key}`;
+}
+
+const NODE_KEYS = ['type', 'id', 'name', 'props', 'path', 'faces', 'children'] as const;
+const DOCUMENT_KEYS = [
+  'format',
+  'version',
+  'meta',
+  'view',
+  'camera',
+  'root',
+  'rig',
+  'motions',
+  'layers',
+  'machines',
+  'constraints',
+  'springs',
+] as const;
+
+function checkVector(c: Checker, value: unknown, path: string, axes: readonly string[]): void {
+  if (!c.object(value, path, `an object with ${list(axes)}`)) return;
+  c.keys(value, axes, path);
+  for (const axis of axes) c.number(value[axis], join(path, axis));
+}
+
+/** Checks a value against a registry property. */
+function checkValue(c: Checker, property: Property, value: unknown, path: string): void {
+  switch (property.type) {
+    case 'number': {
+      if (!c.number(value, path)) return;
+      const { min, max, exclusiveMin, integer } = property;
+      if (integer && !Number.isInteger(value)) c.fail(path, `expected an integer, got ${value}.`);
+      if (min !== undefined && (exclusiveMin ? value <= min : value < min)) {
+        c.fail(
+          path,
+          `expected a number ${exclusiveMin ? 'above' : 'at least'} ${min}, got ${value}.`,
+        );
+      }
+      if (max !== undefined && value > max) c.fail(path, `expected at most ${max}, got ${value}.`);
+      return;
+    }
+    case 'bool':
+      if (typeof value !== 'boolean') c.fail(path, `expected true or false, got ${show(value)}.`);
+      return;
+    case 'enum':
+      if (typeof value !== 'string' || !property.values.includes(value)) {
+        c.fail(path, `expected one of ${list(property.values)}, got ${show(value)}.`);
+      }
+      return;
+    case 'color':
+      if (value === null && property.nullable) return;
+      if (typeof value !== 'string' || color.parse(value) === null) {
+        const or = property.nullable ? ' or null' : '';
+        c.fail(path, `expected a CSS color${or}, got ${show(value)}.`);
+      }
+      return;
+    case 'vec3':
+      checkVector(c, value, path, ['x', 'y', 'z']);
+      return;
+    case 'quat': {
+      checkVector(c, value, path, ['x', 'y', 'z', 'w']);
+      if (!isObject(value)) return;
+      const { x = 0, y = 0, z = 0, w = 0 } = value as Record<string, number>;
+      if (Math.hypot(x, y, z, w) < 1e-6) c.fail(path, 'expected a rotation quaternion, got zero.');
+    }
+  }
+}
+
+function checkProps(
+  c: Checker,
+  type: NodeType | typeof Camera,
+  value: unknown,
+  path: string,
+): void {
+  if (!c.object(value, path, 'an object of properties')) return;
+  for (const [name, item] of Object.entries(value)) {
+    const property = findProperty(type as unknown as typeof Node, name);
+    if (property === null) {
+      const known = propertiesOf(type as unknown as typeof Node).map((p) => p.name);
+      c.fail(
+        join(path, name),
+        `${type.typeName} has no property "${name}" (it has ${list(known)}).`,
+      );
+      continue;
+    }
+    checkValue(c, property, item, join(path, name));
+  }
+}
+
+function checkPoint(c: Checker, value: unknown, path: string): void {
+  if (!c.object(value, path, 'a point {x, y, z}')) return;
+  c.keys(value, ['x', 'y', 'z'], path);
+  for (const axis of ['x', 'y', 'z']) {
+    if (value[axis] !== undefined) c.number(value[axis], join(path, axis));
+  }
+}
+
+const COMMAND_POINTS: Record<string, readonly string[]> = {
+  move: ['point'],
+  line: ['point'],
+  bezier: ['control1', 'control2', 'point'],
+  arc: ['corner', 'point'],
+};
+
+function checkPath(c: Checker, value: unknown, path: string): void {
+  if (!c.array(value, path, 'path commands')) return;
+  value.forEach((command, i) => {
+    const at = join(path, i);
+    if (!c.object(command, at, 'a path command')) return;
+    const points = typeof command.type === 'string' ? COMMAND_POINTS[command.type] : undefined;
+    if (!points) {
+      c.fail(
+        join(at, 'type'),
+        `expected one of ${list(Object.keys(COMMAND_POINTS))}, got ${show(command.type)}.`,
+      );
+      return;
+    }
+    c.keys(command, ['type', ...points], at);
+    for (const point of points) checkPoint(c, command[point], join(at, point));
+  });
+}
+
+function checkFaces(c: Checker, value: unknown, path: string): void {
+  if (!c.object(value, path, 'an object of box faces')) return;
+  c.keys(value, BOX_FACES, path);
+  for (const [face, settings] of Object.entries(value)) {
+    const at = join(path, face);
+    if (!c.object(settings, at, 'face settings {visible, color}')) continue;
+    c.keys(settings, ['visible', 'color'], at);
+    if (settings.visible !== undefined && typeof settings.visible !== 'boolean') {
+      c.fail(join(at, 'visible'), `expected true or false, got ${show(settings.visible)}.`);
+    }
+    const tint = settings.color;
+    if (tint !== undefined && tint !== null && (typeof tint !== 'string' || !color.parse(tint))) {
+      c.fail(join(at, 'color'), `expected a CSS color or null, got ${show(tint)}.`);
+    }
+  }
+}
+
+function checkNode(c: Checker, value: unknown, path: string, ids: Set<string>): void {
+  if (!c.object(value, path, 'a node')) return;
+  c.keys(value, NODE_KEYS, path);
+  const type = typeof value.type === 'string' ? NODE_TYPES.get(value.type) : undefined;
+  if (!type) {
+    c.fail(
+      join(path, 'type'),
+      `expected one of ${list(NODE_TYPES.keys())}, got ${show(value.type)}.`,
+    );
+  }
+  if (value.id !== undefined && c.string(value.id, join(path, 'id'))) {
+    const id = value.id;
+    if (id.startsWith('~') || id.includes('/')) {
+      c.fail(join(path, 'id'), `an id cannot start with "~" or contain "/", got ${show(id)}.`);
+    } else if (ids.has(id)) {
+      c.fail(join(path, 'id'), `the id "${id}" is used twice.`);
+    }
+    ids.add(id);
+  }
+  if (value.name !== undefined && typeof value.name !== 'string') {
+    c.fail(join(path, 'name'), `expected a string, got ${show(value.name)}.`);
+  }
+  if (type && value.props !== undefined) checkProps(c, type, value.props, join(path, 'props'));
+  if (value.path !== undefined) {
+    if (value.type === 'PathShape') checkPath(c, value.path, join(path, 'path'));
+    else c.fail(join(path, 'path'), 'only a PathShape has a path.');
+  }
+  if (value.faces !== undefined) {
+    if (value.type === 'Box') checkFaces(c, value.faces, join(path, 'faces'));
+    else c.fail(join(path, 'faces'), 'only a Box has faces.');
+  }
+  if (value.children !== undefined && c.array(value.children, join(path, 'children'), 'nodes')) {
+    value.children.forEach((child, i) => {
+      checkNode(c, child, join(join(path, 'children'), i), ids);
+    });
+  }
+}
+
+/** Checks a motion reference: a name in `motions`, or an inline motion. */
+function checkMotionRef(
+  c: Checker,
+  value: unknown,
+  path: string,
+  names: ReadonlySet<string>,
+): void {
+  if (typeof value === 'string') {
+    if (!names.has(value)) {
+      c.fail(path, `no motion "${value}" in motions (there are ${list(names) || 'none'}).`);
+    }
+    return;
+  }
+  checkMotion(c, value, path, names);
+}
+
+function checkMotion(c: Checker, value: unknown, path: string, names: ReadonlySet<string>): void {
+  if (!c.object(value, path, 'a clip {tracks}, behaviors {behaviors} or blend {input, blend}')) {
+    return;
+  }
+  if (Array.isArray(value.blend)) {
+    c.string(value.input, join(path, 'input'));
+    value.blend.forEach((point, i) => {
+      const at = join(join(path, 'blend'), i);
+      if (c.object(point, at, 'a blend point {at, motion}')) {
+        c.number(point.at, join(at, 'at'));
+        checkMotionRef(c, point.motion, join(at, 'motion'), names);
+      }
+    });
+  } else if (!Array.isArray(value.tracks) && !Array.isArray(value.behaviors)) {
+    c.fail(path, 'expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.');
+  }
+}
+
+/** Checks a list of named entries: each an object, names unique when given (or required). */
+function checkNamed(
+  c: Checker,
+  value: unknown,
+  path: string,
+  what: string,
+  required: boolean,
+  each: (item: Json, at: string) => void,
+): Set<string> {
+  const names = new Set<string>();
+  if (value === undefined || !c.array(value, path, what)) return names;
+  value.forEach((item, i) => {
+    const at = join(path, i);
+    if (!c.object(item, at, what)) return;
+    if (required || item.name !== undefined) {
+      if (c.string(item.name, join(at, 'name'))) {
+        if (names.has(item.name))
+          c.fail(join(at, 'name'), `the name "${item.name}" is used twice.`);
+        names.add(item.name);
+      }
+    }
+    each(item, at);
+  });
+  return names;
+}
+
+/**
+ * Checks a document of the current version (after `migrate`) and returns every problem found;
+ * an empty list means it can be built.
+ */
+export function validateDocument(value: unknown): Issue[] {
+  const c = new Checker();
+  if (!c.object(value, '', 'a document object')) return c.issues;
+  c.keys(value, DOCUMENT_KEYS, '');
+  if (value.format !== FORMAT) c.fail('format', `expected "${FORMAT}", got ${show(value.format)}.`);
+  if (c.object(value.meta, 'meta', 'an object {name, description}')) {
+    c.keys(value.meta, ['name', 'description'], 'meta');
+    c.string(value.meta.name, 'meta.name');
+    const { description } = value.meta;
+    if (description !== undefined && typeof description !== 'string') {
+      c.fail('meta.description', `expected a string, got ${show(description)}.`);
+    }
+  }
+  if (c.object(value.view, 'view', 'an object {width, height, background}')) {
+    c.keys(value.view, ['width', 'height', 'background'], 'view');
+    c.number(value.view.width, 'view.width', 0, true);
+    c.number(value.view.height, 'view.height', 0, true);
+    const { background } = value.view;
+    if (background !== undefined && (typeof background !== 'string' || !color.parse(background))) {
+      c.fail('view.background', `expected a CSS color, got ${show(background)}.`);
+    }
+  }
+  if (value.camera !== undefined && c.object(value.camera, 'camera', 'an object {props}')) {
+    c.keys(value.camera, ['props'], 'camera');
+    if (value.camera.props !== undefined) checkProps(c, Camera, value.camera.props, 'camera.props');
+  }
+  const ids = new Set<string>();
+  checkNode(c, value.root, 'root', ids);
+  if (value.rig !== undefined && c.object(value.rig, 'rig', 'an object {slots}')) {
+    c.keys(value.rig, ['slots'], 'rig');
+    const given = value.rig.slots;
+    if (given !== undefined && c.object(given, 'rig.slots', 'an object of slot ids')) {
+      for (const [slot, id] of Object.entries(given)) {
+        const at = join('rig.slots', slot);
+        if (!SLOT_NAME_PATTERN.test(slot)) c.fail(at, `"${slot}" is not a slot name.`);
+        if (c.string(id, at) && !ids.has(id)) c.fail(at, `no node with id "${id}".`);
+      }
+    }
+  }
+  const motions = new Set<string>();
+  if (value.motions !== undefined && c.object(value.motions, 'motions', 'an object of motions')) {
+    for (const name of Object.keys(value.motions)) motions.add(name);
+    for (const [name, motion] of Object.entries(value.motions)) {
+      checkMotion(c, motion, join('motions', name), motions);
+    }
+  }
+  const layers = checkNamed(c, value.layers, 'layers', 'layers', true, (layer, at) => {
+    c.keys(layer, ['name', 'mode', 'weight', 'mask', 'play'], at);
+    const { mode } = layer;
+    if (mode !== undefined && !(BLEND_MODES as readonly unknown[]).includes(mode)) {
+      c.fail(join(at, 'mode'), `expected one of ${list(BLEND_MODES)}, got ${show(mode)}.`);
+    }
+    if (layer.weight !== undefined) c.number(layer.weight, join(at, 'weight'), 0);
+    if (layer.play !== undefined && layer.play !== null) {
+      checkMotionRef(c, layer.play, join(at, 'play'), motions);
+    }
+  });
+  checkNamed(c, value.machines, 'machines', 'state machines', false, (machine, at) => {
+    if (c.string(machine.layer, join(at, 'layer')) && !layers.has(machine.layer)) {
+      c.fail(join(at, 'layer'), `no layer "${machine.layer}" in layers.`);
+    }
+    if (c.array(machine.states, join(at, 'states'), 'states')) {
+      machine.states.forEach((state, i) => {
+        const where = join(join(at, 'states'), i);
+        if (!c.object(state, where, 'a state {name, motion}')) return;
+        if (state.motion !== undefined && state.motion !== null) {
+          checkMotionRef(c, state.motion, join(where, 'motion'), motions);
+        }
+      });
+    }
+  });
+  checkNamed(c, value.constraints, 'constraints', 'constraints', false, (constraint, at) => {
+    if (!(CONSTRAINT_KINDS as readonly unknown[]).includes(constraint.kind)) {
+      c.fail(
+        join(at, 'kind'),
+        `expected one of ${list(CONSTRAINT_KINDS)}, got ${show(constraint.kind)}.`,
+      );
+    }
+  });
+  if (value.springs !== undefined && c.array(value.springs, 'springs', 'springs')) {
+    value.springs.forEach((spring, i) => {
+      c.object(spring, join('springs', i), 'a spring {target, tip, …}');
+    });
+  }
+  return c.issues;
+}
