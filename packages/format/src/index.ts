@@ -20,6 +20,11 @@ export {
   type MotionDocument,
   type MotionRef,
   type NodeDocument,
+  type Num,
+  type ParamRef,
+  type ParamSpec,
+  type PathCommandDocument,
+  type PrefabDocument,
   type PropertyValue,
 } from './document.ts';
 export { MIGRATIONS, type Migration, migrate, VERSION } from './migrate.ts';

@@ -5,6 +5,7 @@ import {
   findProperty,
   type Motion,
   type Node,
+  type PathCommand,
   type Property,
   Rig,
   type StateMachine,
@@ -21,6 +22,7 @@ import {
 } from './document.ts';
 import { migrate } from './migrate.ts';
 import { NODE_TYPES } from './nodes.ts';
+import { expandDocument } from './prefabs.ts';
 import { layerKindProblem, validateDocument } from './validate.ts';
 
 /** What a document builds: the tree, camera and rig, and how to animate them. */
@@ -69,7 +71,7 @@ function setProps(
 }
 
 function buildNode(document: NodeDocument, path: string): Node {
-  const type = NODE_TYPES.get(document.type);
+  const type = NODE_TYPES.get(document.type ?? '');
   if (!type) throw new DocumentError([{ path: `${path}.type`, message: 'unknown node type.' }]);
   const node = at(
     path,
@@ -77,7 +79,8 @@ function buildNode(document: NodeDocument, path: string): Node {
       new type({
         ...(document.id === undefined ? {} : { id: document.id }),
         ...(document.name === undefined ? {} : { name: document.name }),
-        ...(document.path === undefined ? {} : { path: document.path }),
+        // Expanded: every number in the path is a number now.
+        ...(document.path === undefined ? {} : { path: document.path as readonly PathCommand[] }),
         ...(document.faces === undefined ? {} : { faces: document.faces }),
       }),
   );
@@ -232,10 +235,14 @@ export function animateDocument(document: AnimationDocument, animator: Animator)
  * come as a `DocumentError` with a path: from here for the tree, camera and rig, from
  * `animate` for clips, machines, constraints and springs.
  */
-export function buildDocument(document: MascotDocument): BuiltMascot {
-  const issues = validateDocument(document);
+export function buildDocument(
+  document: MascotDocument,
+  options: { readonly params?: Readonly<Record<string, number>> } = {},
+): BuiltMascot {
+  const issues = validateDocument(document, options.params);
   if (issues.length > 0) throw new DocumentError(issues);
-  const root = buildNode(document.root, 'root');
+  const expanded = expandDocument(document, options.params).document as MascotDocument;
+  const root = buildNode(expanded.root, 'root');
   const camera = new Camera();
   setProps(camera, document.camera?.props, 'camera.props');
   const rig = at('rig.slots', () => new Rig(root, document.rig?.slots ?? {}));
