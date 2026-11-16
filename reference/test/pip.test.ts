@@ -1,4 +1,4 @@
-import { Animator, PointerInputs, propertiesOf, Scene } from '@mascotte/engine';
+import { Animator, PointerInputs, propertiesOf, Scene, type Sphere } from '@mascotte/engine';
 import { buildDocument, readDocument, writeNode } from '@mascotte/format';
 import { mat3x4, vec3 } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
@@ -149,6 +149,38 @@ describe('Pip', () => {
     gaze.point = vec3.scaleAndAdd(vec3.create(), center, { x: -1, y: 0, z: 0 }, 500);
     animator.evaluate();
     expect(Math.acos(Math.min(1, vec3.dot(face(), before)))).toBeCloseTo(gaze.maxAngle, 9);
+  });
+
+  it('its body sphere and belly turn with the face, and the beak stands out of the belly', () => {
+    const { animator, gaze, rig, world } = make();
+    const head = rig.node('head');
+    const belly = world.getById('belly');
+    const beak = rig.node('beak.upper');
+    if (!head || !belly || !beak) throw new Error('no head, belly or beak');
+    const center = (node: typeof head) => node.localToWorld(vec3.create(), node.pivot);
+    const face = () =>
+      vec3.normalize(
+        vec3.create(),
+        mat3x4.transformDirection(vec3.create(), head.worldMatrix, { x: 0, y: 0, z: 1 }),
+      );
+    // The belly's direction from the head's center, against the face's.
+    const bellyAngle = () => {
+      const to = vec3.normalize(
+        vec3.create(),
+        vec3.sub(vec3.create(), center(belly), center(head)),
+      );
+      return vec3.dot(to, face());
+    };
+    animator.evaluate();
+    const before = { angle: bellyAngle(), x: center(belly).x };
+    gaze.point = vec3.scaleAndAdd(vec3.create(), center(head), { x: 1, y: 0, z: 0 }, 500);
+    gaze.weight = 1;
+    animator.evaluate();
+    expect(bellyAngle()).toBeCloseTo(before.angle, 9);
+    expect(center(belly).x).toBeGreaterThan(before.x + 5);
+    // The beak's hinge is outside the belly sphere, so the belly does not swallow it.
+    const gap = vec3.distance(center(beak), center(belly));
+    expect(gap).toBeGreaterThan((belly as Sphere).diameter / 2);
   });
 
   it('breathes, blinks, chirps and swings its crest, and seeking matches playback', () => {
