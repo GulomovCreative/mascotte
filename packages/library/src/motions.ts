@@ -1,16 +1,18 @@
-import type { BehaviorSet, Clip, Motion, Target } from '@mascotte/engine';
+import type { BehaviorSet, BlendMode, Clip, Motion, Target } from '@mascotte/engine';
 import { euler, quat } from '@mascotte/math';
 
 /**
  * A motion of the library: written for archetype slots only, so it fits any mascot whose rig
  * binds them. Positions are in sizes of the mascot (see `Archetype.size`); `scaleMotion`
- * turns them into scene units. `layer` says which kind of layer it is meant for: an additive
- * motion moves from wherever the pose is (a hop, a breath), an override one sets the pose.
+ * turns them into scene units. `layer` is the kind of layer it is written for, which a document
+ * must play it on: an additive motion moves from wherever the pose is (a hop, a breath), an
+ * override one sets the pose. Booleans (visibility) are not additive, so a motion that switches
+ * them (a blink) is for an override layer.
  */
 export interface LibraryMotion {
   readonly name: string;
   readonly description: string;
-  readonly layer: 'additive' | 'override';
+  readonly layer: BlendMode;
   readonly motion: Motion;
 }
 
@@ -198,7 +200,7 @@ export const MOTIONS: ReadonlyMap<string, LibraryMotion> = new Map(
       },
       {
         name: 'hop',
-        description: 'One hop, a fifth of its size high.',
+        description: 'One hop, a fifth of its size (root to head or eyes) high.',
         layer: 'additive',
         motion: hop,
       },

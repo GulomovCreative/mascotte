@@ -242,13 +242,14 @@ This is the main requirement, and the architecture is built around it.
   - the slots it may bind;
   - two slots whose distance at rest is the mascot's size.
 - **Motions.** `MOTIONS` holds motions written for slots:
-  - shared by every archetype: `breathe`, `blink`, `hop`, `bob`, `sway`, `tilt`;
+  - shared, on the slots every archetype binds: `breathe`, `blink`, `hop`, `bob`;
+  - on `head`, which every archetype but `blob` and `face` binds (those may): `sway`, `tilt`;
   - for one archetype: `wave` (biped), `flap` and `chirp` (bird), `wag` (quadruped).
-- **Layers.** Each motion says whether it is meant for an additive or an override layer.
-- **Sizes.** Positions in library motions are written in sizes of the mascot. A document that uses one declares its `archetype`, and the motion's positions are multiplied by the size when it is set up (`scaleMotion`). So a hop is a fifth of the size high for a small mascot and for a big one.
+- **Layers.** Each motion is written for an additive or an override layer. Validation and building refuse it on the other kind, where it would fail silently: a blink does nothing on an additive layer, and a hop on an override layer moves the root to the origin.
+- **Sizes.** Positions in library motions are written in sizes of the mascot. A document that uses one declares its `archetype`, and the motion's positions are multiplied by the size when it is set up (`scaleMotion`). The size is measured at rest, in the space of the root's parent, where the offsets move the root. So a hop is a fifth of the size high for a small mascot and for a big one.
 - **In a document.** It refers to a library motion as `{ "library": "hop" }`, in `motions` or anywhere a motion goes. Validation checks:
   - the archetype is known, and the rig binds its slots;
-  - every library motion's slots are bound;
+  - every library motion's slots are bound, and it plays on its kind of layer;
   - a motion that moves positions has an archetype to measure the size by.
 - **Pip** is a `bird`.
 - **Still missing.** The library does not cover constraints and springs yet; they are short and already written for slots in documents.

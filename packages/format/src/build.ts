@@ -21,7 +21,7 @@ import {
 } from './document.ts';
 import { migrate } from './migrate.ts';
 import { NODE_TYPES } from './nodes.ts';
-import { validateDocument } from './validate.ts';
+import { layerKindProblem, validateDocument } from './validate.ts';
 
 /** What a document builds: the tree, camera and rig, and how to animate them. */
 export interface BuiltMascot {
@@ -119,18 +119,27 @@ export type AnimationDocument = Pick<
 
 /**
  * The mascot's size by its archetype: the distance between the pivots of the archetype's two
- * size slots, as the animator's scene and rig hold them now (at rest, before the animation).
+ * size slots, in the space of the root's parent (where library offsets move the root), as the
+ * scene holds them now; called before the animator updates, it measures the rest pose.
  */
 function sizeOf(archetypeName: string | undefined, animator: Animator): number {
   const archetype = archetypeName === undefined ? undefined : ARCHETYPES.get(archetypeName);
   if (!archetype) throw new Error('library motions that move positions need an archetype.');
+  // Offsets move the root within its parent, so the size is measured there too.
+  const space = animator.rig?.node('root')?.parent ?? null;
   const [from, to] = archetype.size.map((slot) => {
     const node = animator.rig?.node(slot);
     if (!node) throw new Error(`the rig binds no slot "${slot}" to measure the mascot by.`);
-    return node.localToWorld(vec3.create(), node.pivot);
+    const world = node.localToWorld(vec3.create(), node.pivot);
+    const local = space ? space.worldToLocal(vec3.create(), world) : world;
+    if (!local)
+      throw new Error("the root's parent is scaled to nothing, so the mascot has no size.");
+    return local;
   }) as [Vec3, Vec3];
   const size = vec3.distance(from, to);
-  if (!(size > 0)) {
+  if (!Number.isFinite(size))
+    throw new Error(`the mascot's size is not a finite number (${size}).`);
+  if (size === 0) {
     throw new Error(
       `the slots ${archetype.size.join(' and ')} are at one point, so the mascot has no size.`,
     );
@@ -141,13 +150,15 @@ function sizeOf(archetypeName: string | undefined, animator: Animator): number {
 /**
  * Sets up a document's layers, state machines, constraints and springs on `animator` (see
  * `BuiltMascot.animate`). Every machine's inputs are declared first, so any layer, state or
- * blend can read them. Errors come as a `DocumentError` at the entry's path; what was set up
- * before it stays on the animator, so use a fresh one.
+ * blend can read them. Library motions are scaled to the mascot's size, measured by its
+ * `archetype` on the rest pose. Errors come as a `DocumentError` at the entry's path; what was
+ * set up before it stays on the animator, so use a fresh one.
  */
 export function animateDocument(document: AnimationDocument, animator: Animator): Animated {
   const motions = document.motions ?? {};
   let size: number | undefined;
-  // A name in `motions`, then a library motion in scene units (measured once, when needed).
+  // Resolves a name in `motions`, and turns a library motion's positions into scene units (the
+  // size is measured once, on first need).
   const named = (ref: MotionRef): MotionDocument => {
     let motion: MotionDocument;
     if (typeof ref !== 'string') motion = ref;
@@ -174,22 +185,35 @@ export function animateDocument(document: AnimationDocument, animator: Animator)
       at(`machines[${i}].inputs`, () => animator.inputs.define(input));
     }
   });
+  // A library motion is written for one kind of layer; on the other it fails without a word.
+  const kindOf = (name: string) =>
+    document.layers?.find((layer) => layer.name === name)?.mode === 'additive'
+      ? 'additive'
+      : 'override';
+  const checkKind = (ref: MotionRef, layer: string) => {
+    const problem = layerKindProblem(ref, motions, layer, kindOf(layer));
+    if (problem) throw new Error(problem);
+  };
   document.layers?.forEach((spec, i) => {
     const { play, ...options } = spec;
     const layer = at(`layers[${i}]`, () => animator.addLayer(options));
     if (play !== undefined && play !== null) {
-      at(`layers[${i}].play`, () => layer.play(resolve(play)));
+      at(`layers[${i}].play`, () => {
+        checkKind(play, spec.name);
+        layer.play(resolve(play));
+      });
     }
   });
   const machines = (document.machines ?? []).map((spec, i) =>
     at(`machines[${i}]`, () =>
       animator.addStateMachine({
         ...spec,
-        states: spec.states.map((state) => ({
-          ...state,
-          motion:
-            state.motion === undefined || state.motion === null ? null : resolve(state.motion),
-        })),
+        states: spec.states.map((state) => {
+          if (state.motion === undefined || state.motion === null)
+            return { ...state, motion: null };
+          checkKind(state.motion, spec.layer);
+          return { ...state, motion: resolve(state.motion) };
+        }),
       }),
     ),
   );
