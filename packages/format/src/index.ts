@@ -1,5 +1,6 @@
 // Mascot document schema, validation, versions and migrations. See docs/PLAN.md, section 7.
 export {
+  type Animated,
   type AnimationDocument,
   animateDocument,
   type BuiltMascot,
@@ -22,5 +23,5 @@ export {
 } from './document.ts';
 export { MIGRATIONS, type Migration, migrate, VERSION } from './migrate.ts';
 export { NODE_TYPES, type NodeType } from './nodes.ts';
-export { validateDocument } from './validate.ts';
+export { MAX_DEPTH, validateDocument } from './validate.ts';
 export { writeNode, writeProps } from './write.ts';

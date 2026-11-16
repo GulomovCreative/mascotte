@@ -1,9 +1,11 @@
 import { Animator, Box, Cylinder, Ellipse, Node, PathShape, Scene, Sphere } from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
 import {
+  animateDocument,
   buildDocument,
   DocumentError,
   FORMAT,
+  MAX_DEPTH,
   type MascotDocument,
   migrate,
   readDocument,
@@ -105,7 +107,7 @@ describe('validateDocument', () => {
       'root.children[1].props.sortMode: expected one of auto, group, attached, layer, got "top".',
       'root.children[2].props.quarters: expected an integer, got 2.5.',
       'root.children[2].props.style.color: expected a CSS color, got "nope".',
-      'root.children[2].props.rotation: expected a rotation quaternion, got zero.',
+      'root.children[2].props.rotation: expected a unit quaternion, got one of length 0.',
       expect.stringMatching(/^root\.children\[3\]\.colour: unknown field/),
       expect.stringMatching(
         /^root\.children\[3\]\.props\.radius: Sphere has no property "radius" \(it has .*diameter/,
@@ -182,6 +184,91 @@ describe('validateDocument', () => {
   });
 });
 
+describe('validateDocument against hostile or tricky input', () => {
+  it('finds no command type or motion on the object prototype', () => {
+    const found = issues(
+      broken((d) => {
+        d.root.children.push({ type: 'PathShape', path: [{ type: 'constructor' }] });
+        d.layers[0].play = 'toString';
+      }),
+    );
+    expect(found).toEqual([
+      'root.children[1].path[0].type: expected one of move, line, bezier, arc, got "constructor".',
+      'layers[0].play: no motion "toString" in motions (there are nod).',
+    ]);
+  });
+
+  it('refuses a tree nested deeper than MAX_DEPTH instead of overflowing', () => {
+    const deep = broken((d) => {
+      let node = d.root;
+      for (let i = 0; i < 10_000; i++) {
+        const child = { type: 'Node' };
+        node.children = [child];
+        node = child;
+      }
+      d.rig = {};
+    });
+    const found = issues(deep);
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatch(
+      new RegExp(`: the tree is nested deeper than ${MAX_DEPTH} levels\\.$`),
+    );
+    expect(() => buildDocument(deep as MascotDocument)).toThrow(DocumentError);
+  });
+
+  it('reports named motions that lead back to themselves', () => {
+    const found = issues(
+      broken((d) => {
+        d.motions.a = { input: 'x', blend: [{ at: 0, motion: 'a' }] };
+        d.motions.b = {
+          input: 'x',
+          blend: [{ at: 0, motion: { input: 'x', blend: [{ at: 0, motion: 'c' }] } }],
+        };
+        d.motions.c = { input: 'x', blend: [{ at: 1, motion: 'b' }] };
+      }),
+    );
+    expect(found).toEqual([
+      'motions.a: the motion refers back to itself: a → a.',
+      'motions.b: the motion refers back to itself: b → c → b.',
+    ]);
+  });
+
+  it('checks blends, their points and inline motions', () => {
+    const found = issues(
+      broken((d) => {
+        d.motions.lean = { input: '', blend: [{ motion: 'nope' }, 3] };
+        d.layers[0].play = { keys: [] };
+        d.constraints.push({ name: 'gaze', kind: 'aim', target: 'head' });
+        d.machines[0].name = null;
+        d.root.children.push({ type: 'Node', id: '~1' }, { type: 'Node', id: 'a/b' });
+      }),
+    );
+    expect(found).toEqual([
+      'root.children[1].id: an id cannot start with "~" or contain "/", got "~1".',
+      'root.children[2].id: an id cannot start with "~" or contain "/", got "a/b".',
+      'motions.lean.input: expected a non-empty string, got "".',
+      'motions.lean.blend[0].at: expected a finite number, got undefined.',
+      'motions.lean.blend[0].motion: no motion "nope" in motions (there are nod, lean).',
+      'motions.lean.blend[1]: expected a blend point {at, motion}, got 3.',
+      'layers[0].play: expected a clip {tracks}, behaviors {behaviors} or blend {input, blend}.',
+      'constraints[1].name: the name "gaze" is used twice.',
+    ]);
+  });
+
+  it('accepts only unit rotation quaternions, and checks camera properties', () => {
+    const found = issues(
+      broken((d) => {
+        d.root.props = { rotation: { x: 0, y: 0, z: 0, w: 2 } };
+        d.camera.props.fov = 30;
+      }),
+    );
+    expect(found).toEqual([
+      expect.stringMatching(/^camera\.props\.fov: Camera has no property "fov" \(it has .*zoom/),
+      'root.props.rotation: expected a unit quaternion, got one of length 2.',
+    ]);
+  });
+});
+
 describe('migrate and readDocument', () => {
   it('rejects what is not a mascot document of a known version', () => {
     const message = (value: unknown) => {
@@ -224,6 +311,28 @@ describe('migrate and readDocument', () => {
     });
   });
 
+  it('works on a copy and reports a failing or empty migration', () => {
+    const old = { format: FORMAT, version: 1, meta: { name: 'Old' } };
+    const renamed = migrate(old, [
+      (d) => {
+        (d.meta as { name: string }).name = 'New';
+        return d;
+      },
+    ]);
+    expect(renamed.meta).toEqual({ name: 'New' });
+    expect(old).toEqual({ format: FORMAT, version: 1, meta: { name: 'Old' } });
+    expect(() =>
+      migrate(old, [
+        () => {
+          throw new Error('bug');
+        },
+      ]),
+    ).toThrow(/version: migrating from version 1 to 2 failed: bug/);
+    expect(() => migrate(old, [() => undefined as never])).toThrow(
+      /version: migrating from version 1 to 2 gave no document\./,
+    );
+  });
+
   it('reads a JSON string and lists every problem in the error', () => {
     expect(readDocument(JSON.stringify(sample()))).toEqual(sample());
     const bad = broken((d) => {
@@ -248,12 +357,82 @@ describe('buildDocument', () => {
     const animator = new Animator(scene, { rig: built.rig });
     const { machines, constraints } = built.animate(animator);
     expect(animator.layers.map((layer) => layer.name)).toEqual(['base', 'face']);
-    expect(constraints.gaze?.kind).toBe('aim');
+    expect(constraints.get('gaze')?.kind).toBe('aim');
     animator.update(0.5);
     expect(head.position.y).toBeCloseTo(5);
     animator.inputs.fire('poke');
     animator.update(0.1);
     expect(machines[0]?.state).toBe('nod');
+  });
+
+  it('plays blends of named and inline motions, on layers too, by inputs any machine declares', () => {
+    const document = broken((d) => {
+      const lift = {
+        duration: 1,
+        loop: 'once',
+        tracks: [
+          {
+            target: 'head',
+            property: 'position',
+            keys: [{ time: 0, value: { x: 0, y: -20, z: 0 } }],
+          },
+        ],
+      };
+      d.motions.lean = {
+        input: 'x',
+        blend: [
+          { at: 0, motion: 'nod' },
+          { at: 1, motion: lift },
+        ],
+      };
+      d.layers[0].play = 'lean';
+      d.machines[0].inputs.push({ name: 'x', type: 'number' });
+    });
+    const built = buildDocument(readDocument(document));
+    const scene = new Scene(built.root);
+    const animator = new Animator(scene, { rig: built.rig });
+    built.animate(animator);
+    const head = scene.getById('head') as Sphere;
+    animator.inputs.set('x', 1);
+    animator.update(0.5);
+    expect(head.position.y).toBeCloseTo(-20);
+    animator.inputs.set('x', 0.5);
+    animator.update(0);
+    // Half way between the nod at 0.5 s (5) and the lift (−20).
+    expect(head.position.y).toBeCloseTo(-7.5);
+  });
+
+  it('sets up layers as the document gives them and names constraints', () => {
+    const built = buildDocument(
+      readDocument(
+        broken((d) => {
+          d.layers[1] = { name: 'face', mode: 'additive', weight: 0.5, mask: { slot: 'head' } };
+        }),
+      ),
+    );
+    const animator = new Animator(new Scene(built.root), { rig: built.rig });
+    const { constraints } = built.animate(animator);
+    const face = animator.layers[1];
+    expect([face?.name, face?.mode, face?.weight]).toEqual(['face', 'additive', 0.5]);
+    expect(constraints.get('gaze')).toBe(animator.constraints[0]);
+    expect(animator.springs).toHaveLength(1);
+  });
+
+  it('resolves names only among the motions, and stops at a cycle', () => {
+    const animator = new Animator(new Scene(new Node()));
+    expect(() => animateDocument({ layers: [{ name: 'a', play: 'toString' }] }, animator)).toThrow(
+      /layers\[0\]\.play: no motion "toString" in motions\./,
+    );
+    const loop = {
+      a: { input: 'x', blend: [{ at: 0, motion: 'b' }] },
+      b: { input: 'x', blend: [{ at: 0, motion: 'a' }] },
+    };
+    expect(() =>
+      animateDocument(
+        { motions: loop, layers: [{ name: 'l', play: 'a' }] },
+        new Animator(new Scene(new Node())),
+      ),
+    ).toThrow(/layers\[0\]\.play: the motion refers back to itself: a → b → a\./);
   });
 
   it('reports what the engine rejects at the path of the entry', () => {
@@ -272,6 +451,12 @@ describe('buildDocument', () => {
     ]);
     expect(fail((d) => (d.machines[0].transitions[0].to = 'hop'))).toEqual([
       expect.stringMatching(/^machines\[0\]: .*hop/),
+    ]);
+    expect(fail((d) => (d.layers[1].mask = { slot: 'tail' }))).toEqual([
+      expect.stringMatching(/^layers\[1\]: .*tail/),
+    ]);
+    expect(fail((d) => (d.constraints[0].target = { slot: 'tail' }))).toEqual([
+      expect.stringMatching(/^constraints\[0\]: .*tail/),
     ]);
     expect(fail((d) => (d.springs[0].frequency = -1))).toEqual([
       expect.stringMatching(/^springs\[0\]: .*frequency/),
@@ -323,6 +508,71 @@ describe('writeNode', () => {
       readDocument({ ...sample(), root: written, rig: {}, constraints: [], springs: [] }),
     );
     expect(writeNode(again.root)).toEqual(written);
+  });
+
+  it('round-trips every node type with every property it has', async () => {
+    const { propertiesOf, Capsule, Cone, Hemisphere, Polygon, Rect, RoundedRect } = await import(
+      '@mascotte/engine'
+    );
+    const root = new Node({ id: 'root' });
+    for (const type of [
+      Ellipse,
+      Rect,
+      RoundedRect,
+      Polygon,
+      PathShape,
+      Sphere,
+      Capsule,
+      Hemisphere,
+      Cylinder,
+      Cone,
+      Box,
+    ]) {
+      root.add(
+        new type({
+          id: type.typeName,
+          position: { x: 1, y: 2, z: 3 },
+          opacity: 0.5,
+          style: { color: '#123456', stroke: 2 },
+        }),
+      );
+    }
+    const again = buildDocument(
+      readDocument(
+        JSON.parse(
+          JSON.stringify({
+            ...sample(),
+            root: writeNode(root),
+            rig: {},
+            constraints: [],
+            springs: [],
+          }),
+        ),
+      ),
+    );
+    const vec = { x: 0, y: 0, z: 0, w: 0 };
+    const read = (node: Node) =>
+      propertiesOf(node).map((p) => [
+        p.name,
+        p.type === 'vec3' || p.type === 'quat' ? { ...p.get(node, { ...vec }) } : p.get(node),
+      ]);
+    root.children.forEach((child, i) => {
+      const copy = again.root.children[i] as Node;
+      expect(copy.constructor).toBe(child.constructor);
+      expect(read(copy)).toEqual(read(child));
+      // The parts a solid makes are made again, not stored.
+      expect(copy.children.length).toBe(child.children.length);
+    });
+  });
+
+  it('refuses values a document cannot hold and nodes added under a solid part', () => {
+    const far = new Node({ id: 'far', zBias: Number.POSITIVE_INFINITY });
+    expect(() => writeNode(far)).toThrow(/far: zBias = .* cannot be stored/);
+    const named = new Ellipse({ id: 'named', style: { color: 'red' } });
+    expect(() => writeNode(named)).toThrow(/named: style\.color = "red" cannot be stored/);
+    const can = new Cylinder({ id: 'can' });
+    can.frontBase.add(new Ellipse({ id: 'label' }));
+    expect(() => writeNode(can)).toThrow(/can\/front.* is a part can makes/);
   });
 
   it('refuses a node type a document cannot make', () => {

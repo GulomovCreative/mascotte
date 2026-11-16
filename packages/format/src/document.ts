@@ -23,8 +23,8 @@ export type PropertyValue = number | boolean | string | null | Vec3 | Quat;
  * A node of the tree: its type (`Node`, `Sphere`, `PathShape`, …), a stable `id` the rig,
  * clips and constraints refer to, its properties by registry name (`position`, `rotation` as a
  * quaternion, `style.color`, `diameter`; a missing one keeps its default) and its children.
- * A `PathShape` keeps its `path`, a `Box` its `faces`. Parts a solid makes itself (box faces,
- * cylinder bases) are not stored.
+ * A `PathShape` keeps its `path`, a `Box` its face settings. The child nodes a solid makes
+ * itself (a box's face rects, a cylinder's bases) are not stored.
  */
 export interface NodeDocument {
   readonly type: string;
@@ -74,7 +74,7 @@ export interface MascotDocument {
   readonly format: typeof FORMAT;
   readonly version: number;
   readonly meta: { readonly name: string; readonly description?: string };
-  /** The frame size in scene units and its background color. */
+  /** The frame size in CSS pixels (before devicePixelRatio) and its background color. */
   readonly view: { readonly width: number; readonly height: number; readonly background?: string };
   /** Camera properties by registry name (`zoom`, `projection`, `distance`, …). */
   readonly camera?: { readonly props?: Readonly<Record<string, PropertyValue>> };
@@ -100,9 +100,9 @@ export interface Issue {
 export class DocumentError extends Error {
   readonly issues: readonly Issue[];
 
-  constructor(issues: readonly Issue[]) {
+  constructor(issues: readonly Issue[], options?: ErrorOptions) {
     const lines = issues.map((issue) => `${issue.path || '(document)'}: ${issue.message}`);
-    super(`Invalid mascot document:\n${lines.join('\n')}`);
+    super(`Invalid mascot document:\n${lines.join('\n')}`, options);
     this.name = 'DocumentError';
     this.issues = issues;
   }

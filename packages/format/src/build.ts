@@ -12,6 +12,7 @@ import {
 import {
   DocumentError,
   type MascotDocument,
+  type MotionDocument,
   type MotionRef,
   type NodeDocument,
   type PropertyValue,
@@ -28,13 +29,17 @@ export interface BuiltMascot {
   readonly rig: Rig;
   /**
    * Sets up the document's layers, state machines, constraints and springs on `animator`,
-   * whose scene holds `root` and whose rig is `rig`. Returns the machines in document order
-   * and the named constraints.
+   * whose scene holds `root` and whose rig is `rig` (once per animator).
    */
-  animate(animator: Animator): {
-    machines: StateMachine[];
-    constraints: Record<string, Constraint>;
-  };
+  animate(animator: Animator): Animated;
+}
+
+/** What setting up a document's animation gives the page. */
+export interface Animated {
+  /** The machines, in document order. */
+  readonly machines: StateMachine[];
+  /** The constraints that have a name (a gaze, say), by name. */
+  readonly constraints: ReadonlyMap<string, Constraint>;
 }
 
 /** Runs `step`, turning an engine error into a `DocumentError` at `path`. */
@@ -44,7 +49,7 @@ function at<T>(path: string, step: () => T): T {
   } catch (error) {
     if (error instanceof DocumentError) throw error;
     const message = error instanceof Error ? error.message : String(error);
-    throw new DocumentError([{ path, message }]);
+    throw new DocumentError([{ path, message }], { cause: error });
   }
 }
 
@@ -82,8 +87,11 @@ function buildNode(document: NodeDocument, path: string): Node {
 }
 
 /**
- * Reads a mascot document (a JSON string or a parsed value): migrates it to the current
- * version and validates it. Throws a `DocumentError` listing every problem.
+ * Reads a mascot document (a JSON string or a parsed value, which is not changed): migrates it
+ * to the current version and validates it. Throws a `DocumentError`: at the first problem with
+ * the JSON, format or version, otherwise listing every problem validation finds. Clips,
+ * behaviors, machines, constraints and springs are checked by the engine when they are set up
+ * (`animateDocument`).
  */
 export function readDocument(input: unknown): MascotDocument {
   let value = input;
@@ -91,7 +99,8 @@ export function readDocument(input: unknown): MascotDocument {
     try {
       value = JSON.parse(input);
     } catch (error) {
-      throw new DocumentError([{ path: '', message: `not JSON: ${(error as Error).message}` }]);
+      const message = `not JSON: ${(error as Error).message}`;
+      throw new DocumentError([{ path: '', message }], { cause: error });
     }
   }
   const document = migrate(value);
@@ -108,24 +117,39 @@ export type AnimationDocument = Pick<
 
 /**
  * Sets up a document's layers, state machines, constraints and springs on `animator` (see
- * `BuiltMascot.animate`); errors come as a `DocumentError` at the entry's path.
+ * `BuiltMascot.animate`). Every machine's inputs are declared first, so any layer, state or
+ * blend can read them. Errors come as a `DocumentError` at the entry's path; what was set up
+ * before it stays on the animator, so use a fresh one.
  */
-export function animateDocument(
-  document: AnimationDocument,
-  animator: Animator,
-): { machines: StateMachine[]; constraints: Record<string, Constraint> } {
+export function animateDocument(document: AnimationDocument, animator: Animator): Animated {
   const motions = document.motions ?? {};
+  // Names being resolved, so a blend that leads back to itself fails instead of recursing.
+  const resolving: string[] = [];
   const resolve = (ref: MotionRef): Motion => {
-    const motion = typeof ref === 'string' ? motions[ref] : ref;
-    if (motion === undefined) throw new Error(`no motion "${String(ref)}" in motions.`);
-    if ('blend' in motion) {
-      return {
-        ...motion,
-        blend: motion.blend.map((point) => ({ ...point, motion: resolve(point.motion) })),
-      } as Motion;
+    if (typeof ref !== 'string') return resolveInline(ref);
+    if (!Object.hasOwn(motions, ref)) throw new Error(`no motion "${ref}" in motions.`);
+    if (resolving.includes(ref)) {
+      throw new Error(`the motion refers back to itself: ${[...resolving, ref].join(' → ')}.`);
     }
-    return motion;
+    resolving.push(ref);
+    try {
+      return resolveInline(motions[ref] as MotionDocument);
+    } finally {
+      resolving.pop();
+    }
   };
+  const resolveInline = (motion: MotionDocument): Motion => {
+    if (!('blend' in motion) || !Array.isArray(motion.blend)) return motion as Motion;
+    return {
+      ...motion,
+      blend: motion.blend.map((point) => ({ ...point, motion: resolve(point.motion) })),
+    };
+  };
+  document.machines?.forEach((spec, i) => {
+    for (const input of spec.inputs ?? []) {
+      at(`machines[${i}].inputs`, () => animator.inputs.define(input));
+    }
+  });
   document.layers?.forEach((spec, i) => {
     const { play, ...options } = spec;
     const layer = at(`layers[${i}]`, () => animator.addLayer(options));
@@ -145,11 +169,11 @@ export function animateDocument(
       }),
     ),
   );
-  const constraints: Record<string, Constraint> = {};
+  const constraints = new Map<string, Constraint>();
   document.constraints?.forEach((entry, i) => {
     const { name, ...spec } = entry;
     const constraint = at(`constraints[${i}]`, () => animator.addConstraint(spec));
-    if (name !== undefined) constraints[name] = constraint;
+    if (name !== undefined) constraints.set(name, constraint);
   });
   document.springs?.forEach((spec, i) => {
     at(`springs[${i}]`, () => animator.addSpring(spec));
@@ -158,11 +182,13 @@ export function animateDocument(
 }
 
 /**
- * Builds a document (as `readDocument` returns it) into engine objects. Errors the engine
- * finds (a bad clip, a target that does not resolve) come as a `DocumentError` with the path
- * of the entry that caused them.
+ * Builds a document of the current version into engine objects; it is validated first. Errors
+ * come as a `DocumentError` with a path: from here for the tree, camera and rig, from
+ * `animate` for clips, machines, constraints and springs.
  */
 export function buildDocument(document: MascotDocument): BuiltMascot {
+  const issues = validateDocument(document);
+  if (issues.length > 0) throw new DocumentError(issues);
   const root = buildNode(document.root, 'root');
   const camera = new Camera();
   setProps(camera, document.camera?.props, 'camera.props');

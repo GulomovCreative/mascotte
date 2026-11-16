@@ -1,4 +1,4 @@
-import { Animator, PointerInputs, Scene } from '@mascotte/engine';
+import { Animator, PointerInputs, propertiesOf, Scene } from '@mascotte/engine';
 import { buildDocument, readDocument, writeNode } from '@mascotte/format';
 import { mat3x4, vec3 } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
@@ -222,7 +222,13 @@ describe('Pip', () => {
       const walk = (node: typeof world.root) => {
         // Generated ids differ between builds; set ones are kept.
         const id = node.id.startsWith('~') ? '~' : node.id;
-        out.push([id, node.visible, ...node.worldMatrix]);
+        // Every registry property (style, shape parameters, …) and the world transform.
+        const props = propertiesOf(node).map((p) =>
+          p.type === 'vec3' || p.type === 'quat'
+            ? { ...p.get(node, { x: 0, y: 0, z: 0, w: 0 }) }
+            : p.get(node),
+        );
+        out.push([id, ...props, ...node.worldMatrix]);
         for (const child of node.children) walk(child);
       };
       walk(world.root);
@@ -231,7 +237,7 @@ describe('Pip', () => {
     expect([...built.rig.slots]).toEqual([...code.rig.slots]);
     // The same inputs and gaze over a few seconds: hover, a poke, the pointer gone.
     const point = { x: 30, y: -40, z: 200 };
-    for (const gaze of [constraints.gaze, code.gaze]) {
+    for (const gaze of [constraints.get('gaze'), code.gaze]) {
       if (!gaze || !('point' in gaze)) throw new Error('no gaze');
       gaze.point = point;
       gaze.weight = 1;

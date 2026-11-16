@@ -502,7 +502,7 @@ const animation: AnimationDocument = {
  */
 function animate(animator: Animator): { gaze: AimConstraint; emotion: StateMachine } {
   const { machines, constraints } = animateDocument(animation, animator);
-  return { gaze: constraints.gaze as AimConstraint, emotion: machines[0] as StateMachine };
+  return { gaze: constraints.get('gaze') as AimConstraint, emotion: machines[0] as StateMachine };
 }
 
 /** Pip as a mascot document: the tree and rig from `build`, the animation data above. */
