@@ -1,4 +1,5 @@
 import {
+  type AimConstraint,
   Animator,
   type Camera,
   CanvasRenderer,
@@ -6,6 +7,7 @@ import {
   DragRotate,
   type DragRotateOptions,
   type Inputs,
+  type LookAtConstraint,
   type Node,
   type PointerHandler,
   PointerInputs,
@@ -27,26 +29,39 @@ import { bindPointer, type PointerElement } from './pointer.ts';
 export type PlayerCanvas = PointerElement &
   Pick<HTMLCanvasElement, 'width' | 'height' | 'clientWidth' | 'clientHeight' | 'getContext'>;
 
-/** Which pointer inputs a mascot's machines read; see `PointerInputsSpec`. */
+/**
+ * Which of the mascot's inputs the pointer drives (each must be one its machines read), and
+ * optionally the node (`target`) that counts as the mascot; see `PointerInputsSpec`.
+ */
 export type PointerSpec = Pick<PointerInputsSpec, 'target' | 'hover' | 'press' | 'drag' | 'click'>;
 
 export interface PlayerOptions {
-  /** `'auto'` (default) draws with WebGL2 and falls back to Canvas 2D where it is missing. */
+  /**
+   * `'auto'` (default) draws with WebGL2 and falls back to Canvas 2D where WebGL2 cannot start;
+   * `renderer` on the player tells which one it took.
+   */
   readonly renderer?: 'auto' | 'webgl' | 'canvas';
   /** The loop the player runs on; `Ticker.shared` by default. */
   readonly ticker?: Ticker;
   /** Inputs the pointer drives over the mascot (`{ hover: 'hover', click: 'poke' }`). */
   readonly pointer?: PointerSpec | null;
   /**
-   * The name of an `aim` or `lookAt` constraint in the document that follows the pointer over
-   * the canvas: it eases in while the pointer is there and out when it leaves.
+   * The name of an `aim` or `lookAt` constraint in the document, aimed at a point (not at a
+   * node), that follows the pointer over the canvas: its weight eases to 1 while the pointer
+   * is there and to 0 when it leaves.
    */
   readonly gaze?: string | null;
-  /** Dragging turns the mascot's root (`DragRotate`); `null`, the default, does not. */
+  /**
+   * A drag anywhere on the canvas turns the mascot's root (`DragRotate`); `null`, the default,
+   * does not. A `pointer.drag` input is driven by the same drags.
+   */
   readonly turn?: DragRotateOptions | null;
   /** Whether the animation runs from the start; true by default. */
   readonly autoplay?: boolean;
-  /** Called with an error thrown in a frame; the loop stops. Defaults to `console.error`. */
+  /**
+   * Called with an error thrown in a frame or a pointer event; the player pauses (`play()`
+   * starts it again). Defaults to `console.error`.
+   */
   readonly onError?: (error: unknown) => void;
   /** Watches the canvas leaving the viewport; `IntersectionObserver` by default. */
   readonly createObserver?: IntersectionObserverFactory;
@@ -55,10 +70,8 @@ export interface PlayerOptions {
 /** One document running in the player: what `load` swaps. */
 interface Running {
   readonly document: MascotDocument;
-  readonly root: Node;
   readonly scene: Scene;
   readonly camera: Camera;
-  readonly rig: Rig;
   readonly animator: Animator;
   readonly machines: readonly StateMachine[];
   readonly constraints: ReadonlyMap<string, Constraint>;
@@ -77,7 +90,7 @@ interface Viewport {
 
 /** Turns the gaze constraint's head towards the pointer, easing in and out. */
 class Gaze {
-  readonly #constraint: Constraint & { point: unknown; weight: number };
+  readonly #constraint: AimConstraint | LookAtConstraint;
   readonly #head: Node;
   readonly #camera: Camera;
   readonly #frame: Viewport;
@@ -88,11 +101,13 @@ class Gaze {
   readonly #looked = { x: 0, y: 0, z: 0 };
   #aimed = false;
 
-  constructor(constraint: Constraint, head: Node, camera: Camera, frame: Viewport) {
-    if (!('point' in constraint)) {
-      throw new Error(`Player: the gaze constraint is a ${constraint.kind}, not an aim or lookAt.`);
-    }
-    this.#constraint = constraint as Constraint & { point: unknown; weight: number };
+  constructor(
+    constraint: AimConstraint | LookAtConstraint,
+    head: Node,
+    camera: Camera,
+    frame: Viewport,
+  ) {
+    this.#constraint = constraint;
     this.#head = head;
     this.#camera = camera;
     this.#frame = frame;
@@ -139,44 +154,57 @@ function nodeOf(target: Target, scene: Scene, rig: Rig): Node | null {
  * fitting the document's frame (`view`) into the canvas's CSS size at the device pixel ratio.
  * The page talks to it through `inputs` (set and fire the machines' inputs) and options that
  * let the pointer drive inputs, a gaze and a drag turn. `load` swaps the document in place;
- * `destroy` frees the canvas.
+ * `destroy` stops it and frees its renderer (the canvas stays the caller's). `inputs`,
+ * `machines`, `constraints`, `animator` and `scene` belong to the running document: read them
+ * again after `load`.
  */
 export class Player {
   readonly #canvas: PlayerCanvas;
   readonly #options: PlayerOptions;
   readonly #draw: Draw;
   readonly #invalidate: () => void;
-  readonly #destroyRenderer: () => void;
   readonly #subscription: TickSubscription;
-  readonly #unobserve: () => void;
-  readonly #unbind: () => void;
+  /** What `destroy` undoes, in the order it was set up. */
+  readonly #cleanups: (() => void)[] = [];
+  readonly renderer: 'webgl' | 'canvas';
   readonly #frame: Viewport = { width: 1, height: 1, pixelRatio: 1 };
   #running: Running;
   #playing: boolean;
   #destroyed = false;
 
-  /** Reads and builds `document` (a JSON string or a parsed value); throws a `DocumentError`. */
+  /**
+   * Reads and builds `document` (a JSON string or a parsed value) and draws its first frame.
+   * Throws a `DocumentError` for a bad document, and an `Error` for options the document or
+   * the canvas cannot satisfy; nothing is left bound then.
+   */
   constructor(canvas: PlayerCanvas, document: unknown, options: PlayerOptions = {}) {
     this.#canvas = canvas;
     this.#options = options;
     this.#running = this.#start(readDocument(document));
     const renderer = this.#renderer(options.renderer ?? 'auto');
+    this.renderer = renderer.kind;
     this.#draw = renderer.draw;
     this.#invalidate = renderer.invalidate;
-    this.#destroyRenderer = renderer.destroy;
+    this.#cleanups.push(renderer.destroy);
     this.#playing = options.autoplay ?? true;
     this.#subscription = (options.ticker ?? Ticker.shared).add((dt) => this.#tick(dt));
-    if (!this.#playing) this.#subscription.pause('stopped');
-    this.#unobserve = pauseWhenOffscreen(
-      this.#subscription,
-      canvas as unknown as Element,
-      options.createObserver,
-    );
-    this.#unbind = bindPointer(canvas, this.#frame, this.#pointerHandler());
-    this.render();
+    this.#cleanups.push(() => this.#subscription.remove());
+    try {
+      if (!this.#playing) this.#subscription.pause('stopped');
+      const element = canvas as unknown as Element;
+      this.#cleanups.push(pauseWhenOffscreen(this.#subscription, element, options.createObserver));
+      this.#cleanups.push(bindPointer(canvas, this.#frame, this.#pointerHandler()));
+      this.render();
+    } catch (error) {
+      this.destroy();
+      throw error;
+    }
   }
 
-  /** The inputs of the document's machines: `inputs.set('happy', true)`, `inputs.fire('poke')`. */
+  /**
+   * The inputs of the running document's machines: `inputs.set('happy', true)`,
+   * `inputs.fire('poke')`. A new object after `load`.
+   */
   get inputs(): Inputs {
     return this.#running.animator.inputs;
   }
@@ -204,25 +232,31 @@ export class Player {
     return this.#running.constraints;
   }
 
+  /** Whether time runs: false after `pause()`, or after an error paused the player. */
   get playing(): boolean {
     return this.#playing;
   }
 
   play(): void {
+    this.#check();
     this.#playing = true;
     this.#subscription.resume('stopped');
   }
 
-  /** Stops time; the last frame stays on the canvas. */
+  /**
+   * Stops time; the last frame stays on the canvas. The pointer still turns, aims and hovers,
+   * shown on the next frame, but a click does not fire.
+   */
   pause(): void {
+    this.#check();
     this.#playing = false;
     this.#subscription.pause('stopped');
   }
 
   /**
    * Swaps in another document without recreating the player: the canvas, renderer, loop and
-   * pointer stay. A document that cannot be read or built throws a `DocumentError` and the
-   * running one stays.
+   * pointer stay, and so does whether it plays. A document that cannot be read or built, or
+   * does not fit the options, throws as in the constructor and the running one stays.
    */
   load(document: unknown): void {
     this.#check();
@@ -233,7 +267,10 @@ export class Player {
     this.render();
   }
 
-  /** Draws the current pose now, fitting the canvas first (the loop does it every frame). */
+  /**
+   * Draws the current pose now, fitting the canvas first. The loop does it every frame it
+   * plays; a paused player picks up a new canvas size here.
+   */
   render(): void {
     this.#check();
     this.#fit();
@@ -246,14 +283,14 @@ export class Player {
     );
   }
 
-  /** Stops the loop, unbinds the pointer and frees the renderer. A repeated call does nothing. */
+  /**
+   * Removes its loop subscription, unbinds the pointer and frees the renderer; the canvas stays
+   * the caller's. A repeated call does nothing; any other call throws afterwards.
+   */
   destroy(): void {
     if (this.#destroyed) return;
     this.#destroyed = true;
-    this.#subscription.remove();
-    this.#unobserve();
-    this.#unbind();
-    this.#destroyRenderer();
+    for (const cleanup of this.#cleanups.splice(0).reverse()) cleanup();
   }
 
   #check(): void {
@@ -266,13 +303,30 @@ export class Player {
     const animator = new Animator(scene, { rig: built.rig });
     const { machines, constraints } = built.animate(animator);
     const { pointer: spec, gaze: gazeName, turn: turnOptions } = this.#options;
-    const pointer = spec
-      ? new PointerInputs(animator, { ...spec, camera: built.camera, viewport: this.#frame })
-      : null;
+    let pointer: PointerInputs | null = null;
+    if (spec) {
+      // `PointerInputs` declares a name nothing reads without complaint: check it here.
+      for (const name of [spec.hover, spec.press, spec.drag, spec.click]) {
+        if (name && !animator.inputs.has(name)) {
+          throw new Error(`Player: the document has no input "${name}" for the pointer.`);
+        }
+      }
+      pointer = new PointerInputs(animator, {
+        ...spec,
+        camera: built.camera,
+        viewport: this.#frame,
+      });
+    }
     let gaze: Gaze | null = null;
     if (gazeName) {
       const constraint = constraints.get(gazeName);
       if (!constraint) throw new Error(`Player: the document has no constraint "${gazeName}".`);
+      if ((constraint.kind !== 'aim' && constraint.kind !== 'lookAt') || constraint.at !== null) {
+        const found = 'at' in constraint && constraint.at !== null ? 'follows a node' : 'is not';
+        throw new Error(
+          `Player: the gaze "${gazeName}" must be an aim or lookAt aimed at a point; it ${found} (kind ${constraint.kind}).`,
+        );
+      }
       const head = nodeOf(constraint.target, scene, built.rig);
       if (!head) throw new Error(`Player: the gaze constraint "${gazeName}" has no node.`);
       gaze = new Gaze(constraint, head, built.camera, this.#frame);
@@ -281,10 +335,8 @@ export class Player {
     animator.evaluate();
     return {
       document,
-      root: built.root,
       scene,
       camera: built.camera,
-      rig: built.rig,
       animator,
       machines,
       constraints,
@@ -295,14 +347,17 @@ export class Player {
   }
 
   #renderer(kind: 'auto' | 'webgl' | 'canvas'): {
+    kind: 'webgl' | 'canvas';
     draw: Draw;
     invalidate: () => void;
     destroy: () => void;
   } {
+    let failed: unknown;
     if (kind !== 'canvas') {
       try {
         const gl = new WebGLRenderer(this.#canvas as HTMLCanvasElement);
         return {
+          kind: 'webgl',
           draw: (scene, camera, viewport) => {
             gl.render(scene, camera, viewport);
           },
@@ -311,12 +366,18 @@ export class Player {
         };
       } catch (error) {
         if (kind === 'webgl') throw error;
+        failed = error;
       }
     }
+    // A canvas WebGL2 started on but failed has no 2D context; then the WebGL error explains.
     const ctx = this.#canvas.getContext('2d');
-    if (!ctx) throw new Error('Player: neither WebGL2 nor Canvas 2D is available on this canvas.');
+    if (!ctx) {
+      const message = 'Player: neither WebGL2 nor Canvas 2D is available on this canvas.';
+      throw new Error(message, failed === undefined ? undefined : { cause: failed });
+    }
     const canvas2d = new CanvasRenderer();
     return {
+      kind: 'canvas',
       draw: (scene, camera, viewport) => canvas2d.render(ctx, scene, camera, viewport),
       invalidate: () => {},
       destroy: () => {},
@@ -353,44 +414,59 @@ export class Player {
       animator.update(dt);
       this.render();
     } catch (error) {
-      this.#subscription.pause('error');
-      (this.#options.onError ?? console.error)(error);
+      this.#fail(error);
     }
   }
 
-  /** Forwards the pointer to whatever the running document uses. */
+  /** Pauses the player and reports the error. */
+  #fail(error: unknown): void {
+    this.#playing = false;
+    this.#subscription.pause('stopped');
+    (this.#options.onError ?? console.error)(error);
+  }
+
+  /** Runs a pointer step for the running document; an error pauses and is reported. */
+  #guard(step: (running: Running) => void): void {
+    try {
+      step(this.#running);
+    } catch (error) {
+      this.#fail(error);
+    }
+  }
+
+  /** Forwards the pointer to the running document's pointer inputs, gaze and turn. */
   #pointerHandler(): PointerHandler {
     return {
-      down: (x, y) => {
-        const { pointer, gaze, turn } = this.#running;
-        pointer?.down(x, y);
-        gaze?.track(x, y);
-        turn?.down(x, y);
-      },
-      move: (x, y) => {
-        const { pointer, gaze, turn } = this.#running;
-        pointer?.move(x, y);
-        gaze?.track(x, y);
-        turn?.move(x, y);
-      },
-      up: (x, y) => {
-        const { pointer, gaze, turn } = this.#running;
-        gaze?.track(x, y);
-        turn?.up(x, y);
-        if (!pointer) return;
-        // A click while paused would switch states the paused machines cannot play.
-        if (this.#playing) pointer.up(x, y);
-        else {
-          pointer.leave();
-          pointer.move(x, y);
-        }
-      },
-      leave: () => {
-        const { pointer, gaze, turn } = this.#running;
-        pointer?.leave();
-        gaze?.leave();
-        turn?.leave();
-      },
+      down: (x, y) =>
+        this.#guard(({ pointer, gaze, turn }) => {
+          pointer?.down(x, y);
+          gaze?.track(x, y);
+          turn?.down(x, y);
+        }),
+      move: (x, y) =>
+        this.#guard(({ pointer, gaze, turn }) => {
+          pointer?.move(x, y);
+          gaze?.track(x, y);
+          turn?.move(x, y);
+        }),
+      up: (x, y) =>
+        this.#guard(({ pointer, gaze, turn }) => {
+          gaze?.track(x, y);
+          turn?.up(x, y);
+          if (!pointer) return;
+          // A click while paused would switch states the paused machines cannot play.
+          if (this.#playing) pointer.up(x, y);
+          else {
+            pointer.leave();
+            pointer.move(x, y);
+          }
+        }),
+      leave: () =>
+        this.#guard(({ pointer, gaze, turn }) => {
+          pointer?.leave();
+          gaze?.leave();
+          turn?.leave();
+        }),
     };
   }
 }

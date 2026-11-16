@@ -280,18 +280,18 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
 - **Pip** is defined as document data: `pipDocument()` in `@mascotte/reference` writes its tree and adds its animation. A test reads the JSON back and checks that it gives the same frames as Pip built in code.
 
 **The player** (`Player` in `@mascotte/player`) plays a document on a canvas: `new Player(canvas, json, options)`.
-- It reads and builds the document, then draws with WebGL2. With `renderer: 'auto'`, the default, it falls back to Canvas 2D where WebGL2 is missing.
-- **Fitting.** The document's frame (`view`) is fitted into the canvas's CSS size, whole and centered, at the device pixel ratio. The canvas is checked every frame, so a resize or a move to another screen needs no observer.
-- **Loop.** It runs on a ticker (`Ticker.shared` by default) and pauses while the canvas is off screen. `play()` and `pause()` stop and resume time. An error in a frame stops the loop and goes to `onError`.
+- It reads and builds the document, then draws with WebGL2. With `renderer: 'auto'`, the default, it falls back to Canvas 2D where WebGL2 cannot start; `player.renderer` tells which one it took.
+- **Fitting.** The document's frame (`view`) is fitted into the canvas's CSS size, whole and centered, at the device pixel ratio. The canvas is checked every frame it plays, so a resize or a move to another screen needs no observer; a paused player picks a new size up on `render()`.
+- **Loop.** It runs on a ticker (`Ticker.shared` by default) and pauses while the canvas is off screen. `pause()` and `play()` stop and resume time. An error in a frame or a pointer event pauses the player and goes to `onError`; `play()` starts it again.
 - **Inputs.** `player.inputs` is the inputs API of the document's machines: `inputs.set('happy', true)`, `inputs.fire('poke')`. `machines` and the named `constraints` are exposed as well.
 - **Pointer**, all options and off by default:
-  - `pointer` names the hover, press, drag and click inputs over the mascot;
-  - `gaze` names an `aim` or `lookAt` constraint that follows the pointer, easing in and out;
-  - `turn` turns the mascot's root while it is dragged (`DragRotate`).
+  - `pointer` names the hover, press, drag and click inputs over the mascot (or over a `target` node); each must be an input the document's machines read;
+  - `gaze` names an `aim` or `lookAt` constraint aimed at a point, which follows the pointer, easing in and out;
+  - `turn`: a drag anywhere on the canvas turns the mascot's root (`DragRotate`).
 
   A click while paused does not fire.
-- **Hot swap.** `load(json)` swaps the document in place: the canvas, renderer, loop and pointer stay. A bad document throws and the running one stays.
-- **Cleanup.** `destroy()` stops the loop, unbinds the pointer and frees the renderer.
+- **Hot swap.** `load(json)` swaps the document in place: the canvas, renderer, loop and pointer stay, and so does whether it plays. A bad document, or one that does not fit the options, throws and the running one stays. `inputs`, `machines` and `constraints` belong to the running document, so the page reads them again after a swap.
+- **Cleanup.** `destroy()` removes its loop subscription, unbinds the pointer and frees the renderer; the canvas stays the page's. A constructor that fails leaves nothing bound.
 - The playground shows Pip through the player, from its JSON document.
 
 ## 8. Editor requirements for the engine
