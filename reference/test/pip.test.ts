@@ -1,7 +1,8 @@
 import { Animator, PointerInputs, Scene } from '@mascotte/engine';
+import { buildDocument, readDocument, writeNode } from '@mascotte/format';
 import { mat3x4, vec3 } from '@mascotte/math';
 import { describe, expect, it } from 'vitest';
-import { pip } from '../src/index.ts';
+import { pip, pipDocument } from '../src/index.ts';
 
 function make() {
   const { root, camera, rig } = pip.build();
@@ -199,5 +200,50 @@ describe('Pip', () => {
     sought.animator.springsEnabled = false;
     sought.animator.evaluate();
     expect(sought.world.getById('crest-l')?.rotation.z).toBe(0);
+  });
+
+  it('read back from its JSON document, it is the same mascot frame by frame', () => {
+    const json = JSON.stringify(pipDocument());
+    const built = buildDocument(readDocument(json));
+    expect(built.view).toEqual({
+      width: pip.width,
+      height: pip.height,
+      background: pip.background,
+    });
+    expect(built.camera.zoom).toBe(pip.build().camera.zoom);
+    // Every property, path and id comes back as it was written.
+    expect(writeNode(built.root)).toEqual(writeNode(pip.build().root));
+    const fromJson = new Scene(built.root);
+    const read = new Animator(fromJson, { rig: built.rig });
+    const { constraints } = built.animate(read);
+    const code = make();
+    const nodes = (world: Scene) => {
+      const out: unknown[] = [];
+      const walk = (node: typeof world.root) => {
+        // Generated ids differ between builds; set ones are kept.
+        const id = node.id.startsWith('~') ? '~' : node.id;
+        out.push([id, node.visible, ...node.worldMatrix]);
+        for (const child of node.children) walk(child);
+      };
+      walk(world.root);
+      return out;
+    };
+    expect([...built.rig.slots]).toEqual([...code.rig.slots]);
+    // The same inputs and gaze over a few seconds: hover, a poke, the pointer gone.
+    const point = { x: 30, y: -40, z: 200 };
+    for (const gaze of [constraints.gaze, code.gaze]) {
+      if (!gaze || !('point' in gaze)) throw new Error('no gaze');
+      gaze.point = point;
+      gaze.weight = 1;
+    }
+    for (let frame = 0; frame < 60 * 4; frame++) {
+      for (const animator of [read, code.animator]) {
+        if (frame === 30) animator.inputs.set('hover', true);
+        if (frame === 90) animator.inputs.fire('poke');
+        if (frame === 180) animator.inputs.set('hover', false);
+        animator.update(1 / 60);
+      }
+      if (frame % 20 === 0) expect(nodes(fromJson)).toEqual(nodes(code.world));
+    }
   });
 });

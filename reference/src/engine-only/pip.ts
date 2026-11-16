@@ -10,9 +10,18 @@ import {
   Rig,
   Sphere,
   type StateMachine,
-  type StateMachineSpec,
   type Track,
 } from '@mascotte/engine';
+import {
+  type AnimationDocument,
+  animateDocument,
+  FORMAT,
+  type MachineDocument,
+  type MascotDocument,
+  VERSION,
+  writeNode,
+  writeProps,
+} from '@mascotte/format';
 import { euler, quat, type Vec3 } from '@mascotte/math';
 import type { AnimatedScene } from './scenes.ts';
 
@@ -332,7 +341,7 @@ const surprisedClip: Clip = {
  * The emotions: calm, happy while `hover` holds, and on a `poke` surprised for a moment, then
  * happy or calm again by the hover.
  */
-const emotionMachine: StateMachineSpec = {
+const emotionMachine: MachineDocument = {
   name: 'emotion',
   layer: 'emotion',
   inputs: [
@@ -340,9 +349,9 @@ const emotionMachine: StateMachineSpec = {
     { name: 'poke', type: 'trigger' },
   ],
   states: [
-    { name: 'calm', motion: calmClip },
-    { name: 'happy', motion: happyClip },
-    { name: 'surprised', motion: surprisedClip },
+    { name: 'calm', motion: 'calm' },
+    { name: 'happy', motion: 'happy' },
+    { name: 'surprised', motion: 'surprised' },
   ],
   transitions: [
     { from: '*', to: 'surprised', conditions: [{ input: 'poke' }], duration: 0.08 },
@@ -451,35 +460,64 @@ const blink: BehaviorSet = {
 };
 
 /**
+ * Pip's motions, layers, emotion machine, gaze and springs as document data: the gaze is the
+ * constraint named `gaze`.
+ */
+const animation: AnimationDocument = {
+  motions: {
+    calm: calmClip,
+    happy: happyClip,
+    surprised: surprisedClip,
+    idle,
+    tilt,
+    chirp,
+    blink,
+  },
+  layers: [
+    { name: 'emotion' },
+    { name: 'idle', mode: 'additive', play: 'idle' },
+    { name: 'tilt', mode: 'additive', play: 'tilt' },
+    { name: 'chirp', mode: 'additive', play: 'chirp' },
+    { name: 'blink', mask: { slot: 'head' }, play: 'blink' },
+  ],
+  machines: [emotionMachine],
+  constraints: [
+    // The head turns its face (z) towards the gaze point, at most about 25°.
+    { name: 'gaze', kind: 'aim', target: { slot: 'head' }, maxAngle: 0.45, weight: 0 },
+  ],
+  springs: feathers.map((feather) => ({
+    target: { slot: `crest.${feather.side}` },
+    tip: feather.tip,
+    frequency: 2.2,
+    damping: 0.12,
+    maxAngle: 0.7,
+  })),
+};
+
+/**
  * Sets up Pip's layers, emotion machine, gaze and springs on `animator`, whose scene holds Pip
  * from `build` and whose rig is Pip's rig. Returns the `gaze` (off until the page sets its
  * point and raises its weight) and the `emotion` machine, driven by `hover` (a bool) and
  * `poke` (a trigger) on `animator.inputs`.
  */
 function animate(animator: Animator): { gaze: AimConstraint; emotion: StateMachine } {
-  animator.addLayer({ name: 'emotion' });
-  animator.addLayer({ name: 'idle', mode: 'additive' }).play(idle);
-  animator.addLayer({ name: 'tilt', mode: 'additive' }).play(tilt);
-  animator.addLayer({ name: 'chirp', mode: 'additive' }).play(chirp);
-  animator.addLayer({ name: 'blink', mask: { slot: 'head' } }).play(blink);
-  const emotion = animator.addStateMachine(emotionMachine);
-  // The head turns its face (z) towards the gaze point, at most about 25°.
-  const gaze = animator.addConstraint({
-    kind: 'aim',
-    target: { slot: 'head' },
-    maxAngle: 0.45,
-    weight: 0,
-  });
-  for (const feather of feathers) {
-    animator.addSpring({
-      target: { slot: `crest.${feather.side}` },
-      tip: feather.tip,
-      frequency: 2.2,
-      damping: 0.12,
-      maxAngle: 0.7,
-    });
-  }
-  return { gaze, emotion };
+  const { machines, constraints } = animateDocument(animation, animator);
+  return { gaze: constraints.gaze as AimConstraint, emotion: machines[0] as StateMachine };
+}
+
+/** Pip as a mascot document: the tree and rig from `build`, the animation data above. */
+export function pipDocument(): MascotDocument {
+  const { root, camera, rig } = build();
+  return {
+    format: FORMAT,
+    version: VERSION,
+    meta: { name: 'Pip', description: 'A round yellow chick: the showcase mascot.' },
+    view: { width: pip.width, height: pip.height, background: pip.background },
+    camera: { props: writeProps(camera) },
+    root: writeNode(root),
+    rig: { slots: Object.fromEntries(rig.slots) },
+    ...animation,
+  };
 }
 
 /** Pip: builds the scene and sets up its layers, emotion machine, gaze and springs. */

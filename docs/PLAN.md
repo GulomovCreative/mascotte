@@ -245,6 +245,37 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
 - Assets are embedded in the document or linked.
 - The player and the editor read the format the same way. The editor stores nothing that cannot be reproduced in the player.
 
+**The format package** (`@mascotte/format`) implements it:
+
+- **The document** (`MascotDocument`) has these fields:
+  - `format: "mascotte"`, `version` and `meta { name, description }`;
+  - `view { width, height, background }` (the frame) and `camera { props }`;
+  - the node tree `root`, and `rig { slots }` (slot → node id);
+  - named `motions`, which layers, states and blend points refer to by name or hold inline;
+  - `layers` in blend order, each with the motion it plays;
+  - `machines`, the state machine specs, with their inputs;
+  - `constraints` in evaluation order, a `name` marking the ones the page drives (a gaze);
+  - `springs`.
+
+  The animation entries are the engine's own plain-data specs. Prefabs, parameters, palettes and archetypes come with their own issues (#28–#30).
+- **A node** is `{ type, id, name, props, path, faces, children }`:
+  - `type` is one of the engine's node types (`Node`, the flat shapes, `Sphere`, `Capsule`, the solids).
+  - `props` holds properties by their registry name (`position`, `rotation` as a quaternion, `style.color`, `diameter`). A property left out keeps its default.
+  - `path` belongs to a `PathShape`, and `faces` to a `Box`.
+  - Parts that a solid makes itself are not stored.
+- **Writing.** `writeNode(node)` writes a subtree and keeps only the values that differ from their defaults. `writeProps` does the same for a camera.
+- **Reading.** `readDocument(json)` parses the JSON, migrates it and validates it. If anything is wrong it throws a `DocumentError` that lists every issue as `{ path, message }`, for example `root.children[2].props.diameter: expected a number at least 0, got -1.`
+  - Validation checks node properties against the property registry: types, ranges, integers, enum values, CSS colors and non-zero quaternions.
+  - It also checks unknown fields, duplicate ids, slots bound to missing ids, references to missing motions and machines on missing layers.
+- **Building.** `buildDocument` turns a document into engine objects. `animateDocument` sets up the animation on an animator.
+  - The engine itself checks the clips, behaviors, machines, constraints and springs.
+  - Its errors come back as a `DocumentError` at the path of the entry, for example `layers[0].play: …`.
+- **Migrations.**
+  - A document carries the version it was written in.
+  - `MIGRATIONS[i]` upgrades version `i + 1` to `i + 2`, and the current version (`VERSION`) is one past the last migration.
+  - A document written by a newer version is refused.
+- **Pip** is defined as document data: `pipDocument()` in `@mascotte/reference` writes its tree and adds its animation. A test reads the JSON back and checks that it gives the same frames as Pip built in code.
+
 ## 8. Editor requirements for the engine
 
 So that the editor does not need hacks, the engine provides from the start:
@@ -329,9 +360,9 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 
 ### Stage 4. Format and player
 
-Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
+Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
 
-- [ ] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
+- [x] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
 - [ ] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
 - [ ] Archetypes and slot-based animation library ([#28](https://github.com/GulomovCreative/mascotte/issues/28))
 - [ ] Part prefabs and shape parameters ([#29](https://github.com/GulomovCreative/mascotte/issues/29))

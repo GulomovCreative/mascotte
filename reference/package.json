@@ -9,6 +9,7 @@
   },
   "dependencies": {
     "@mascotte/engine": "workspace:*",
+    "@mascotte/format": "workspace:*",
     "@mascotte/math": "workspace:*"
   },
   "devDependencies": {
