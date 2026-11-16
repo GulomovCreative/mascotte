@@ -94,11 +94,15 @@ describe('WebGL snapshots', () => {
 });
 
 describe('WebGL snapshots of Pip', () => {
-  // Each emotion half a second after its input, with springs off so the crest shows the pose.
+  // Each pose half a second in, with springs off so the crest shows the pose.
   const emotions: [string, (animator: Animator) => void][] = [
     ['calm', () => {}],
     ['happy', (animator) => animator.inputs.set('hover', true)],
     ['surprised', (animator) => animator.inputs.fire('poke')],
+    // Turned to the side (yaw 1.3 rad) and nearly to the back (2.5 rad), replacing the root's own
+    // tilt: the belly and the wings must stay on the body, not stand off it.
+    ['side', (animator) => animator.scene.root.rotation.set(0, Math.sin(0.65), 0, Math.cos(0.65))],
+    ['back', (animator) => animator.scene.root.rotation.set(0, Math.sin(1.25), 0, Math.cos(1.25))],
   ];
   for (const [emotion, act] of emotions) {
     it(`Pip ${emotion}`, async () => {

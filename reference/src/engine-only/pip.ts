@@ -61,6 +61,14 @@ const dark = '#3a2410';
 // The wings face out to the sides and half forward.
 const wingYaw = 0.9;
 
+/**
+ * The belly sphere: its radius and its center, `bellyShift` forward and down from the body's
+ * center, so its cap stands `bellyShift + bellyRadius - radius` (8) out of the body.
+ */
+const bellyRadius = 36;
+const bellyShift = 24;
+const bellyCenter = { x: 0, y: bellyShift * 0.55, z: bellyShift * 0.835 };
+
 /** The crest feathers: where each grows on the head (left, middle, right) and its tip from there. */
 const feathers = [
   { side: 'L', base: { x: -6, y: -radius + 2, z: 4 }, tip: { x: -10, y: -18, z: 2 } },
@@ -70,7 +78,7 @@ const feathers = [
 
 /** Where a wing (side −1 left, 1 right) hangs from the body: its shoulder at the side. */
 function wingBase(side: number) {
-  return { x: side * (radius - 8), y: -radius + 10, z: -6 };
+  return { x: side * (radius - 5), y: -radius + 10, z: -6 };
 }
 
 function line(from: Vec3, to: Vec3) {
@@ -81,10 +89,10 @@ function line(from: Vec3, to: Vec3) {
 }
 
 /**
- * Builds Pip: the root `pip` at its feet; `body`, which holds the body sphere with its belly, the
- * wings `wing-left` and `wing-right` and the `head` at the sphere's center; the head holds the
- * face (eyes, cheeks, beak) and the crest. The body's origin is at its bottom, so breathing
- * swells it upwards.
+ * Builds Pip: the root `pip` at its feet; `body`, which holds the wings `wing-left` and
+ * `wing-right` and the `head` at the body's center; the head holds the body sphere with its
+ * belly, the face (eyes, cheeks, beak) and the crest, so they all turn together. The body's
+ * origin is at its bottom, so breathing swells it upwards.
  */
 function build(): { root: Node; camera: Camera; rig: Rig } {
   const root = new Node({
@@ -95,22 +103,28 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   });
   const camera = new Camera({ zoom: 1.4 });
   const body = new Node({ id: 'body', bone: true });
+  // The body sphere turns with the head (Pip has no neck), so the belly turns with the face.
+  const head = new Node({ id: 'head', bone: true, position: { x: 0, y: -radius, z: 0 } });
   const sphere = new Sphere({
     diameter: radius * 2,
-    position: { x: 0, y: -radius, z: 0 },
     style: { color: yellow, stroke: 0 },
   });
-  // The belly: a lighter decal on the body's front, cut to its outline.
-  sphere.add(
-    new Ellipse({
-      sortMode: 'attached',
-      width: 58,
-      height: 54,
-      position: { x: 0, y: 20, z: radius - 6 },
-      style: { color: belly, stroke: 4, fill: true },
+  /*
+   * The belly: a smaller sphere set forward and down inside the body, so only a shallow cap of
+   * it stands out of the body's surface; the cap's edge is the circle where the two spheres
+   * meet. In WebGL, from any angle, it is a patch on the body, not a flat disc.
+   * упрощение: Canvas 2D не режет шар шаром и рисует брюшко целым кругом радиуса 36 (шапка —
+   * около 32): спереди светлое заходит на щёки и под глаза, сбоку выступает за тело; вернуться,
+   * когда Canvas 2D научится обрезать шар шаром (#74).
+   */
+  head.add(
+    new Sphere({
+      id: 'belly',
+      diameter: bellyRadius * 2,
+      position: bellyCenter,
+      style: { color: belly, stroke: 0 },
     }),
   );
-  body.add(sphere);
   for (const side of [-1, 1]) {
     // A wing hangs from its shoulder node, which the motions turn.
     const wing = new Node({
@@ -130,7 +144,7 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
     );
     body.add(wing);
   }
-  const head = new Node({ id: 'head', bone: true, position: { x: 0, y: -radius, z: 0 } });
+  head.add(sphere);
   body.add(head);
   for (const feather of feathers) {
     const node = new Node({
@@ -196,7 +210,8 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   head.add(eyes);
   head.add(lids);
   // The beak: two parts hinged where they meet the face; the lower one turns down to open it.
-  const hinge = onBody(0, 3, radius - 1);
+  // Out past the belly, which bulges a little out of the body there.
+  const hinge = onBody(0, 3, radius + 4);
   const upper = new Node({ id: 'beak-upper', position: hinge });
   upper.add(
     new PathShape({
