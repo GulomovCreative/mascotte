@@ -11,7 +11,6 @@ import {
   Sphere,
   type StateMachine,
   type StateMachineSpec,
-  type Target,
   type Track,
 } from '@mascotte/engine';
 import { euler, quat, type Vec3 } from '@mascotte/math';
@@ -252,8 +251,7 @@ type Value = Track['keys'][number]['value'];
 
 /** A track that holds `value`. */
 function hold(slot: string, property: Track['property'], value: Value): Track {
-  const target: Target = { slot };
-  return { target, property, keys: [{ time: 0, value }] };
+  return { target: { slot }, property, keys: [{ time: 0, value }] };
 }
 
 /** A wing (side −1 left, 1 right) turned out from the body by `angle` (towards level when large). */

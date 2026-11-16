@@ -86,10 +86,10 @@ describe('Pip', () => {
     expect(crest?.scale.y).toBeCloseTo(1.45);
     // A poke while surprised does not start it again: it lasts its 0.9 s.
     animator.inputs.fire('poke');
-    run(animator, 0.5);
+    run(animator, 0.4);
     expect(emotion.state).toBe('surprised');
-    // Still hovered when the surprise has played out: happy again.
-    run(animator, 0.5);
+    // Still hovered when the surprise has played out, 0.9 s after the first poke: happy again.
+    run(animator, 0.3);
     expect(emotion.state).toBe('happy');
     animator.inputs.fire('poke');
     animator.inputs.set('hover', false);
