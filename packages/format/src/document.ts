@@ -60,7 +60,20 @@ export interface ColorRef {
   readonly color: string;
 }
 
-/** A property value as stored in the tree: plain, computed from parameters, or a palette color. */
+/** Whether a stored value is a palette color `{ color: role }`, and nothing else. */
+export function isColorRef(value: unknown): value is ColorRef {
+  return (
+    typeof value === 'object' &&
+    value !== null &&
+    Object.keys(value).length === 1 &&
+    typeof (value as { color?: unknown }).color === 'string'
+  );
+}
+
+/**
+ * A property value as stored in the tree: plain, computed from parameters, or a palette color
+ * (only on a color property).
+ */
 export type PropertyValue = PlainValue | ParamRef | ColorRef;
 
 /** A path command as stored: each of its points may be computed from parameters. */

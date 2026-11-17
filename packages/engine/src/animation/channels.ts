@@ -222,6 +222,12 @@ export class ChannelSet {
     return channel;
   }
 
+  /** The channel of property `name` on `node`, if the set has one. */
+  find(node: Node, name: string): Channel | null {
+    const channel = this.#byKey.get(`${node.id}\u0000${name}`);
+    return channel && channel.node === node ? channel : null;
+  }
+
   /** Reads the current value of `channel` from its node into `buffer`. */
   read(channel: Channel, buffer: Float64Array): void {
     const { node, property, offset: o } = channel;

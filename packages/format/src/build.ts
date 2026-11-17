@@ -15,8 +15,8 @@ import {
 import { ARCHETYPES, MOTIONS, scaleMotion, usesSize } from '@mascotte/library';
 import { type Vec3, vec3 } from '@mascotte/math';
 import {
-  type ColorRef,
   DocumentError,
+  isColorRef,
   type MascotDocument,
   type MotionDocument,
   type MotionRef,
@@ -38,9 +38,11 @@ export interface BuiltMascot {
   readonly palettes: readonly string[];
   /**
    * Recolors the mascot with palette `name` on the fly: every color the tree takes from a role.
-   * Throws a `DocumentError` for a palette the document does not have.
+   * Give the `animator` playing it, so colors its clips animate rest at the new color too (an
+   * animator writes its rest values every frame). Throws a `DocumentError` for a palette the
+   * document does not have, before recoloring anything.
    */
-  palette(name: string): void;
+  palette(name: string, animator?: Animator): void;
   /**
    * Sets up the document's layers, state machines, constraints and springs on `animator`,
    * whose scene holds `root` and whose rig is `rig` (once per animator).
@@ -81,12 +83,8 @@ function colorsOf(document: MascotDocument, name: string | undefined): Record<st
   return { ...base, ...palettes[name] };
 }
 
-function isColorRef(value: unknown): value is ColorRef {
-  return typeof value === 'object' && value !== null && 'color' in value && !('param' in value);
-}
-
 /** What `palette` recolors: one color of one node, set again from its role. */
-type Recolor = (colors: Readonly<Record<string, string>>) => void;
+type Recolor = (colors: Readonly<Record<string, string>>, animator?: Animator) => void;
 
 function setProps(
   node: Node,
@@ -101,7 +99,10 @@ function setProps(
     if (isColorRef(value)) {
       const role = value.color;
       at(`${path}.${name}`, () => set(colors[role]));
-      recolors.push((palette) => set(palette[role]));
+      recolors.push((palette, animator) => {
+        set(palette[role]);
+        animator?.refreshRest(node, name);
+      });
     } else {
       at(`${path}.${name}`, () => set(value));
     }
@@ -137,7 +138,7 @@ function buildNode(
       }),
   );
   for (const [face, role] of roles) {
-    recolors.push((palette) => (node as Box).setFace(face, { color: palette[role] ?? null }));
+    recolors.push((palette) => (node as Box).setFace(face, { color: palette[role] as string }));
   }
   setProps(node, document.props, `${path}.props`, colors, recolors);
   document.children?.forEach((child, i) => {
@@ -313,9 +314,9 @@ export function buildDocument(
     camera,
     rig,
     palettes: Object.keys(document.palettes ?? {}),
-    palette(name) {
+    palette(name, animator) {
       const colors = colorsOf(document, name);
-      for (const recolor of recolors) recolor(colors);
+      for (const recolor of recolors) recolor(colors, animator);
     },
     animate: (animator) => animateDocument(document, animator),
   };

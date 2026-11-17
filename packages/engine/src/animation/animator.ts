@@ -644,6 +644,18 @@ export class Animator implements TargetScope {
     this.#grow(before);
   }
 
+  /**
+   * Takes the current value of property `name` of `node` as its rest pose again, if the animator
+   * owns it: for code that changes a property's resting value on purpose (a palette recoloring
+   * a node). Returns whether it did; a property the animator does not own needs nothing.
+   */
+  refreshRest(node: Node, name: string): boolean {
+    const channel = this.#channels.find(node, name);
+    if (!channel) return false;
+    this.#channels.read(channel, this.#rest);
+    return true;
+  }
+
   /** Constraints in evaluation order. */
   get constraints(): readonly Constraint[] {
     return this.#constraints;
