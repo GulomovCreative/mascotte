@@ -646,13 +646,12 @@ function mascotExample(
   };
 }
 
-/** A mascot a `Player` plays from its JSON document, with the pointer options it reads. */
+/** A mascot a `Player` plays from its JSON document, with the pointer and gaze options it reads. */
 interface PlayedMascot {
   readonly id: string;
   readonly title: string;
   readonly document: () => unknown;
-  readonly pointer: NonNullable<PlayerOptions['pointer']>;
-  readonly gaze?: string;
+  readonly input: Pick<PlayerOptions, 'pointer' | 'gaze'>;
 }
 
 /**
@@ -665,21 +664,19 @@ const playedMascots: readonly PlayedMascot[] = [
     id: pip.id,
     title: `${pip.title} (from its JSON document)`,
     document: pipDocument,
-    pointer: { hover: 'hover', click: 'poke' },
-    gaze: 'gaze',
+    input: { pointer: { hover: 'hover', click: 'poke' }, gaze: 'gaze' },
   },
   {
     id: 'gloop',
     title: 'Gloop: a slime (blob) that hops on a click',
     document: () => gloopDocument,
-    pointer: { click: 'poke' },
+    input: { pointer: { click: 'poke' } },
   },
   {
     id: 'miso',
     title: 'Miso: a cat (quadruped) that follows the pointer and hops on a click',
     document: () => misoDocument,
-    pointer: { click: 'poke' },
-    gaze: 'gaze',
+    input: { pointer: { click: 'poke' }, gaze: 'gaze' },
   },
 ];
 
@@ -709,8 +706,7 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
       try {
         player = new Player(canvas, JSON.stringify(value), {
           renderer: backend === 'gl' ? 'webgl' : 'canvas',
-          pointer: mascot.pointer,
-          ...(mascot.gaze === undefined ? {} : { gaze: mascot.gaze }),
+          ...mascot.input,
           turn: { settle: 0.5 },
           onError: (error) => {
             stopped = true;
