@@ -54,7 +54,9 @@ export interface PlayerOptions {
   /**
    * A drag anywhere on the canvas turns the mascot's root (`DragRotate`): the node bound to the
    * rig's `root` slot, or the tree's root without one, so a shadow beside the mascot stays on the
-   * ground; `null`, the default, does not. A `pointer.drag` input is driven by the same drags.
+   * ground; `null`, the default, does not. That node's rotation must not be animated (library
+   * motions move the root only): the animator would write its pose over the drag every frame.
+   * A `pointer.drag` input is driven by the same drags.
    */
   readonly turn?: DragRotateOptions | null;
   /**

@@ -33,12 +33,7 @@ export class BlobShadow extends Surface<typeof SHADOW_PARAMS> {
   static override readonly defaultStyle = { fill: true, stroke: 0, color: '#000000' };
 
   constructor(options: BlobShadowOptions = {}) {
-    super({
-      opacity: BLOB_SHADOW_DEFAULTS.opacity,
-      sortMode: BLOB_SHADOW_DEFAULTS.sortMode,
-      layer: BLOB_SHADOW_DEFAULTS.layer,
-      ...options,
-    });
+    super({ ...BLOB_SHADOW_DEFAULTS, ...options });
   }
 
   get width(): number {
