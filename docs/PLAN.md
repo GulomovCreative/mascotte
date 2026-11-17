@@ -365,14 +365,16 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
 
 ## 8. Editor requirements for the engine
 
-So that the editor does not need hacks, the engine provides from the start:
+So that the editor does not need hacks, the engine provides:
 
-- introspection: node types, their properties and ranges;
-- changes through commands, so that undo/redo works;
-- seeking and stepping through clips;
-- hit-testing and data for gizmos: world matrices, axes, bounds;
-- a debug render mode: axes, pivot, bones, sort order;
-- hot swapping of the document without recreating the player.
+- introspection: node types, their properties and ranges (the property registry: `propertiesOf`, `findProperty`) — done;
+- seeking and stepping through clips (`layer.time`, `Animator.evaluate`; fades, springs and machine states are not seekable) — done;
+- hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, with the editor's viewport;
+- data for a debug view: axes, pivots, bones, sort order and sort points, decal anchors — to do, with the editor's viewport;
+- hot swapping of the document without recreating the player (`Player.load`) — done;
+- a map from built nodes to the document paths they came from — to do, in the format, with the editor's document model.
+
+Changes through commands, so that undo and redo work, are the editor's own (EDITOR.md, section 3.1): the engine and the format stay plain data and objects.
 
 ## 9. Stages
 
@@ -477,14 +479,11 @@ Status: **not started** · [milestone](https://github.com/GulomovCreative/mascot
 
 **Done when** a separate editor plan is approved and broken down into tasks.
 
-The plan: [EDITOR.md](EDITOR.md) (a web app in `apps/editor`; the tree and inspector, the viewport with gizmos, the timeline and the state machine editor in the first version).
-
-Minimum editor scope: scene tree, property inspector, viewport with gizmos, key timeline, state machine editor, palettes, document save and load, preview in the player.
+The plan: [EDITOR.md](EDITOR.md): a web app in `apps/editor`, whose first version has the scene tree and inspector, the viewport with gizmos, the timeline and the state machine editor, with palettes, parameters, prefabs, saving and loading, and a preview in the player.
 
 ## 10. Open questions
 
 - Is perspective needed as the main mode, or is orthographic with weak perspective enough?
 - Framework wrappers (React, Vue, Web Component): which ones are needed and when?
-- Editor technology: a web app, a desktop wrapper, or both?
 - Import and export to third-party formats (Lottie, Rive): are they needed, and in which direction?
 - Publishing: npm package name, license for the archetype and animation library.
