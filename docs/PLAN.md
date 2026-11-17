@@ -473,13 +473,33 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 
 ### Stage 6. Editor
 
-Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/7)
+Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/7)
 
-- [ ] Editor plan ([#35](https://github.com/GulomovCreative/mascotte/issues/35))
+- [x] Editor plan ([#35](https://github.com/GulomovCreative/mascotte/issues/35))
 
 **Done when** a separate editor plan is approved and broken down into tasks.
 
 The plan: [EDITOR.md](EDITOR.md): a web app in `apps/editor`, whose first version has the scene tree and inspector, the viewport with gizmos, the timeline and the state machine editor, with palettes, parameters, prefabs, saving and loading, and a preview in the player.
+
+### Stage 7. Editor
+
+Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/8)
+
+- [ ] Editor app and layout ([#85](https://github.com/GulomovCreative/mascotte/issues/85))
+- [ ] Editor document model ([#86](https://github.com/GulomovCreative/mascotte/issues/86))
+- [ ] Editor files ([#87](https://github.com/GulomovCreative/mascotte/issues/87))
+- [ ] Editor viewport, picking and debug view ([#88](https://github.com/GulomovCreative/mascotte/issues/88))
+- [ ] Editor gizmos ([#89](https://github.com/GulomovCreative/mascotte/issues/89))
+- [ ] Editor scene tree and document panel ([#90](https://github.com/GulomovCreative/mascotte/issues/90))
+- [ ] Editor inspector and bindings ([#91](https://github.com/GulomovCreative/mascotte/issues/91))
+- [ ] Editor palettes, parameters, prefabs and rig ([#92](https://github.com/GulomovCreative/mascotte/issues/92))
+- [ ] Editor timeline ([#93](https://github.com/GulomovCreative/mascotte/issues/93))
+- [ ] Editor behaviors, blends and library motions ([#94](https://github.com/GulomovCreative/mascotte/issues/94))
+- [ ] Editor state machine editor ([#95](https://github.com/GulomovCreative/mascotte/issues/95))
+- [ ] Editor constraints and springs ([#96](https://github.com/GulomovCreative/mascotte/issues/96))
+- [ ] Editor preview and export ([#97](https://github.com/GulomovCreative/mascotte/issues/97))
+
+**Done when** the reference mascots can be rebuilt in the editor and play in the player as the originals do (EDITOR.md, section 1). The editor is published with the project site (#48).
 
 ## 10. Open questions
 
