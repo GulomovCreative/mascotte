@@ -10,9 +10,9 @@ type Draw = (scene: Scene, camera: Camera, width: number, height: number) => voi
  * there is an error, not a fallback.
  */
 function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => void } {
-  const probe = document.createElement('canvas');
-  if (probe.getContext('webgl2')) {
-    probe.getContext('webgl2')?.getExtension('WEBGL_lose_context')?.loseContext();
+  const probe = document.createElement('canvas').getContext('webgl2');
+  if (probe) {
+    probe.getExtension('WEBGL_lose_context')?.loseContext();
     let gl: WebGLRenderer;
     try {
       gl = new WebGLRenderer(canvas);
