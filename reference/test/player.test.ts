@@ -3,7 +3,7 @@ import { DocumentError } from '@mascotte/format';
 import { Player, type PlayerCanvas } from '@mascotte/player';
 import { createCanvas } from '@napi-rs/canvas';
 import { describe, expect, it } from 'vitest';
-import { pip, pipDocument } from '../src/index.ts';
+import { gloopDocument, pip, pipDocument } from '../src/index.ts';
 
 /** A canvas laid out at `cssWidth`×`cssHeight` CSS pixels, drawn by @napi-rs/canvas. */
 function fakeCanvas(cssWidth = pip.width, cssHeight = pip.height) {
@@ -560,5 +560,41 @@ describe('Player', () => {
     expect(JSON.stringify(player.scene.getById('body')?.scale)).toBe(pose);
     await expect(player.exportFrames({ duration: 0 })).rejects.toThrow(/duration must be/);
     player.destroy();
+  });
+
+  it('exports frames from the start, with its palette, at its rate, and refuses bad options', async () => {
+    const { canvas } = fakeCanvas();
+    const { ticker } = manualTicker();
+    const player = new Player(canvas, JSON.stringify(gloopDocument), {
+      renderer: 'canvas',
+      ticker,
+      palette: 'berry',
+    });
+    const text = (blob: Blob) => blob.text();
+    // The player has not ticked: its frame is the start, the sequence's first.
+    const now = await text(await player.exportFrame({ format: 'svg' }));
+    const tens = await Promise.all(
+      (await player.exportFrames({ format: 'svg', duration: 0.5, fps: 10 })).map(text),
+    );
+    const twenties = await Promise.all(
+      (await player.exportFrames({ format: 'svg', duration: 0.5, fps: 20 })).map(text),
+    );
+    expect(tens[0]).toBe(now);
+    expect(now).toContain('#c3a2ff');
+    expect(now).not.toContain('#7fe0b4');
+    // A tenth of a second is two twentieths.
+    expect([tens.length, twenties.length]).toEqual([5, 10]);
+    for (let k = 0; k < 5; k++) expect(tens[k]).toBe(twenties[2 * k]);
+    expect(await player.exportFrames({ format: 'svg', duration: 0.01 })).toHaveLength(1);
+    await expect(player.exportFrames({ format: 'svg', duration: 1, fps: 0 })).rejects.toThrow(
+      /fps must be/,
+    );
+    await expect(player.exportFrame({ format: 'svg', pixelRatio: -1 })).rejects.toThrow(
+      /pixelRatio must be/,
+    );
+    // PNG needs a browser canvas.
+    await expect(player.exportFrame()).rejects.toThrow(/PNG needs a browser canvas/);
+    player.destroy();
+    expect(() => player.exportFrame({ format: 'svg' })).toThrow();
   });
 });

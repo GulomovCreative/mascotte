@@ -756,7 +756,8 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
               link.href = URL.createObjectURL(blob);
               link.download = `${mascot.id}.${format}`;
               link.click();
-              setTimeout(() => URL.revokeObjectURL(link.href), 0);
+              // Some browsers drop a download whose URL goes at once.
+              setTimeout(() => URL.revokeObjectURL(link.href), 1000);
             })
             .catch(controls.error);
         });

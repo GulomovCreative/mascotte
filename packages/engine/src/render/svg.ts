@@ -5,8 +5,12 @@ import type { DisplayListOptions } from './display-list.ts';
 
 const TAU = Math.PI * 2;
 
-/** A number for SVG: three decimals at most, no `-0`. */
+/**
+ * A number for SVG: three decimals at most, no `-0`. Not finite, it would break the markup that
+ * holds it (a path stops, a transform drops its group), so it throws.
+ */
 function n(value: number): string {
+  if (!Number.isFinite(value)) throw new RangeError(`SVG export: a number is ${value}.`);
   const rounded = Math.round(value * 1000) / 1000;
   return String(rounded === 0 ? 0 : rounded);
 }
@@ -36,7 +40,7 @@ class SvgTarget {
   readonly #body: string[] = [];
   readonly #defs: string[] = [];
   #path = '';
-  /** Where the current subpath is, for arcs that continue it. */
+  /** Whether the subpath has a current point (else the next segment starts with `M`). */
   #hasPoint = false;
   #state: DrawState = {
     fillStyle: '#000000',
@@ -90,7 +94,8 @@ class SvgTarget {
   }
 
   setTransform(a: number, b: number, c: number, d: number, e: number, f: number): void {
-    // The renderer sets the transform once per frame, outside any clip.
+    // The renderer sets the transform outside any clip (identity for the background, then the
+    // frame's): each call closes the previous group.
     if (this.#transformOpen) this.#body.push('</g>');
     this.#body.push(`<g transform="matrix(${[a, b, c, d, e, f].map(n).join(' ')})">`);
     this.#transformOpen = true;
@@ -216,6 +221,9 @@ class SvgTarget {
   /** The SVG document, `width` × `height` canvas pixels. */
   document(width: number, height: number): string {
     while (this.#stack.length > 0) this.restore();
+    // A clip made without a save stays open in the base state: close it too.
+    for (let i = 0; i < this.#state.groups; i++) this.#body.push('</g>');
+    this.#state.groups = 0;
     const close = this.#transformOpen ? '</g>' : '';
     const defs = this.#defs.length > 0 ? `<defs>${this.#defs.join('')}</defs>` : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(width)}" height="${n(height)}" viewBox="0 0 ${n(width)} ${n(height)}">${defs}${this.#body.join('')}${close}</svg>`;
