@@ -150,6 +150,7 @@ How it works (`DepthSorter`):
 - Decals on a sphere (eyes, mouth: nodes in `attached` mode and everything inside them) are not cut by the sphere but clipped to its silhouette: when the head turns, the eye slides smoothly past the edge instead of sticking out beyond it or disappearing abruptly. A regular child lying inside the sphere is hidden by it, so details on the head surface should be made as decals.
 - A capsule cuts with a plane perpendicular to the view through the middle of its axis; when the capsule tilts toward the view this is an approximation. A capsule is itself cut by larger occluders; a cut capsule occludes nothing.
 - Strokes without fill are cut: paths and capsules. Segments and Bezier curves are cut at the roots of the cutting surface equation. Each stroke is cut by at most one occluder: the first in draw order that it intersects on screen.
+- **Spheres in spheres** (#74). A sphere that reaches into a sphere drawn before it (a belly sunk in a body, an eye half in a head) is drawn only outside it, as WebGL's depth does. The part inside is a cap bounded by the circle where the spheres meet; from the front it is the region between that circle's front arc and the silhouette (or the inside of the whole circle, or all or nothing), clipped out of the sphere's disk with the even-odd rule. A sphere wholly inside one drawn before it is not drawn. The sphere's outline keeps where WebGL's ring shows: over the other sphere only where that sphere's surface lies deeper than a pixel behind its front. Decals take no part; the SVG export clips the same way. Pip's belly in Canvas 2D matches its WebGL snapshots from the front, the side and the back (a test keeps it under half a percent of differing pixels; it was nearly five from the front).
 - Not done yet: cutting filled shapes (except decals), boxes and cylinders as occluders, clipping decals to the silhouette of non-spherical anchors, a cut cache keyed by `worldVersion` (cuts are currently computed every frame).
 - Cutting and decal clipping can be turned off (`partialOcclusion: false`), for example to compare a frame with Zdog.
 
@@ -459,11 +460,12 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 
 ### Stage 5. Visual style
 
-Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
+Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
 
 - [x] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
 - [x] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
 - [x] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
+- [x] Canvas 2D: clip a sphere by the spheres it intersects ([#74](https://github.com/GulomovCreative/mascotte/issues/74))
 
 **Done when** the reference mascots look three-dimensional and the export matches the in-browser render.
 

@@ -82,13 +82,27 @@ export class CanvasRenderer {
     let fillStyle = '';
     for (let i = 0; i < list.count; i++) {
       const item = list.item(i);
-      const clipped = item.clip === 'circle';
+      const clipped = item.clip === 'circle' || item.sphereCuts.length > 0;
       if (clipped) {
         // After restore the context returns to its state before save: the cache is reset too.
         ctx.save();
-        ctx.beginPath();
-        ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
-        ctx.clip();
+        if (item.clip === 'circle') {
+          ctx.beginPath();
+          ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
+          ctx.clip();
+        }
+        let shown = true;
+        for (const other of item.sphereCuts) shown &&= clipSphereCut(ctx, item, other);
+        if (!shown) {
+          // All inside a sphere drawn before it: nothing of it shows.
+          ctx.restore();
+          alpha = Number.NaN;
+          lineCap = '';
+          lineWidth = Number.NaN;
+          strokeStyle = '';
+          fillStyle = '';
+          continue;
+        }
       }
       if (item.opacity !== alpha) {
         alpha = item.opacity;
@@ -171,6 +185,135 @@ function checkViewport(viewport: Viewport): number {
     throw new RangeError(`pixelRatio must be a positive finite number, got ${ratio}.`);
   }
   return ratio;
+}
+
+const TAU = Math.PI * 2;
+
+/** How many segments a sphere cut's arc of the intersection circle is drawn with. */
+const CUT_STEPS = 24;
+
+/**
+ * Clips the context to the part of the item's sphere outside `other`'s, a sphere drawn before it
+ * that it reaches into. Returns `false` if nothing of it shows. Both spheres are in screen 3D
+ * (pixels, depth scaled alike). The part of the item's sphere inside the other is a cap around
+ * the direction `u` towards the other's center, bounded by the circle where the spheres meet
+ * (`n·u > h`); seen from the front, it is the region between that circle's front arc and the
+ * item's silhouette (or the inside of the whole circle, or all or nothing), cut out of the item's
+ * disk with the even-odd rule. As WebGL's depth test does, per pixel.
+ */
+function clipSphereCut(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOutline): boolean {
+  const r = item.occluderRadius;
+  const x = item.occluderX;
+  const y = item.occluderY;
+  // The disk the cut is taken out of, with the item's outline around its silhouette.
+  const outer = r + item.outlineWidth;
+  const dx = other.occluderX - x;
+  const dy = other.occluderY - y;
+  const dz = other.occluderDepth * other.occluderScale - item.occluderDepth * item.occluderScale;
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const ra = other.occluderRadius;
+  if (d + r <= ra) return false;
+  if (!(d > 0)) return true;
+  // The cap: around u, out to the angle whose cosine is h.
+  const ux = dx / d;
+  const uy = dy / d;
+  const uz = dz / d;
+  const h = (d * d + r * r - ra * ra) / (2 * d * r);
+  const s = Math.sqrt(Math.max(0, 1 - h * h));
+  // The circle where the spheres meet: P(φ) = h·u + s·(cos φ·e1 + sin φ·e2), e1 across u in the
+  // screen plane, e2 = u × e1; its point is in front where P.z > 0.
+  const across = Math.hypot(ux, uy);
+  const e1x = across > 1e-9 ? -uy / across : 1;
+  const e1y = across > 1e-9 ? ux / across : 0;
+  const e2x = uy * 0 - uz * e1y;
+  const e2y = uz * e1x - ux * 0;
+  const e2z = ux * e1y - uy * e1x;
+  const k = s * e2z;
+  const c = h * uz;
+  const at = (phi: number, move: boolean) => {
+    const px = x + r * (h * ux + s * (Math.cos(phi) * e1x + Math.sin(phi) * e2x));
+    const py = y + r * (h * uy + s * (Math.cos(phi) * e1y + Math.sin(phi) * e2y));
+    if (move) ctx.moveTo(px, py);
+    else ctx.lineTo(px, py);
+  };
+  ctx.beginPath();
+  if (Math.abs(k) <= Math.abs(c)) {
+    if (c < 0) {
+      // The circle is all behind: the cap is behind (nothing to cut) or holds the whole front.
+      if (uz > 0) return false;
+      return true;
+    }
+    // The circle is all in front.
+    if (uz > 0) {
+      // The cap is inside it: the disk without the circle's inside.
+      ctx.arc(x, y, outer, 0, TAU);
+      ctx.closePath();
+    }
+    // Otherwise the cap holds the rest of the front: only the circle's inside shows.
+    for (let i = 0; i <= CUT_STEPS; i++) at((i / CUT_STEPS) * TAU, i === 0);
+    ctx.closePath();
+    ctx.clip(uz > 0 ? 'evenodd' : 'nonzero');
+    clipOutlineOver(ctx, item, other);
+    return true;
+  }
+  // The circle crosses the silhouette: its front arc, from φ0 to φ1, and the silhouette back
+  // around the side the cap is on (towards u).
+  const phi = Math.asin(-c / k);
+  const from = k > 0 ? phi : Math.PI - phi;
+  const to = k > 0 ? Math.PI - phi : TAU + phi;
+  ctx.arc(x, y, outer, 0, TAU);
+  ctx.closePath();
+  for (let i = 0; i <= CUT_STEPS; i++) at(from + ((to - from) * i) / CUT_STEPS, i === 0);
+  const end = Math.atan2(
+    h * uy + s * (Math.cos(to) * e1y + Math.sin(to) * e2y),
+    h * ux + s * (Math.cos(to) * e1x + Math.sin(to) * e2x),
+  );
+  const start = Math.atan2(
+    h * uy + s * (Math.cos(from) * e1y + Math.sin(from) * e2y),
+    h * ux + s * (Math.cos(from) * e1x + Math.sin(from) * e2x),
+  );
+  // Clockwise from the arc's end back to its start passes the cap's side, or the other way.
+  const toward = Math.atan2(uy, ux);
+  const sweep = (((start - end) % TAU) + TAU) % TAU;
+  const offset = (((toward - end) % TAU) + TAU) % TAU;
+  ctx.arc(x, y, r, end, start, !(offset < sweep));
+  ctx.closePath();
+  ctx.clip('evenodd');
+  clipOutlineOver(ctx, item, other);
+  return true;
+}
+
+/** Far enough to hold any frame: the bounds of a clip that keeps all but some disks. */
+const FAR = 1e6;
+
+/**
+ * Keeps the item's outline where WebGL's depth keeps its ring: the ring stands a pixel behind the
+ * item's front (depth `zb`), so over `other` it shows only where `other`'s surface is deeper,
+ * outside a circle around `other`'s center (all of `other`'s disk if `zb` is not in front of its
+ * center). The clip is everything but that circle, the item's own disk given back (nonzero
+ * winding: the frame and the item's disk turn one way, the circle the other way).
+ */
+function clipOutlineOver(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOutline): void {
+  if (!(item.outlineWidth > 0)) return;
+  const zb = item.occluderDepth * item.occluderScale + item.occluderRadius - 1;
+  const za = other.occluderDepth * other.occluderScale;
+  const ra = other.occluderRadius;
+  const rise = zb - za;
+  const hidden = rise > 0 ? Math.sqrt(Math.max(0, ra * ra - rise * rise)) : ra;
+  if (!(hidden > 0)) return;
+  ctx.beginPath();
+  ctx.moveTo(-FAR, -FAR);
+  ctx.lineTo(FAR, -FAR);
+  ctx.lineTo(FAR, FAR);
+  ctx.lineTo(-FAR, FAR);
+  ctx.closePath();
+  ctx.moveTo(other.occluderX + hidden, other.occluderY);
+  ctx.arc(other.occluderX, other.occluderY, hidden, TAU, 0, true);
+  ctx.closePath();
+  ctx.moveTo(item.occluderX + item.occluderRadius, item.occluderY);
+  ctx.arc(item.occluderX, item.occluderY, item.occluderRadius, 0, TAU);
+  ctx.closePath();
+  ctx.clip();
 }
 
 /** Draws the item's own brush: its stroke, then its fill, in `color`. */
