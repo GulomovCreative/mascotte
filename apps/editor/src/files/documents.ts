@@ -22,6 +22,9 @@ export function documentText(document: MascotDocument): string {
  * no root node to edit.
  */
 export function readDocumentText(text: string): MascotDocument {
+  // упрощение: документ с ошибками доходит до модели редактора как есть; когда появятся дерево и
+  // инспектор (#90, #91), запускать команды только на прошедших проверку документах или сделать
+  // обходы дерева (`nodeAt`, `expandedIds`) устойчивыми к неверной форме.
   let value: unknown;
   try {
     value = JSON.parse(text);

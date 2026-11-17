@@ -69,10 +69,11 @@ export function openDocument(
   fileHandle: FileHandle | null = null,
   unsaved = false,
 ): void {
+  // Built first: if it throws, the open document stays as it was.
+  const next = new EditorDocument(document);
   const previous = editor.peek();
   unsubscribe();
   cancelDraft();
-  const next = new EditorDocument(document);
   editor.value = next;
   unsubscribe = next.subscribe(onChange);
   handle = fileHandle;
