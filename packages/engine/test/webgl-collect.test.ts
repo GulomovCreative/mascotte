@@ -183,7 +183,7 @@ describe('GLCollector', () => {
     );
     const capsules = instances(first(frame).opaque[0], 'capsule');
     expect(capsules).toHaveLength(4);
-    expect(capsules[0]?.slice(7)).toEqual([1, 0, 0, 1]);
+    expect(capsules[0]?.slice(-4)).toEqual([1, 0, 0, 1]);
   });
 
   it('decals go in their own bucket with the anchor number, the anchor has the same number', () => {
@@ -230,7 +230,7 @@ describe('GLCollector', () => {
       camera,
     );
     expect(first(frame).transparent).toHaveLength(1);
-    expect(instances(first(frame).transparent[0], 'sphere')[0]?.slice(4)).toEqual([1, 1, 1, 0.5]);
+    expect(instances(first(frame).transparent[0], 'sphere')[0]?.slice(-4)).toEqual([1, 1, 1, 0.5]);
   });
 
   it('volume primitives: sphere, capsule, dome, cylinder side, cone', () => {
@@ -385,7 +385,7 @@ describe('GLCollector', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const shape = () => new PathShape({ style: { stroke: 2, color: 'not-a-color-for-test' } });
     const frame = new GLCollector().collect(sceneWith(shape(), shape()), camera);
-    expect(instances(first(frame).opaque[0], 'sphere')[0]?.slice(4)).toEqual([1, 0, 1, 1]);
+    expect(instances(first(frame).opaque[0], 'sphere')[0]?.slice(-4)).toEqual([1, 0, 1, 1]);
     expect(warn).toHaveBeenCalledTimes(1);
   });
 

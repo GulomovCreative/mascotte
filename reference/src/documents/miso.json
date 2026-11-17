@@ -21,7 +21,8 @@
       "cream": "#fff3e0",
       "inner": "#ffb3a7",
       "nose": "#ff7f91",
-      "ink": "#3b2414"
+      "ink": "#3b2414",
+      "shade": "#d98a46"
     },
     "smoke": {
       "fur": "#9aa1b1",
@@ -29,7 +30,8 @@
       "cream": "#eceff5",
       "inner": "#f3b8c0",
       "nose": "#e88a9a",
-      "ink": "#2a2d36"
+      "ink": "#2a2d36",
+      "shade": "#7d8496"
     }
   },
   "prefabs": {
@@ -48,6 +50,9 @@
           "style.fill": true,
           "style.color": {
             "color": "fur"
+          },
+          "style.shadowColor": {
+            "color": "shade"
           }
         },
         "path": [
@@ -174,7 +179,11 @@
               "style.stroke": 9,
               "style.color": {
                 "color": "fur"
-              }
+              },
+              "style.shadowColor": {
+                "color": "shade"
+              },
+              "zBias": -100
             },
             "path": [
               {
@@ -209,7 +218,8 @@
               },
               "style.color": {
                 "color": "cream"
-              }
+              },
+              "zBias": -100
             }
           }
         ]
@@ -232,7 +242,11 @@
               "style.stroke": 9,
               "style.color": {
                 "color": "fur"
-              }
+              },
+              "style.shadowColor": {
+                "color": "shade"
+              },
+              "zBias": -100
             },
             "path": [
               {
@@ -267,7 +281,8 @@
               },
               "style.color": {
                 "color": "cream"
-              }
+              },
+              "zBias": -100
             }
           }
         ]
@@ -290,7 +305,11 @@
               "style.stroke": 9,
               "style.color": {
                 "color": "fur"
-              }
+              },
+              "style.shadowColor": {
+                "color": "shade"
+              },
+              "zBias": -100
             },
             "path": [
               {
@@ -325,7 +344,8 @@
               },
               "style.color": {
                 "color": "cream"
-              }
+              },
+              "zBias": -100
             }
           }
         ]
@@ -348,7 +368,11 @@
               "style.stroke": 9,
               "style.color": {
                 "color": "fur"
-              }
+              },
+              "style.shadowColor": {
+                "color": "shade"
+              },
+              "zBias": -100
             },
             "path": [
               {
@@ -383,7 +407,8 @@
               },
               "style.color": {
                 "color": "cream"
-              }
+              },
+              "zBias": -100
             }
           }
         ]
@@ -407,6 +432,9 @@
               "style.stroke": 30,
               "style.color": {
                 "color": "fur"
+              },
+              "style.shadowColor": {
+                "color": "shade"
               }
             },
             "path": [
@@ -435,8 +463,8 @@
               "diameter": 12,
               "position": {
                 "x": 0,
-                "y": -10,
-                "z": 21
+                "y": -15,
+                "z": 20
               },
               "style.color": {
                 "color": "cream"
@@ -462,6 +490,9 @@
                   "style.stroke": 7,
                   "style.color": {
                     "color": "fur"
+                  },
+                  "style.shadowColor": {
+                    "color": "shade"
                   }
                 },
                 "path": [
@@ -540,7 +571,10 @@
                   "style.color": {
                     "color": "fur"
                   },
-                  "style.stroke": 0
+                  "style.stroke": 0,
+                  "style.shadowColor": {
+                    "color": "shade"
+                  }
                 }
               },
               {

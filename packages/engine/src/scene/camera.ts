@@ -30,6 +30,28 @@ export interface CameraOptions extends NodeOptions {
    * point `(0, 0, distance)`. The smaller the distance, the stronger the perspective.
    */
   distance?: number;
+  /**
+   * Where the light comes from, as a direction in camera space (x right, y down, z toward the
+   * viewer): it stays with the view, so a mascot turning in front of the camera turns its shadow
+   * side away. Stored normalized. Shapes with shadow or highlight colors shade by it.
+   */
+  light?: Readonly<Vec3>;
+}
+
+/** The default light: from the upper left, in front. */
+export const DEFAULT_LIGHT: Readonly<Vec3> = normalized({ x: -0.45, y: -0.6, z: 0.66 });
+
+function normalized(value: Readonly<Vec3>, out: Vec3 = { x: 0, y: 0, z: 0 }): Vec3 {
+  const length = Math.hypot(value.x, value.y, value.z);
+  if (!(length > 0 && Number.isFinite(length))) {
+    throw new RangeError(
+      `light must be a finite nonzero direction, got (${value.x}, ${value.y}, ${value.z}).`,
+    );
+  }
+  out.x = value.x / length;
+  out.y = value.y / length;
+  out.z = value.z / length;
+  return out;
 }
 
 /**
@@ -78,6 +100,7 @@ export class Camera extends Node {
   #projection: Projection;
   #zoom: number;
   #distance: number;
+  #light: Vec3;
   #projectionVersion = 0;
 
   readonly #view: Mat3x4 = mat3x4.create();
@@ -88,6 +111,19 @@ export class Camera extends Node {
     this.#projection = checkProjection(options.projection ?? 'orthographic');
     this.#zoom = checkPositive('zoom', options.zoom ?? 1);
     this.#distance = checkPositive('distance', options.distance ?? 1000);
+    this.#light = normalized(options.light ?? DEFAULT_LIGHT);
+  }
+
+  /** The light direction (see `CameraOptions.light`), normalized. */
+  get light(): Readonly<Vec3> {
+    return this.#light;
+  }
+  set light(value: Readonly<Vec3>) {
+    const light = this.#light;
+    const { x, y, z } = light;
+    // In place: an animated light allocates nothing.
+    normalized(value, light);
+    if (light.x !== x || light.y !== y || light.z !== z) this.markChanged();
   }
 
   get projection(): Projection {

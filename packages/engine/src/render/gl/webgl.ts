@@ -569,6 +569,7 @@ export class WebGLRenderer {
       gl.uniform1f(u.uPx ?? null, this.#px);
       gl.uniform1f(u.uRayZ ?? null, frame.zMax + 10);
       gl.uniform1f(u.uSolid ?? null, solid ? 1 : 0);
+      gl.uniform3f(u.uLight ?? null, frame.light.x, frame.light.y, frame.light.z);
       gl.bindVertexArray(program.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
       const data = bucket.data[kind];
@@ -614,7 +615,7 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
     // The compiler drops a variable unused in the shader; its location is null.
     const uniforms: Record<string, WebGLUniformLocation | null> = {};
-    for (const name of ['uHalf', 'uDepth', 'uPx', 'uRayZ', 'uSolid']) {
+    for (const name of ['uHalf', 'uDepth', 'uPx', 'uRayZ', 'uSolid', 'uLight']) {
       uniforms[name] = gl.getUniformLocation(program, name);
     }
     if (!uniforms.uHalf) throw new Error(`Program ${kind} has no uHalf.`);

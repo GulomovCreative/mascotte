@@ -1,6 +1,7 @@
 import {
   type AimConstraint,
   type Animator,
+  Box,
   Camera,
   Capsule,
   Cylinder,
@@ -299,10 +300,81 @@ const earBehindHead: EngineScene = {
   snapshotTimes: [Math.PI / 2, (3 * Math.PI) / 2],
 };
 
+const toon: EngineScene = {
+  id: 'engine-toon',
+  title: 'Toon shading',
+  width: 320,
+  height: 240,
+  background: '#eef0f6',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ zoom: 1.2 });
+    const shaded = (color: string, shadowColor: string, highlightColor: string | null) => ({
+      color,
+      shadowColor,
+      highlightColor,
+      stroke: 0,
+    });
+    root
+      .add(
+        // A sphere with a shadow and a highlight.
+        new Sphere({
+          diameter: 70,
+          position: { x: -70, y: -30, z: 0 },
+          style: shaded('#ffd54a', '#e5a92e', '#fff6c8'),
+        }),
+      )
+      .add(
+        // A capsule tilted toward the viewer.
+        new Capsule({
+          length: 70,
+          diameter: 30,
+          position: { x: 40, y: -40, z: 0 },
+          rotation: euler.create(0.5, 1.1, 0),
+          style: shaded('#7fc8f8', '#4c8fc0', '#e6f6ff'),
+        }),
+      )
+      .add(
+        // A stroke alone: a tube; and a point, a sphere.
+        new PathShape({
+          path: [
+            { type: 'move', point: { x: -110, y: 50, z: 0 } },
+            { type: 'line', point: { x: -30, y: 30, z: 20 } },
+          ],
+          style: { ...shaded('#9be08f', '#5ea653', null), stroke: 22 },
+        }),
+      )
+      .add(
+        new PathShape({
+          path: [{ type: 'move', point: { x: 10, y: 40, z: 0 } }],
+          style: { ...shaded('#f49ac1', '#c4648e', '#ffe1ee'), stroke: 40 },
+        }),
+      )
+      .add(
+        // A box: each face one tone by its normal.
+        new Box({
+          width: 40,
+          height: 40,
+          depth: 40,
+          position: { x: 95, y: 45, z: 0 },
+          rotation: euler.create(-0.5, 0.6, 0),
+          style: { ...shaded('#c8a2f0', '#8e66bd', '#efe2ff'), fill: true, stroke: 2 },
+        }),
+      );
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    root.setRotationFromEuler(euler.create(0, Math.sin(time) * 0.6, 0));
+  },
+  // Turned to one side: the shadows move over the shapes, the light stays with the camera.
+  snapshotTimes: [Math.PI / 2],
+};
+
 /** New-engine-only scenes. */
 export const engineScenes: readonly EngineScene[] = [
   perspective,
   layersOpacity,
   mascot3d,
   earBehindHead,
+  toon,
 ];

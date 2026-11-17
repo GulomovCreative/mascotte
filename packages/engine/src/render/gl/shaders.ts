@@ -1,3 +1,5 @@
+import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from '../tone.ts';
+
 /*
  * WebGL2 shaders. Coordinates are screen 3D (CSS pixels relative to the frame center,
  * y down, z toward the viewer). The view ray at pixel p goes from (p.x, p.y, uRayZ) along −z.
@@ -10,6 +12,7 @@ uniform vec2 uDepth;   // zMin, zMax
 uniform float uPx;     // internal frame pixels per CSS pixel
 uniform float uRayZ;
 uniform float uSolid;  // 1 means draw only fully covered pixels (see shade)
+uniform vec3 uLight;   // toward the light, normalized
 in vec2 vPos;
 out vec4 outColor;
 
@@ -25,6 +28,15 @@ float segmentDistance(vec2 p, vec2 a, vec2 b) {
   vec2 ab = b - a;
   float t = clamp(dot(p - a, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
   return length(p - a - ab * t);
+}
+
+// Toon shading (tone.ts): the shadow, base or highlight color by n·l, the steps smoothed over
+// about a pixel.
+vec3 tone(vec3 n, vec3 shadow, vec3 base, vec3 highlight) {
+  float d = dot(normalize(n), uLight);
+  float w = max(fwidth(d), 1e-4);
+  vec3 c = mix(shadow, base, smoothstep(-w, w, d - ${SHADOW_BELOW.toFixed(4)}));
+  return mix(c, highlight, smoothstep(-w, w, d - ${HIGHLIGHT_ABOVE.toFixed(4)}));
 }
 
 // The ray-sphere intersection point nearest to the viewer, or -1.
@@ -83,9 +95,12 @@ ${pass
   .join('\n')}
 // Pixel color with edge coverage. A translucent shape is drawn in two passes: first
 // only fully covered pixels, then the edges; the stencil lets each pixel through once.
-vec4 shade(float cover) {
+vec4 shade(float cover, vec3 rgb) {
   if (uSolid > 0.5 && cover < 1.0) discard;
-  return vec4(vColor.rgb, vColor.a * cover);
+  return vec4(rgb, vColor.a * cover);
+}
+vec4 shade(float cover) {
+  return shade(cover, vColor.rgb);
 }
 void main() {
   vec3 ro = vec3(vPos, uRayZ);
@@ -95,10 +110,10 @@ void main() {
 `;
 }
 
-const SPHERE_PASS = 'vec3 vCenter; float vRadius;';
+const SPHERE_PASS = 'vec3 vCenter; float vRadius; vec4 vShadow; vec4 vHighlight;';
 export const sphereProgram = {
   vertex: impostorVertex(
-    'in vec3 aCenter; in float aRadius;',
+    'in vec3 aCenter; in float aRadius; in vec4 aShadow; in vec4 aHighlight;',
     'lo = aCenter.xy - aRadius; hi = aCenter.xy + aRadius;',
     SPHERE_PASS,
   ),
@@ -111,21 +126,29 @@ export const sphereProgram = {
   float r = max(vRadius, d);
   float z = vCenter.z + sqrt(max(r * r - d * d, 0.0));
   gl_FragDepth = depthOf(z);
-  outColor = shade(cover);`,
+  vec3 n = vec3(vPos - vCenter.xy, z - vCenter.z);
+  outColor = shade(cover, tone(n, vShadow.rgb, vColor.rgb, vHighlight.rgb));`,
   ),
   attributes: [
     ['aCenter', 3],
     ['aRadius', 1],
+    ['aShadow', 4],
+    ['aHighlight', 4],
   ] as const,
 };
 
 const SEGMENT_PASS = 'vec3 vA; vec3 vB; float vRadius;';
 const segmentBounds = 'lo = min(aA.xy, aB.xy) - aRadius; hi = max(aA.xy, aB.xy) + aRadius;';
+const CAPSULE_PASS = `${SEGMENT_PASS} vec4 vShadow; vec4 vHighlight;`;
 
 export const capsuleProgram = {
-  vertex: impostorVertex('in vec3 aA; in vec3 aB; in float aRadius;', segmentBounds, SEGMENT_PASS),
+  vertex: impostorVertex(
+    'in vec3 aA; in vec3 aB; in float aRadius; in vec4 aShadow; in vec4 aHighlight;',
+    segmentBounds,
+    CAPSULE_PASS,
+  ),
   fragment: fragment(
-    SEGMENT_PASS,
+    CAPSULE_PASS,
     /* glsl */ `
   float d = segmentDistance(vPos, vA.xy, vB.xy);
   float cover = coverage(vRadius - d);
@@ -156,12 +179,17 @@ export const capsuleProgram = {
   }
   if (t < 0.0) discard;
   gl_FragDepth = depthOf(ro.z - t);
-  outColor = shade(cover);`,
+  // The normal: from the nearest point of the axis to the hit point.
+  vec3 p = ro + rd * t;
+  vec3 axis = vA + ba * clamp(dot(p - vA, ba) / max(baba, 1e-12), 0.0, 1.0);
+  outColor = shade(cover, tone(p - axis, vShadow.rgb, vColor.rgb, vHighlight.rgb));`,
   ),
   attributes: [
     ['aA', 3],
     ['aB', 3],
     ['aRadius', 1],
+    ['aShadow', 4],
+    ['aHighlight', 4],
   ] as const,
 };
 

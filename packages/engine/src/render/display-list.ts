@@ -7,6 +7,7 @@ import { Shape } from '../shapes/shape.ts';
 import { SurfaceOutline } from '../shapes/surface.ts';
 import { DepthSorter, type Drawable, isDrawable } from './depth-sort.ts';
 import { type Cutter, type SplitTarget, splitPath } from './occlusion.ts';
+import { faceColor } from './tone.ts';
 
 /**
  * Display list item: a path in pixels relative to the frame center, a brush and
@@ -213,6 +214,14 @@ export class DisplayList {
     part.clipX = shape.clipX;
     part.clipY = shape.clipY;
     part.clipRadius = shape.clipRadius;
+    part.shade = shape.shade;
+    part.shadeX = shape.shadeX;
+    part.shadeY = shape.shadeY;
+    part.shadeX2 = shape.shadeX2;
+    part.shadeY2 = shape.shadeY2;
+    part.shadeRadius = shape.shadeRadius;
+    part.shadowColor = shape.shadowColor;
+    part.highlightColor = shape.highlightColor;
     return part;
   }
 }
@@ -328,12 +337,20 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   // Back face, as in Zdog: only if the `front` point is strictly farther from the camera
   // than the origin. A shape edge-on to the camera is drawn with its front face.
   shape.localToWorld(point, ORIGIN);
-  const originDepth = camera.toView(point, point).z;
+  camera.toView(point, point);
+  const originX = point.x;
+  const originY = point.y;
+  const originDepth = point.z;
   front.x = shape.front.x;
   front.y = shape.front.y;
   front.z = shape.front.z;
   shape.localToWorld(point, front);
-  const facingBack = camera.toView(point, point).z < originDepth;
+  camera.toView(point, point);
+  // The face's normal in camera space, toward its front side.
+  const nx = point.x - originX;
+  const ny = point.y - originY;
+  const nz = point.z - originDepth;
+  const facingBack = nz < 0;
   if (facingBack && !style.backfaceVisible) return false;
 
   camera.toView(point, shape.perspectiveReference.getWorldPosition(point));
@@ -350,7 +367,7 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
       Math.hypot(world[3] ?? 0, world[4] ?? 0, world[5] ?? 0),
   );
   const lineWidth = style.stroke * nodeScale * s;
-  const color = facingBack ? (style.backfaceColor ?? style.color) : style.color;
+  let color = facingBack ? (style.backfaceColor ?? style.color) : style.color;
 
   const { ops, points, opCount } = shape.geometry;
   const path = out.path.reset();
@@ -367,7 +384,20 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
     out.hasFill = true;
     // A point with a thick stroke is a sphere, like the mascot's head in Zdog: it occludes.
     out.setSphereOccluder(point.x * s, point.y * s, lineWidth / 2, point.z, s);
+    if (style.toned && !facingBack) {
+      out.shade = 'sphere';
+      out.shadeX = out.occluderX;
+      out.shadeY = out.occluderY;
+      out.shadeRadius = out.occluderRadius;
+      out.shadowColor = style.shadowColor;
+      out.highlightColor = style.highlightColor;
+    }
     return true;
+  }
+  // A filled face takes one tone by its normal, its edge stroke too.
+  if (style.toned && style.fill && !facingBack) {
+    color = faceColor(style, color, nx, ny, nz, camera.light);
+    out.color = color;
   }
 
   let index = 0;
@@ -397,6 +427,28 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   out.hasStroke = lineWidth > 0;
   out.hasFill = style.fill;
   out.splittable = !style.fill;
+  // A stroke alone along one segment is a capsule, and is shaded as one.
+  // упрощение: в Canvas 2D тонируется только обводка из одного отрезка; ломаные и кривые
+  // рисуются одним цветом (WebGL тонирует любые как трубки); вернуться, если такие линии станут
+  // заметной частью маскотов.
+  if (
+    style.toned &&
+    !style.fill &&
+    !facingBack &&
+    opCount === 2 &&
+    ops[1] === PathOp.line &&
+    !shape.geometry.closed
+  ) {
+    const data = path.data;
+    out.shade = 'capsule';
+    out.shadeX = data[0] ?? 0;
+    out.shadeY = data[1] ?? 0;
+    out.shadeX2 = data[2] ?? 0;
+    out.shadeY2 = data[3] ?? 0;
+    out.shadeRadius = lineWidth / 2;
+    out.shadowColor = style.shadowColor;
+    out.highlightColor = style.highlightColor;
+  }
   return true;
 }
 

@@ -1,5 +1,5 @@
 import type { Quat, Vec3 } from '@mascotte/math';
-import { Camera, PROJECTIONS } from '../scene/camera.ts';
+import { Camera, DEFAULT_LIGHT, PROJECTIONS } from '../scene/camera.ts';
 import { Node, SORT_MODES } from '../scene/node.ts';
 import type { ParamSchema, StyleParamSpec } from '../shapes/params.ts';
 import { Shape } from '../shapes/shape.ts';
@@ -450,6 +450,22 @@ registerProperties(Camera, [
     get: (node) => node.distance,
     set: (node, value) => {
       node.distance = value;
+    },
+  },
+  {
+    name: 'light',
+    type: 'vec3',
+    animatable: true,
+    default: DEFAULT_LIGHT,
+    get(node, out) {
+      const light = node.light;
+      out.x = light.x;
+      out.y = light.y;
+      out.z = light.z;
+      return out;
+    },
+    set(node, value) {
+      node.light = value;
     },
   },
 ]);
