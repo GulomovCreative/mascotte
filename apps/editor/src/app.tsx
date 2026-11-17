@@ -34,18 +34,24 @@ function BottomPanel() {
   };
   const onKeyDown = (event: KeyboardEvent) => {
     const at = BOTTOM_TABS.indexOf(open);
-    const last = BOTTOM_TABS.length - 1;
-    const next =
-      event.key === 'ArrowRight'
-        ? (at + 1) % BOTTOM_TABS.length
-        : event.key === 'ArrowLeft'
-          ? (at + last) % BOTTOM_TABS.length
-          : event.key === 'Home'
-            ? 0
-            : event.key === 'End'
-              ? last
-              : null;
-    if (next === null) return;
+    const count = BOTTOM_TABS.length;
+    let next: number;
+    switch (event.key) {
+      case 'ArrowRight':
+        next = (at + 1) % count;
+        break;
+      case 'ArrowLeft':
+        next = (at + count - 1) % count;
+        break;
+      case 'Home':
+        next = 0;
+        break;
+      case 'End':
+        next = count - 1;
+        break;
+      default:
+        return;
+    }
     event.preventDefault();
     select(BOTTOM_TABS[next] as BottomTab, true);
   };
