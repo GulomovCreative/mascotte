@@ -566,6 +566,21 @@ describe('Player on WebGL2', () => {
         ).join(),
       );
       expect(new Set(data).size).toBe(3);
+      // Pip without its animation: every frame like the last, which a renderer would skip; each
+      // is still drawn.
+      const still = {
+        ...pipDocument(),
+        motions: {},
+        layers: [],
+        machines: [],
+        constraints: [],
+        springs: [],
+      };
+      player.load(JSON.stringify(still));
+      const same = await Promise.all(
+        (await player.exportFrames({ duration: 0.3, fps: 10 })).map(bitmap),
+      );
+      for (const frame of same) expect(pixel(frame, 5, 5)).toEqual([0xe6, 0xf0, 0xff, 255]);
     } finally {
       player.destroy();
       glCanvas.remove();

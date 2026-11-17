@@ -153,12 +153,7 @@ export async function exportFrames(
 ): Promise<Blob[]> {
   const fps = check('fps', options.fps ?? 30);
   const count = Math.max(1, Math.round(check('duration', options.duration) * fps));
-  const built = buildDocument(
-    document,
-    build.palette === undefined
-      ? { params: build.params }
-      : { params: build.params, palette: build.palette },
-  );
+  const built = buildDocument(document, build);
   const scene = new Scene(built.root);
   const animator = new Animator(scene, { rig: built.rig });
   built.animate(animator);

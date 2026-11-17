@@ -164,9 +164,7 @@ class SvgTarget {
       const py = Math.sin(t) * ry;
       return [x + px * cos - py * sin, y + px * sin + py * cos];
     };
-    const [sx, sy] = at(start);
-    this.#path += `${this.#hasPoint ? 'L' : 'M'}${n(sx)} ${n(sy)}`;
-    this.#hasPoint = true;
+    this.lineTo(...at(start));
     if (sweep === 0) return;
     // SVG cannot draw a whole turn in one arc: at most halves.
     const parts = Math.ceil(Math.abs(sweep) / Math.PI - 1e-9);
@@ -207,8 +205,13 @@ class SvgTarget {
   restore(): void {
     const previous = this.#stack.pop();
     if (!previous) return;
-    for (let i = 0; i < this.#state.groups; i++) this.#body.push('</g>');
+    this.#closeClips();
     this.#state = previous;
+  }
+
+  /** Closes the clip groups the current state opened. */
+  #closeClips(): void {
+    for (; this.#state.groups > 0; this.#state.groups--) this.#body.push('</g>');
   }
 
   clip(): void {
@@ -222,8 +225,7 @@ class SvgTarget {
   document(width: number, height: number): string {
     while (this.#stack.length > 0) this.restore();
     // A clip made without a save stays open in the base state: close it too.
-    for (let i = 0; i < this.#state.groups; i++) this.#body.push('</g>');
-    this.#state.groups = 0;
+    this.#closeClips();
     const close = this.#transformOpen ? '</g>' : '';
     const defs = this.#defs.length > 0 ? `<defs>${this.#defs.join('')}</defs>` : '';
     return `<svg xmlns="http://www.w3.org/2000/svg" width="${n(width)}" height="${n(height)}" viewBox="0 0 ${n(width)} ${n(height)}">${defs}${this.#body.join('')}${close}</svg>`;
