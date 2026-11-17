@@ -37,21 +37,26 @@ import { triangulate } from './triangulate.ts';
  * it (the base color where the style has none).
  */
 export const STRIDE = {
-  /** ax ay az, bx by bz, radius, shadow, highlight, color */
-  capsule: 19,
-  /** cx cy cz, radius, shadow, highlight, color */
-  sphere: 16,
-  /** cx cy cz, radius, axis x y z (unit, toward the dome), color */
-  hemisphere: 11,
-  /** ax ay az, bx by bz, radius, color */
-  cylinder: 11,
-  /** base center x y z, apex x y z, base radius, color */
-  cone: 11,
-  /** triangle vertex: x y z, color */
-  fill: 7,
-  /** an outline: ax ay az, bx by bz, inner and outer radius, push back, color */
-  ring: 13,
+  /** ax ay az, bx by bz, radius, shadow, highlight, color, object */
+  capsule: 20,
+  /** cx cy cz, radius, shadow, highlight, color, object */
+  sphere: 17,
+  /** cx cy cz, radius, axis x y z (unit, toward the dome), color, object */
+  hemisphere: 12,
+  /** ax ay az, bx by bz, radius, color, object */
+  cylinder: 12,
+  /** base center x y z, apex x y z, base radius, color, object */
+  cone: 12,
+  /** triangle vertex: x y z, color, object */
+  fill: 8,
 } as const;
+
+/**
+ * Numbers per object in `GLFrame.objects`: the outline color (RGBA, 0–1, with the shape's
+ * opacity); its width in CSS pixels on screen (0 for none), its bucket's stencil number (a
+ * decal's anchor number, or an anchor's own), 1 for a decal (else 0), and its sort layer.
+ */
+export const OBJECT_STRIDE = 8;
 
 export type PrimitiveKind = keyof typeof STRIDE;
 export const PRIMITIVE_KINDS = Object.keys(STRIDE) as PrimitiveKind[];
@@ -77,7 +82,6 @@ export class Bucket {
     cylinder: new FloatBuffer(),
     cone: new FloatBuffer(),
     fill: new FloatBuffer(),
-    ring: new FloatBuffer(),
   };
 
   reset(): void {
@@ -110,6 +114,11 @@ export interface GLFrame {
   readonly zMax: number;
   /** The camera's light direction (normalized, in camera space, as screen 3D). */
   readonly light: Readonly<Vec3>;
+  /**
+   * The shapes' outlines, `OBJECT_STRIDE` numbers each, by the object number every primitive
+   * ends with (1 and up; 0 is none: the background, or a primitive emitted for hit-testing).
+   */
+  readonly objects: FloatBuffer;
 }
 
 /** How many decal anchors fit in one layer: the anchor number takes 7 stencil bits. */
@@ -193,8 +202,6 @@ const CORNERS: readonly (readonly [number, number])[] = [
   [-1, 1],
 ];
 const scratch: Vec3 = { x: 0, y: 0, z: 0 };
-// The two ends of an outline ring along a polyline edge.
-const ringPoints = new Float32Array(6);
 const local: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
@@ -217,11 +224,19 @@ export class GLCollector {
   #zMin = 0;
   #zMax = 0;
   #warnedAnchors = false;
-  readonly #frame: { layers: readonly Layer[]; zMin: number; zMax: number; light: Vec3 } = {
+  readonly #objects = new FloatBuffer();
+  readonly #frame: {
+    layers: readonly Layer[];
+    zMin: number;
+    zMax: number;
+    light: Vec3;
+    objects: FloatBuffer;
+  } = {
     layers: this.#layers.items,
     zMin: 0,
     zMax: 0,
     light: { x: 0, y: 0, z: 1 },
+    objects: this.#objects,
   };
   // Polyline of the current contour in screen 3D and the indices of its triangles.
   readonly #line = new Polyline();
@@ -231,17 +246,20 @@ export class GLCollector {
   #radius = 0;
   #opacity = 1;
   #axis = 1;
-  // The current shape's outline: its width in screen pixels (0 for none) and color, and the
-  // inner radius and push back of the rings being written.
+  // The current shape's object number (0 when emitted for hit-testing) and outline width in
+  // screen pixels (0 for none).
+  #id = 0;
   #outline = 0;
-  #outlineCss = '';
-  #ringInner = 0;
-  #ringBack = 0;
+  #run = 0;
   readonly #triangles = new IndexBuffer();
 
   collect(scene: Scene, camera: Camera): GLFrame {
     this.#used = 0;
     this.#layers.begin();
+    const objects = this.#objects;
+    objects.reset();
+    // Object 0: none.
+    objects.data.fill(0, objects.reserve(OBJECT_STRIDE), OBJECT_STRIDE);
     this.#anchorFrame++;
     if (scene !== this.#anchorScene || scene.structureVersion !== this.#anchorStructure) {
       this.#anchors.clear();
@@ -287,6 +305,7 @@ export class GLCollector {
           this.#anchorId(drawable) || (drawable.owner ? this.#anchorId(drawable.owner) : 0);
         bucket = this.#opaque(layer, own);
       }
+      this.#run = runs[i] ?? 0;
       this.#emit(drawable, camera, bucket, opacity);
     }
     if (this.#zMin > this.#zMax) {
@@ -387,15 +406,17 @@ export class GLCollector {
    * accounting for the back face and perspective. Needed by hit-testing.
    */
   emitDrawable(drawable: Drawable, camera: Camera, bucket: Bucket): void {
-    this.#emit(drawable, camera, bucket, 1);
+    this.#emit(drawable, camera, bucket, 1, false);
   }
 
-  #emit(drawable: Drawable, camera: Camera, bucket: Bucket, opacity: number): void {
+  /** Emits `drawable`; as an object of the frame (with its outline) if `listed`. */
+  #emit(drawable: Drawable, camera: Camera, bucket: Bucket, opacity: number, listed = true): void {
     if (!this.#scale(drawable, camera)) return;
     this.#opacity = opacity;
     this.#camera = camera;
     this.#outline = 0;
-    this.#outlineCss = drawable.style.outlineColor;
+    const objects = this.#objects;
+    this.#id = listed ? objects.length / OBJECT_STRIDE : 0;
     mat3x4.multiply(nodeView, camera.viewMatrix, drawable.worldMatrix);
     if (drawable instanceof Shape) this.#shape(drawable, bucket);
     else if (drawable instanceof Sphere) this.#sphere(drawable, bucket);
@@ -404,6 +425,13 @@ export class GLCollector {
     else if (drawable instanceof CylinderBody) this.#cylinderBody(drawable, bucket);
     else if (drawable instanceof ConeSurface) this.#coneSurface(drawable, bucket);
     else if (drawable instanceof BlobShadow) this.#blobShadow(drawable, bucket);
+    if (!listed) return;
+    const o = objects.reserve(OBJECT_STRIDE);
+    this.#writeColor(objects.data, o, drawable.style.outlineColor);
+    objects.data[o + 4] = this.#outline;
+    objects.data[o + 5] = bucket.stencil;
+    objects.data[o + 6] = bucket.decal ? 1 : 0;
+    objects.data[o + 7] = this.#run;
   }
 
   /** Color `css` with the shape's opacity into `d` at index `o`. */
@@ -436,58 +464,8 @@ export class GLCollector {
     d[o + 2] = scratch.z;
     d[o + 3] = r;
     this.#writeTones(d, o + 4, tones, css);
+    d[o + 16] = this.#id;
     this.#extent(scratch.z, r);
-    if (this.#outline > 0) {
-      this.#ringInner = r;
-      this.#ringBack = 1 - r;
-      this.#pushRing(bucket, d, o, o);
-    }
-  }
-
-  /**
-   * An outline ring from `#ringInner` to `#ringInner + #outline`, pushed back by `#ringBack` from
-   * the segment between the points at `a` and `b` of `d` (equal for a sphere). Around a sphere or
-   * a capsule it stands a pixel behind the shape's front, so it edges the shape over whatever lies
-   * behind that, a head under an eye too, as in Canvas 2D; around a tube, a pixel behind its axis;
-   * around a face, behind the whole band, so the face covers whatever part of it lies inside.
-   * упрощение: у коробки WebGL обводит только силуэт, а Canvas 2D — каждую грань, так что
-   * внутренние рёбра видны только в Canvas 2D; вернуться, если коробки появятся в маскотах.
-   */
-  #pushRing(bucket: Bucket, d: Float32Array, a: number, b: number): void {
-    const out = bucket.data.ring;
-    const o = out.reserve(STRIDE.ring);
-    const r = out.data;
-    r[o] = d[a] as number;
-    r[o + 1] = d[a + 1] as number;
-    r[o + 2] = d[a + 2] as number;
-    r[o + 3] = d[b] as number;
-    r[o + 4] = d[b + 1] as number;
-    r[o + 5] = d[b + 2] as number;
-    r[o + 6] = this.#ringInner;
-    r[o + 7] = this.#ringInner + this.#outline;
-    r[o + 8] = this.#ringBack;
-    this.#writeColor(r, o + 9, this.#outlineCss);
-    this.#extent(r[o + 2] as number, r[o + 7] as number);
-    this.#extent(r[o + 5] as number, r[o + 7] as number);
-  }
-
-  /**
-   * Outline rings along the first `n` points of the polyline, and from the last back to the
-   * first if `closed`.
-   */
-  #outlineLine(bucket: Bucket, n: number, closed: boolean): void {
-    const line = this.#line;
-    const d = ringPoints;
-    for (let i = closed ? 0 : 1; i < n; i++) {
-      const j = i === 0 ? n - 1 : i - 1;
-      d[0] = line.xs[j] as number;
-      d[1] = line.ys[j] as number;
-      d[2] = line.zs[j] as number;
-      d[3] = line.xs[i] as number;
-      d[4] = line.ys[i] as number;
-      d[5] = line.zs[i] as number;
-      this.#pushRing(bucket, d, 0, 3);
-    }
   }
 
   /**
@@ -523,14 +501,9 @@ export class GLCollector {
     d[o + 4] = (ty + zy * to) * s;
     d[o + 5] = bz;
     d[o + 6] = r;
-    if (kind === 'capsule') {
-      this.#writeTones(d, o + 7, tones, css);
-      if (this.#outline > 0) {
-        this.#ringInner = r;
-        this.#ringBack = 1 - r;
-        this.#pushRing(bucket, d, o, o + 3);
-      }
-    } else this.#writeColor(d, o + 7, css);
+    if (kind === 'capsule') this.#writeTones(d, o + 7, tones, css);
+    else this.#writeColor(d, o + 7, css);
+    d[o + STRIDE[kind] - 1] = this.#id;
     this.#extent(az, r);
     this.#extent(bz, r);
   }
@@ -711,21 +684,13 @@ export class GLCollector {
         d[o + 5] = bz;
         d[o + 6] = radius;
         this.#writeTones(d, o + 7, tones, css);
+        d[o + 19] = this.#id;
         o += STRIDE.capsule;
         if (az - radius < this.#zMin) this.#zMin = az - radius;
         if (az + radius > this.#zMax) this.#zMax = az + radius;
         if (bz - radius < this.#zMin) this.#zMin = bz - radius;
         if (bz + radius > this.#zMax) this.#zMax = bz + radius;
       }
-    }
-    // Only around what is drawn: a stroke, or a face (Canvas 2D drops a path with neither).
-    if (this.#outline > 0 && line.length > 1 && (radius > 0 || fill)) {
-      // Around a lone stroke a pixel behind its axis (its segments overlap at the joints, and
-      // rings any nearer would cover the neighbors); around a face behind the whole band, so the
-      // face covers whatever part of it lies inside.
-      this.#ringInner = radius;
-      this.#ringBack = fill ? radius + this.#outline : 1;
-      this.#outlineLine(bucket, line.length, false);
     }
     if (fill) this.#fill(bucket, css, closed && line.length > 2 ? line.length - 1 : line.length);
     line.clear();
@@ -763,7 +728,6 @@ export class GLCollector {
       line.zs[n] = (xz * cx + yz * cy + tz) * s;
     }
     this.#fill(bucket, css, steps);
-    this.#outlineFace(bucket, steps);
   }
 
   /**
@@ -795,15 +759,6 @@ export class GLCollector {
       line.zs[n] = p.z * s;
     }
     this.#fill(bucket, css, 4);
-    this.#outlineFace(bucket, 4);
-  }
-
-  /** Outlines a cap or a box face, the closed polygon of the first `n` points of the polyline. */
-  #outlineFace(bucket: Bucket, n: number): void {
-    if (!(this.#outline > 0)) return;
-    this.#ringInner = 0;
-    this.#ringBack = this.#outline;
-    this.#outlineLine(bucket, n, true);
   }
 
   /** Fills the first `n` points of the current polyline with triangles. */
@@ -822,6 +777,7 @@ export class GLCollector {
       d[o + 1] = line.ys[i] as number;
       d[o + 2] = z;
       this.#writeColor(d, o + 3, css);
+      d[o + 7] = this.#id;
       o += STRIDE.fill;
       if (z < this.#zMin) this.#zMin = z;
       if (z > this.#zMax) this.#zMax = z;
@@ -909,6 +865,7 @@ export class GLCollector {
     d[o + 5] = (m[7] as number) / axis;
     d[o + 6] = (m[8] as number) / axis;
     this.#writeColor(d, o + 7, dome.style.color);
+    d[o + 11] = this.#id;
     this.#extent(cz, r);
   }
 
@@ -938,6 +895,7 @@ export class GLCollector {
     d[o + 5] = apexZ;
     d[o + 6] = r;
     this.#writeColor(d, o + 7, surface.style.color);
+    d[o + 11] = this.#id;
     this.#extent(cz, r);
     this.#extent(apexZ, 0);
   }

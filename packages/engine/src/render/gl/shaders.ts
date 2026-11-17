@@ -5,6 +5,19 @@ import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from '../tone.ts';
  * y down, z toward the viewer). The view ray at pixel p goes from (p.x, p.y, uRayZ) along −z.
  */
 
+/**
+ * The object number as a color (24 bits in RGB) with the decal order in alpha, for the outline
+ * pass (`outlineProgram`).
+ */
+const ID_COLOR = /* glsl */ `vec4 idColor() {
+  return vec4(
+    mod(vId, 256.0) / 255.0,
+    mod(floor(vId / 256.0), 256.0) / 255.0,
+    floor(vId / 65536.0) / 255.0,
+    uOrder / 255.0
+  );
+}`;
+
 /** Shared fragment shader functions. */
 const common = /* glsl */ `#version 300 es
 precision highp float;
@@ -13,12 +26,18 @@ uniform float uPx;     // internal frame pixels per CSS pixel
 uniform float uRayZ;
 uniform float uSolid;  // 1 means draw only fully covered pixels (see shade)
 uniform vec3 uLight;   // toward the light, normalized
+uniform vec2 uRange;   // the part of the depth range drawn into: start, size
+uniform float uIdPass; // 1 when drawing object numbers for the outline pass
+uniform float uOrder;  // that pass's decal order (0 for a shape that is not a decal)
 in vec2 vPos;
+flat in float vId;
 out vec4 outColor;
 
 float depthOf(float z) {
-  return clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
+  return uRange.x + uRange.y * clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
 }
+
+${ID_COLOR}
 
 float coverage(float inside) {
   return clamp(inside * uPx + 0.5, 0.0, 1.0);
@@ -60,8 +79,10 @@ uniform float uPx;
 in vec2 aCorner;       // rectangle corners, 0..1
 ${attributes}
 in vec4 aColor;
+in float aId;
 out vec2 vPos;
 flat out vec4 vColor;
+flat out float vId;
 ${pass
   .split(';')
   .filter(Boolean)
@@ -75,6 +96,7 @@ void main() {
   vec2 p = mix(lo, hi, aCorner);
   vPos = p;
   vColor = aColor;
+  vId = aId;
   ${pass
     .split(';')
     .filter(Boolean)
@@ -99,6 +121,11 @@ ${pass
 // Pixel color with edge coverage. A translucent shape is drawn in two passes: first
 // only fully covered pixels, then the edges; the stencil lets each pixel through once.
 vec4 shade(float cover, vec3 rgb) {
+  // Object numbers: whole pixels, a shape's where it covers most.
+  if (uIdPass > 0.5) {
+    if (cover < 0.5) discard;
+    return idColor();
+  }
   if (uSolid > 0.5 && cover < 1.0) discard;
   return vec4(rgb, vColor.a * cover);
 }
@@ -311,59 +338,34 @@ export const coneProgram = {
   ] as const,
 };
 
-const RING_PASS = 'vec3 vA; vec3 vB; float vInner; float vOuter; float vBack;';
-/**
- * An outline: the band from `inner` to `outer` around a segment (a point for a sphere) on screen,
- * at the depth of the segment's point nearest the pixel on screen, pushed back by `back` (forward
- * if negative), so the shape it outlines stays in front of it while it edges the shape over what
- * lies behind.
- */
-export const ringProgram = {
-  vertex: impostorVertex(
-    'in vec3 aA; in vec3 aB; in float aInner; in float aOuter; in float aBack;',
-    'lo = min(aA.xy, aB.xy) - aOuter; hi = max(aA.xy, aB.xy) + aOuter;',
-    RING_PASS,
-  ),
-  fragment: fragment(
-    RING_PASS,
-    /* glsl */ `
-  vec2 ab = vB.xy - vA.xy;
-  float t = clamp(dot(vPos - vA.xy, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
-  float d = length(vPos - vA.xy - ab * t);
-  float cover = coverage(vOuter - d);
-  // Inside the shape, past the pixel of its antialiased edge, there is nothing to draw.
-  if (cover <= 0.0 || d < vInner - 1.0 / uPx) discard;
-  gl_FragDepth = depthOf(mix(vA.z, vB.z, t) - vBack);
-  outColor = shade(cover);`,
-  ),
-  attributes: [
-    ['aA', 3],
-    ['aB', 3],
-    ['aInner', 1],
-    ['aOuter', 1],
-    ['aBack', 1],
-  ] as const,
-};
-
 export const fillProgram = {
   vertex: /* glsl */ `#version 300 es
 precision highp float;
 uniform vec2 uHalf;
 uniform vec2 uDepth;
+uniform vec2 uRange;
 in vec3 aPosition;
 in vec4 aColor;
+in float aId;
 flat out vec4 vColor;
+flat out float vId;
 void main() {
-  float depth = clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
+  float depth =
+    uRange.x + uRange.y * clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
   vColor = aColor;
+  vId = aId;
   gl_Position = vec4(aPosition.x / uHalf.x, -aPosition.y / uHalf.y, depth * 2.0 - 1.0, 1.0);
 }
 `,
   fragment: /* glsl */ `#version 300 es
 precision highp float;
+uniform float uIdPass;
+uniform float uOrder;
 flat in vec4 vColor;
+flat in float vId;
 out vec4 outColor;
-void main() { outColor = vColor; }
+${ID_COLOR}
+void main() { outColor = uIdPass > 0.5 ? idColor() : vColor; }
 `,
   attributes: [['aPosition', 3]] as const,
 };

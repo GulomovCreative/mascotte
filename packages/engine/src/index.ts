@@ -98,6 +98,7 @@ export {
   type GLFrame,
   type GLLayer,
   MAX_ANCHORS,
+  OBJECT_STRIDE,
   PRIMITIVE_KINDS,
   type PrimitiveKind,
   STRIDE,

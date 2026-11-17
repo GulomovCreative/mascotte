@@ -2,14 +2,20 @@ import { color as colorMath } from '@mascotte/math';
 import type { Camera } from '../../scene/camera.ts';
 import type { Scene } from '../../scene/scene.ts';
 import type { Viewport } from '../canvas.ts';
-import { type Bucket, GLCollector, type GLFrame, type PrimitiveKind, STRIDE } from './collect.ts';
+import {
+  type Bucket,
+  GLCollector,
+  type GLFrame,
+  OBJECT_STRIDE,
+  type PrimitiveKind,
+  STRIDE,
+} from './collect.ts';
 import {
   capsuleProgram,
   coneProgram,
   cylinderProgram,
   fillProgram,
   hemisphereProgram,
-  ringProgram,
   sphereProgram,
 } from './shaders.ts';
 
@@ -34,13 +40,10 @@ const SOURCES: Record<PrimitiveKind, ProgramSource> = {
   cylinder: cylinderProgram,
   cone: coneProgram,
   fill: fillProgram,
-  ring: ringProgram,
 };
 
 /** Drawing order of kinds within a bucket. */
 const ORDER: readonly PrimitiveKind[] = [
-  // Outlines first: a decal, drawn in order without a depth test, then covers its own.
-  'ring',
   'fill',
   'cylinder',
   'cone',
@@ -75,7 +78,11 @@ export const PIXEL_BUDGET = 2 ** 23;
 const COVERED = 0x80;
 const ID_BITS = 0x7f;
 
-/** Internal frame buffers: a multisampled one for drawing and a regular one for downsampling. */
+/**
+ * Internal frame buffers: a multisampled one for drawing and a regular one for downsampling; for
+ * outlines, the object numbers with their depth (`ids`), and which blocks of `BLOCK` pixels have
+ * an edge between objects (`blocks`).
+ */
 interface Targets {
   width: number;
   height: number;
@@ -83,8 +90,20 @@ interface Targets {
   msaa: WebGLFramebuffer;
   resolve: WebGLFramebuffer;
   color: WebGLTexture;
+  ids: WebGLFramebuffer;
+  idColor: WebGLTexture;
+  idDepth: WebGLTexture;
+  blocks: WebGLFramebuffer;
+  blockColor: WebGLTexture;
   renderbuffers: WebGLRenderbuffer[];
 }
+
+/** The side of a block of internal pixels the outline pass skips when it has no edge. */
+const BLOCK = 8;
+/** The widest outline in internal pixels: a wider one is drawn this wide. */
+const MAX_OUTLINE = 32;
+/** Texels per row of the object table (two per object: color, width). */
+const OBJECT_ROW = 1024;
 
 /** WebGL objects that are recreated after a context loss. */
 interface Resources {
@@ -93,6 +112,12 @@ interface Resources {
   emptyVao: WebGLVertexArrayObject;
   /** Program that sets alpha to 1 in covered samples. */
   cover: WebGLProgram;
+  /** Marks the blocks with an edge between objects. */
+  blocks: { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null> };
+  /** Draws the outlines over the resolved frame. */
+  outline: { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null> };
+  /** The frame's object table (`GLFrame.objects`), RGBA float texels. */
+  objects: WebGLTexture;
   /** Downsampling programs keyed by factor, created as needed. */
   downsample: Map<number, { program: WebGLProgram; color: WebGLUniformLocation }>;
   shaders: WebGLShader[];
@@ -142,6 +167,10 @@ export class WebGLRenderer {
   #backgroundParsed = false;
   readonly #backgroundRgba = new Float64Array(4);
   #supersample = 1;
+  // The part of the depth range the shapes being drawn go to: all of it for the frame, a layer's
+  // share in the object pass.
+  #rangeStart = 0;
+  #rangeSize = 1;
 
   readonly #onLost = (event: Event) => {
     // Without preventDefault the browser will not restore the context.
@@ -286,7 +315,7 @@ export class WebGLRenderer {
       gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
       for (const bucket of layer.opaque) {
         gl.stencilFunc(gl.ALWAYS, bucket.stencil | COVERED, 0xff);
-        this.#draw(res, bucket, frame, false);
+        this.#draw(res, bucket, frame, false, 0);
       }
 
       // Decals: only on the visible pixels of their anchor, in sort order and without
@@ -304,7 +333,7 @@ export class WebGLRenderer {
           gl.disable(gl.BLEND);
           gl.colorMask(true, true, true, false);
         }
-        this.#draw(res, bucket, frame, false);
+        this.#draw(res, bucket, frame, false, 0);
       }
 
       // Translucent: in order, blended, without depth writes. Each shape
@@ -326,8 +355,8 @@ export class WebGLRenderer {
           }
           id++;
           gl.stencilFunc(gl.NOTEQUAL, id, ID_BITS);
-          this.#draw(res, bucket, frame, true);
-          this.#draw(res, bucket, frame, false);
+          this.#draw(res, bucket, frame, true, 0);
+          this.#draw(res, bucket, frame, false, 0);
         }
       }
     }
@@ -347,7 +376,7 @@ export class WebGLRenderer {
     gl.stencilMask(0xff);
     gl.disable(gl.STENCIL_TEST);
 
-    // Multisampled buffer → regular texture → canvas with block averaging.
+    // Multisampled buffer → regular texture (→ outlines) → canvas with block averaging.
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, targets.msaa);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, targets.resolve);
     gl.blitFramebuffer(
@@ -362,6 +391,7 @@ export class WebGLRenderer {
       gl.COLOR_BUFFER_BIT,
       gl.NEAREST,
     );
+    this.#outlines(res, targets, frame);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     gl.viewport(0, 0, gl.drawingBufferWidth, gl.drawingBufferHeight);
     const downsample = this.#downsample(res, factor);
@@ -375,6 +405,131 @@ export class WebGLRenderer {
     // Only a drawn frame is remembered: after an error the next call draws again.
     this.#remember(scene, camera, viewport, ratio);
     return true;
+  }
+
+  /**
+   * Outlines, drawn over the resolved frame `targets.color`. The opaque shapes and decals are
+   * drawn once more as object numbers, whole pixels at the internal resolution (antialiased by
+   * the downsampling only), each layer in front of the one before in its own share of the depth
+   * range. Then a pixel within an object's outline width of it, of something behind it (or of the
+   * background), takes the outline of the nearest such object: an outline edges its shape over
+   * whatever lies behind, and whatever lies in front covers it, as in Canvas 2D. A decal counts
+   * as in front of its anchor and of the decals before it, unless clearly behind, and its outline
+   * stays on the anchor, as Canvas 2D clips it.
+   *
+   * упрощение: полупрозрачные фигуры не дают номеров: они не обводятся и не закрывают обводки,
+   * которые рисуются поверх всего кадра; вернуться, если понадобятся обводки у полупрозрачного.
+   */
+  #outlines(res: Resources, targets: Targets, frame: GLFrame): void {
+    const objects = frame.objects;
+    const count = objects.length / OBJECT_STRIDE;
+    let widest = 0;
+    for (let i = 1; i < count; i++) {
+      const width = objects.data[i * OBJECT_STRIDE + 4] as number;
+      if (width > widest) widest = width;
+    }
+    if (!(widest > 0)) return;
+    const gl = this.gl;
+    const radius = Math.min(MAX_OUTLINE, Math.ceil(widest * this.#px) + 1);
+
+    // The object numbers and their depth.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.ids);
+    gl.viewport(0, 0, targets.width, targets.height);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.stencilMask(0xff);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clearDepth(1);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.STENCIL_TEST);
+    gl.depthFunc(gl.LESS);
+    const layers = frame.layers;
+    this.#rangeSize = 1 / layers.length;
+    for (let l = 0; l < layers.length; l++) {
+      const layer = layers[l] as GLFrame['layers'][number];
+      this.#rangeStart = (layers.length - 1 - l) * this.#rangeSize;
+      if (l > 0) gl.clear(gl.STENCIL_BUFFER_BIT);
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+      for (const bucket of layer.opaque) {
+        gl.stencilFunc(gl.ALWAYS, bucket.stencil, 0xff);
+        this.#draw(res, bucket, frame, false, 1);
+      }
+      // Decals keep their anchor's depth.
+      gl.disable(gl.DEPTH_TEST);
+      gl.depthMask(false);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+      const decals = layer.decals;
+      for (let i = 0; i < decals.length; i++) {
+        const bucket = decals[i] as Bucket;
+        if (bucket.blend) continue;
+        gl.stencilFunc(gl.EQUAL, bucket.stencil, 0xff);
+        this.#draw(res, bucket, frame, false, Math.min(255, i + 1) + 1);
+      }
+    }
+    this.#rangeStart = 0;
+    this.#rangeSize = 1;
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.DEPTH_TEST);
+    gl.depthMask(true);
+
+    // The object table: two texels per object, in rows of `OBJECT_ROW`.
+    const rows = Math.ceil((count * 2) / OBJECT_ROW);
+    const size = rows * OBJECT_ROW * 4;
+    if (objects.length < size) objects.reserve(size - objects.length);
+    gl.activeTexture(gl.TEXTURE2);
+    gl.bindTexture(gl.TEXTURE_2D, res.objects);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA32F,
+      OBJECT_ROW,
+      rows,
+      0,
+      gl.RGBA,
+      gl.FLOAT,
+      objects.data,
+      0,
+    );
+
+    // The blocks with an edge.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.blocks);
+    gl.viewport(0, 0, Math.ceil(targets.width / BLOCK), Math.ceil(targets.height / BLOCK));
+    gl.useProgram(res.blocks.program);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, targets.idColor);
+    gl.uniform1i(res.blocks.uniforms.uIds ?? null, 0);
+    gl.uniform1i(res.blocks.uniforms.uBlock ?? null, BLOCK);
+    gl.bindVertexArray(res.emptyVao);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+
+    // The outlines over the frame.
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.resolve);
+    gl.viewport(0, 0, targets.width, targets.height);
+    const u = res.outline.uniforms;
+    gl.useProgram(res.outline.program);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, targets.idDepth);
+    gl.activeTexture(gl.TEXTURE3);
+    gl.bindTexture(gl.TEXTURE_2D, targets.blockColor);
+    gl.uniform1i(u.uIds ?? null, 0);
+    gl.uniform1i(u.uDepths ?? null, 1);
+    gl.uniform1i(u.uObjects ?? null, 2);
+    gl.uniform1i(u.uBlocks ?? null, 3);
+    gl.uniform1i(u.uBlock ?? null, BLOCK);
+    gl.uniform1i(u.uRadius ?? null, radius);
+    gl.uniform1f(u.uPx ?? null, this.#px);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.drawArrays(gl.TRIANGLES, 0, 3);
+    gl.disable(gl.BLEND);
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(null);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   /**
@@ -443,6 +598,22 @@ export class WebGLRenderer {
       gl.bindBuffer(gl.ARRAY_BUFFER, corners);
       gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
       res.cover = link(gl, FULLSCREEN_VERTEX, COVER_FRAGMENT, 'cover', shaders);
+      res.blocks = fullscreen(gl, BLOCKS_FRAGMENT, 'blocks', shaders, ['uIds', 'uBlock']);
+      res.outline = fullscreen(gl, OUTLINE_FRAGMENT, 'outline', shaders, [
+        'uIds',
+        'uDepths',
+        'uObjects',
+        'uBlocks',
+        'uBlock',
+        'uRadius',
+        'uPx',
+      ]);
+      const objects = gl.createTexture();
+      if (!objects) throw new Error('Failed to create WebGL objects.');
+      res.objects = objects;
+      gl.bindTexture(gl.TEXTURE_2D, objects);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
       const programs = {} as Record<PrimitiveKind, Program>;
       res.programs = programs;
       for (const kind of Object.keys(SOURCES) as PrimitiveKind[]) {
@@ -463,6 +634,9 @@ export class WebGLRenderer {
       gl.deleteBuffer(program.buffer);
     }
     if (res.cover) gl.deleteProgram(res.cover);
+    if (res.blocks) gl.deleteProgram(res.blocks.program);
+    if (res.outline) gl.deleteProgram(res.outline.program);
+    if (res.objects) gl.deleteTexture(res.objects);
     for (const { program } of res.downsample?.values() ?? []) gl.deleteProgram(program);
     for (const shader of res.shaders ?? []) gl.deleteShader(shader);
     if (res.corners) gl.deleteBuffer(res.corners);
@@ -515,7 +689,23 @@ export class WebGLRenderer {
     const color = gl.createTexture();
     const colorBuffer = gl.createRenderbuffer();
     const depthBuffer = gl.createRenderbuffer();
-    if (!msaa || !resolve || !color || !colorBuffer || !depthBuffer) {
+    const ids = gl.createFramebuffer();
+    const idColor = gl.createTexture();
+    const idDepth = gl.createTexture();
+    const blocks = gl.createFramebuffer();
+    const blockColor = gl.createTexture();
+    if (
+      !msaa ||
+      !resolve ||
+      !color ||
+      !colorBuffer ||
+      !depthBuffer ||
+      !ids ||
+      !idColor ||
+      !idDepth ||
+      !blocks ||
+      !blockColor
+    ) {
       throw new Error('Failed to create WebGL frame buffers.');
     }
     const targets: Targets = {
@@ -525,8 +715,35 @@ export class WebGLRenderer {
       msaa,
       resolve,
       color,
+      ids,
+      idColor,
+      idDepth,
+      blocks,
+      blockColor,
       renderbuffers: [colorBuffer, depthBuffer],
     };
+    const texture = (target: WebGLTexture, format: number, tw: number, th: number) => {
+      gl.bindTexture(gl.TEXTURE_2D, target);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, format, tw, th);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    };
+    texture(idColor, gl.RGBA8, w, h);
+    texture(idDepth, gl.DEPTH24_STENCIL8, w, h);
+    texture(blockColor, gl.R8, Math.ceil(w / BLOCK), Math.ceil(h / BLOCK));
+    gl.bindFramebuffer(gl.FRAMEBUFFER, ids);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, idColor, 0);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.DEPTH_STENCIL_ATTACHMENT, gl.TEXTURE_2D, idDepth, 0);
+    const idStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, blocks);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, blockColor, 0);
+    const blockStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (idStatus !== gl.FRAMEBUFFER_COMPLETE || blockStatus !== gl.FRAMEBUFFER_COMPLETE) {
+      deleteTargets(gl, targets);
+      throw new Error(
+        `Outline buffers ${w}×${h} were not created: status ${idStatus}, ${blockStatus}.`,
+      );
+    }
     gl.bindRenderbuffer(gl.RENDERBUFFER, colorBuffer);
     gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA8, w, h);
     gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
@@ -558,8 +775,12 @@ export class WebGLRenderer {
     return targets;
   }
 
-  /** `solid` is the first pass of a translucent shape: only fully covered pixels. */
-  #draw(res: Resources, bucket: Bucket, frame: GLFrame, solid: boolean): void {
+  /**
+   * `solid` is the first pass of a translucent shape: only fully covered pixels. `pass` is 0 for
+   * the frame; for the object numbers (`#outlines`), the decal order plus one (1 for a shape
+   * that is not a decal).
+   */
+  #draw(res: Resources, bucket: Bucket, frame: GLFrame, solid: boolean, pass: number): void {
     const gl = this.gl;
     for (let k = 0; k < ORDER.length; k++) {
       const kind = ORDER[k] as PrimitiveKind;
@@ -574,6 +795,9 @@ export class WebGLRenderer {
       gl.uniform1f(u.uRayZ ?? null, frame.zMax + 10);
       gl.uniform1f(u.uSolid ?? null, solid ? 1 : 0);
       gl.uniform3f(u.uLight ?? null, frame.light.x, frame.light.y, frame.light.z);
+      gl.uniform2f(u.uRange ?? null, this.#rangeStart, this.#rangeSize);
+      gl.uniform1f(u.uIdPass ?? null, pass > 0 ? 1 : 0);
+      gl.uniform1f(u.uOrder ?? null, Math.max(0, pass - 1));
       gl.bindVertexArray(program.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
       const data = bucket.data[kind];
@@ -607,7 +831,11 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     const stride = STRIDE[kind] * 4;
     let offset = 0;
-    for (const [name, size] of [...source.attributes, ['aColor', 4] as const]) {
+    for (const [name, size] of [
+      ...source.attributes,
+      ['aColor', 4] as const,
+      ['aId', 1] as const,
+    ]) {
       const location = gl.getAttribLocation(program, name);
       if (location >= 0) {
         gl.enableVertexAttribArray(location);
@@ -619,7 +847,17 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
     // The compiler drops a variable unused in the shader; its location is null.
     const uniforms: Record<string, WebGLUniformLocation | null> = {};
-    for (const name of ['uHalf', 'uDepth', 'uPx', 'uRayZ', 'uSolid', 'uLight']) {
+    for (const name of [
+      'uHalf',
+      'uDepth',
+      'uPx',
+      'uRayZ',
+      'uSolid',
+      'uLight',
+      'uRange',
+      'uIdPass',
+      'uOrder',
+    ]) {
       uniforms[name] = gl.getUniformLocation(program, name);
     }
     if (!uniforms.uHalf) throw new Error(`Program ${kind} has no uHalf.`);
@@ -656,6 +894,11 @@ function deleteTargets(gl: WebGL2RenderingContext, targets: Targets): void {
   gl.deleteFramebuffer(targets.msaa);
   gl.deleteFramebuffer(targets.resolve);
   gl.deleteTexture(targets.color);
+  gl.deleteFramebuffer(targets.ids);
+  gl.deleteTexture(targets.idColor);
+  gl.deleteTexture(targets.idDepth);
+  gl.deleteFramebuffer(targets.blocks);
+  gl.deleteTexture(targets.blockColor);
   for (const buffer of targets.renderbuffers) gl.deleteRenderbuffer(buffer);
 }
 
@@ -671,6 +914,133 @@ const COVER_FRAGMENT = `#version 300 es
 precision highp float;
 out vec4 outColor;
 void main() { outColor = vec4(0.0, 0.0, 0.0, 1.0); }
+`;
+
+/** A fullscreen program with the uniforms `names`. */
+function fullscreen(
+  gl: WebGL2RenderingContext,
+  fragment: string,
+  kind: string,
+  shaders: WebGLShader[],
+  names: readonly string[],
+): { program: WebGLProgram; uniforms: Record<string, WebGLUniformLocation | null> } {
+  const program = link(gl, FULLSCREEN_VERTEX, fragment, kind, shaders);
+  const uniforms: Record<string, WebGLUniformLocation | null> = {};
+  for (const name of names) uniforms[name] = gl.getUniformLocation(program, name);
+  return { program, uniforms };
+}
+
+/** Marks a block of `uBlock` pixels that has two neighbors of different objects. */
+const BLOCKS_FRAGMENT = `#version 300 es
+precision highp float;
+uniform highp sampler2D uIds;
+uniform int uBlock;
+out vec4 outColor;
+void main() {
+  ivec2 size = textureSize(uIds, 0);
+  ivec2 base = ivec2(gl_FragCoord.xy) * uBlock;
+  float edge = 0.0;
+  for (int y = 0; y < uBlock && edge == 0.0; y++) {
+    for (int x = 0; x < uBlock; x++) {
+      ivec2 q = base + ivec2(x, y);
+      if (q.x >= size.x || q.y >= size.y) continue;
+      vec4 c = texelFetch(uIds, q, 0);
+      if ((q.x + 1 < size.x && texelFetch(uIds, q + ivec2(1, 0), 0) != c) ||
+          (q.y + 1 < size.y && texelFetch(uIds, q + ivec2(0, 1), 0) != c)) {
+        edge = 1.0;
+        break;
+      }
+    }
+  }
+  outColor = vec4(edge, 0.0, 0.0, 1.0);
+}
+`;
+
+/** See \`WebGLRenderer.#outlines\`. */
+const OUTLINE_FRAGMENT = `#version 300 es
+precision highp float;
+uniform highp sampler2D uIds;
+uniform highp sampler2D uDepths;
+uniform highp sampler2D uObjects;
+uniform highp sampler2D uBlocks;
+uniform int uBlock;
+uniform int uRadius;
+uniform float uPx;
+out vec4 outColor;
+
+// A decal next to its anchor may lie a little deeper on screen: it is in front up to this.
+const float SLACK = 0.02;
+
+int idAt(ivec2 q, out float order) {
+  vec4 c = texelFetch(uIds, q, 0) * 255.0 + 0.5;
+  order = floor(c.a);
+  return int(c.r) + int(c.g) * 256 + int(c.b) * 65536;
+}
+
+vec4 objectAt(int id, int part) {
+  int i = id * 2 + part;
+  return texelFetch(uObjects, ivec2(i % ${OBJECT_ROW}, i / ${OBJECT_ROW}), 0);
+}
+
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(uIds, 0);
+  // Far from any edge: nothing to draw.
+  ivec2 block = p / uBlock;
+  ivec2 blocks = textureSize(uBlocks, 0);
+  int reach = (uRadius + uBlock - 1) / uBlock;
+  bool near = false;
+  for (int by = -reach; by <= reach && !near; by++) {
+    for (int bx = -reach; bx <= reach; bx++) {
+      ivec2 b = block + ivec2(bx, by);
+      if (b.x < 0 || b.y < 0 || b.x >= blocks.x || b.y >= blocks.y) continue;
+      if (texelFetch(uBlocks, b, 0).r > 0.5) {
+        near = true;
+        break;
+      }
+    }
+  }
+  if (!near) discard;
+  float orderP;
+  int idP = idAt(p, orderP);
+  float depthP = texelFetch(uDepths, p, 0).r;
+  float best = 1e9;
+  float bestWidth = 0.0;
+  int bestId = 0;
+  for (int dy = -uRadius; dy <= uRadius; dy++) {
+    for (int dx = -uRadius; dx <= uRadius; dx++) {
+      float d = length(vec2(dx, dy));
+      if (d >= best || d > float(uRadius)) continue;
+      ivec2 q = p + ivec2(dx, dy);
+      if (q.x < 0 || q.y < 0 || q.x >= size.x || q.y >= size.y) continue;
+      float orderQ;
+      int idQ = idAt(q, orderQ);
+      if (idQ == 0 || idQ == idP) continue;
+      vec4 objectQ = objectAt(idQ, 1);
+      float width = objectQ.r * uPx;
+      if (!(width > 0.0) || d > width + 0.5) continue;
+      // A decal's outline stays on its anchor (and the anchor's decals), as it is clipped to it.
+      if (objectQ.b > 0.5) {
+        if (idP == 0) continue;
+        vec4 objectP = objectAt(idP, 1);
+        if (objectP.g != objectQ.g || objectP.a != objectQ.a) continue;
+      }
+      float depthQ = texelFetch(uDepths, q, 0).r;
+      bool front = orderQ > orderP
+        ? depthQ < depthP + SLACK
+        : orderQ < orderP ? depthQ < depthP - SLACK : depthQ < depthP;
+      if (!front) continue;
+      best = d;
+      bestWidth = width;
+      bestId = idQ;
+    }
+  }
+  if (bestId == 0) discard;
+  vec4 color = objectAt(bestId, 0);
+  // The edge lies about half a pixel from the neighbor's center.
+  float a = color.a * clamp(bestWidth + 1.0 - best, 0.0, 1.0);
+  outColor = vec4(color.rgb * a, a);
+}
 `;
 
 /** Averaging of a `factor × factor` block of internal frame pixels. */

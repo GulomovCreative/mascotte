@@ -54,6 +54,7 @@ describe('internal access is closed', () => {
         'LOOP_MODES',
         'MAX_ANCHORS',
         'Node',
+        'OBJECT_STRIDE',
         'OWNER_SEPARATOR',
         'ObservedQuat',
         'ObservedVec3',

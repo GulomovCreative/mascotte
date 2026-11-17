@@ -26,7 +26,6 @@ import {
   cylinderProgram,
   fillProgram,
   hemisphereProgram,
-  ringProgram,
   sphereProgram,
 } from '../src/render/gl/shaders.ts';
 
@@ -47,7 +46,7 @@ function tones(scene: Scene, camera: Camera, kind: 'sphere' | 'capsule'): number
   const stride = STRIDE[kind];
   for (let i = 0; i < buffer.length; i += stride) {
     const at = (o: number) => Array.from(buffer.data.subarray(i + o, i + o + 3));
-    out.push([at(stride - 12), at(stride - 8), at(stride - 4)]);
+    out.push([at(stride - 13), at(stride - 9), at(stride - 5)]);
   }
   return out;
 }
@@ -194,12 +193,11 @@ describe('toon shading', () => {
       hemisphere: hemisphereProgram,
       cone: coneProgram,
       fill: fillProgram,
-      ring: ringProgram,
     } as const;
     for (const [kind, program] of Object.entries(programs)) {
       const sizes = program.attributes.reduce((sum, [, size]) => sum + size, 0);
-      // The color, four numbers, comes last in every layout.
-      expect(sizes + 4, kind).toBe(STRIDE[kind as keyof typeof programs]);
+      // The color, four numbers, and the object number come last in every layout.
+      expect(sizes + 5, kind).toBe(STRIDE[kind as keyof typeof programs]);
     }
     // Canvas 2D's sphere outline draws the terminator at n·l = 0.
     expect(SHADOW_BELOW).toBe(0);
