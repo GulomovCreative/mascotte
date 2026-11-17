@@ -418,10 +418,11 @@ registerProperties(Cylinder, [
 // A shadow's own defaults: the node properties, with the values a shadow starts with.
 registerProperties(
   BlobShadow,
-  (['opacity', 'sortMode', 'layer'] as const).map((name) => ({
-    ...(findProperty(Node, name) as Property<Node>),
-    default: BLOB_SHADOW_DEFAULTS[name],
-  })) as Property<BlobShadow>[],
+  (['opacity', 'sortMode', 'layer'] as const).map((name) => {
+    const property = findProperty(Node, name);
+    if (!property) throw new Error(`Node has no property "${name}" to give a shadow default.`);
+    return { ...property, default: BLOB_SHADOW_DEFAULTS[name] };
+  }) as Property<BlobShadow>[],
 );
 
 registerProperties(Camera, [

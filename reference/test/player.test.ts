@@ -1,4 +1,4 @@
-import { Ticker } from '@mascotte/engine';
+import { type Node, Ticker } from '@mascotte/engine';
 import { DocumentError } from '@mascotte/format';
 import { Player, type PlayerCanvas } from '@mascotte/player';
 import { createCanvas } from '@napi-rs/canvas';
@@ -137,7 +137,9 @@ describe('Player', () => {
     });
     const emotion = player.machines[0];
     const gaze = player.constraints.get('gaze');
-    const root = player.scene.root;
+    // The drag turns Pip's root, not the stage with its shadow.
+    const root = player.scene.getById('pip') as Node;
+    const shadow = player.scene.getById('shadow') as Node;
     const rest = root.rotation.y;
     pointer('pointermove', 120, 120);
     step(0.5);
@@ -150,6 +152,7 @@ describe('Player', () => {
     pointer('pointerdown', 120, 120);
     pointer('pointermove', 180, 120);
     expect(root.rotation.y).not.toBeCloseTo(rest);
+    expect([shadow.rotation.y, player.scene.root.rotation.y]).toEqual([0, 0]);
     pointer('pointerup', 180, 120);
     pointer('pointerleave', 0, 0);
     step(5);

@@ -1,6 +1,7 @@
 import type { Camera } from '../scene/camera.ts';
 import type { Node } from '../scene/node.ts';
 import type { Scene } from '../scene/scene.ts';
+import { BlobShadow } from '../shapes/shadow.ts';
 import { DepthSorter, type Drawable } from './depth-sort.ts';
 import { Bucket, decalAnchor, GLCollector, MAX_ANCHORS, STRIDE } from './gl/collect.ts';
 
@@ -85,7 +86,8 @@ export class HitTester {
       }
       // The anchor number is assigned before any skips, as in the frame collector.
       const decal = this.#isDecalOf(drawable);
-      if (drawable.worldOpacity <= 0) continue;
+      // A shadow is the ground's, not the mascot's: the pointer over it is over nothing.
+      if (drawable.worldOpacity <= 0 || drawable instanceof BlobShadow) continue;
       const bucket = this.#bucket;
       bucket.reset();
       this.#collector.emitDrawable(drawable, camera, bucket);

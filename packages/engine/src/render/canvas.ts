@@ -96,6 +96,10 @@ export class CanvasRenderer {
       }
       if (item.outlineWidth > 0) {
         // The outline: the item's path stroked wider, just behind it.
+        // упрощение: обводка — целая полоса под фигурой, поэтому у полупрозрачной фигуры её
+        // внутренняя половина просвечивает, а у части обводки, разрезанной окклюдером, на разрезе
+        // круглый конец (WebGL рисует только внешнее кольцо, без разрезов); вернуться, если
+        // обведённые фигуры станут полупрозрачными или разрез станет заметен.
         trace(ctx, item.path);
         ctx.lineCap = 'round';
         ctx.lineWidth = (item.hasStroke ? item.lineWidth : 0) + 2 * item.outlineWidth;

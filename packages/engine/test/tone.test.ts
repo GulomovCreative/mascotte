@@ -26,6 +26,7 @@ import {
   cylinderProgram,
   fillProgram,
   hemisphereProgram,
+  ringProgram,
   sphereProgram,
 } from '../src/render/gl/shaders.ts';
 
@@ -193,6 +194,7 @@ describe('toon shading', () => {
       hemisphere: hemisphereProgram,
       cone: coneProgram,
       fill: fillProgram,
+      ring: ringProgram,
     } as const;
     for (const [kind, program] of Object.entries(programs)) {
       const sizes = program.attributes.reduce((sum, [, size]) => sum + size, 0);
