@@ -314,8 +314,9 @@ export const coneProgram = {
 const RING_PASS = 'vec3 vA; vec3 vB; float vInner; float vOuter; float vBack;';
 /**
  * An outline: the band from `inner` to `outer` around a segment (a point for a sphere) on screen,
- * at the depth of the segment's nearest point pushed back by `back` (forward if negative), so
- * the shape it outlines stays in front of it while it edges the shape over what lies behind.
+ * at the depth of the segment's point nearest the pixel on screen, pushed back by `back` (forward
+ * if negative), so the shape it outlines stays in front of it while it edges the shape over what
+ * lies behind.
  */
 export const ringProgram = {
   vertex: impostorVertex(
@@ -330,7 +331,7 @@ export const ringProgram = {
   float t = clamp(dot(vPos - vA.xy, ab) / max(dot(ab, ab), 1e-12), 0.0, 1.0);
   float d = length(vPos - vA.xy - ab * t);
   float cover = coverage(vOuter - d);
-  // Inside, under the shape's own antialiased edge, there is nothing to draw.
+  // Inside the shape, past the pixel of its antialiased edge, there is nothing to draw.
   if (cover <= 0.0 || d < vInner - 1.0 / uPx) discard;
   gl_FragDepth = depthOf(mix(vA.z, vB.z, t) - vBack);
   outColor = shade(cover);`,

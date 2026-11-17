@@ -41,8 +41,11 @@ describe('reference mascots', () => {
     expect(shared).toEqual(['blink']);
   });
 
-  it.each(mascots)('$name blinks and answers a poke', ({ document, hops }) => {
-    const { animator, machines, slot } = play(document);
+  it.each(mascots)('$name blinks and answers a poke over its shadow', ({ document, hops }) => {
+    const { animator, machines, slot, scene } = play(document);
+    const shadow = scene.getById('shadow');
+    if (!shadow) throw new Error('no shadow');
+    const ground = shadow.getWorldPosition({ x: 0, y: 0, z: 0 }).y;
     const root = slot('root');
     const eyes = slot('eyes');
     const lids = slot('lids');
@@ -60,6 +63,8 @@ describe('reference mascots', () => {
       animator.update(1 / 60);
       highest = Math.max(highest, rest - root.position.y);
       for (const machine of machines) states.add(machine.state);
+      // The shadow stands beside the mascot's root: it stays on the ground.
+      expect(shadow.getWorldPosition({ x: 0, y: 0, z: 0 }).y).toBe(ground);
     }
     if (hops) {
       // A hop is a fifth of the size high: well over the bob of an idle second.

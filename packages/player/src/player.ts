@@ -52,8 +52,9 @@ export interface PlayerOptions {
    */
   readonly gaze?: string | null;
   /**
-   * A drag anywhere on the canvas turns the mascot's root (`DragRotate`); `null`, the default,
-   * does not. A `pointer.drag` input is driven by the same drags.
+   * A drag anywhere on the canvas turns the mascot's root (`DragRotate`): the node bound to the
+   * rig's `root` slot, or the tree's root without one, so a shadow beside the mascot stays on the
+   * ground; `null`, the default, does not. A `pointer.drag` input is driven by the same drags.
    */
   readonly turn?: DragRotateOptions | null;
   /**
@@ -372,7 +373,8 @@ export class Player {
       if (!head) throw new Error(`Player: the gaze constraint "${gazeName}" has no node.`);
       gaze = new Gaze(constraint, head, built.camera, this.#frame);
     }
-    const turn = turnOptions ? new DragRotate(built.root, turnOptions) : null;
+    const turned = built.rig.node('root') ?? built.root;
+    const turn = turnOptions ? new DragRotate(turned, turnOptions) : null;
     animator.evaluate();
     return {
       document,

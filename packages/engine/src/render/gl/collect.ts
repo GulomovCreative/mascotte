@@ -449,7 +449,7 @@ export class GLCollector {
    * the segment between the points at `a` and `b` of `d` (equal for a sphere). Around a sphere or
    * a capsule it stands a pixel behind the shape's front, so it edges the shape over whatever lies
    * behind that, a head under an eye too, as in Canvas 2D; around a tube, a pixel behind its axis;
-   * around a face, behind the whole band, so the face covers its inner half.
+   * around a face, behind the whole band, so the face covers whatever part of it lies inside.
    * упрощение: у коробки WebGL обводит только силуэт, а Canvas 2D — каждую грань, так что
    * внутренние рёбра видны только в Canvas 2D; вернуться, если коробки появятся в маскотах.
    */
@@ -718,12 +718,12 @@ export class GLCollector {
         if (bz + radius > this.#zMax) this.#zMax = bz + radius;
       }
     }
-    if (this.#outline > 0 && line.length > 1) {
-      // Around a lone stroke just behind it, as around a capsule; around a face behind the whole
-      // band, so a face tilted away still hides the inner half.
+    // Only around what is drawn: a stroke, or a face (Canvas 2D drops a path with neither).
+    if (this.#outline > 0 && line.length > 1 && (radius > 0 || fill)) {
+      // Around a lone stroke a pixel behind its axis (its segments overlap at the joints, and
+      // rings any nearer would cover the neighbors); around a face behind the whole band, so the
+      // face covers whatever part of it lies inside.
       this.#ringInner = radius;
-      // A tube's segments overlap at the joints: its rings stay a pixel behind its axis, or each
-      // would cover its neighbors.
       this.#ringBack = fill ? radius + this.#outline : 1;
       this.#outlineLine(bucket, line.length, false);
     }
@@ -863,7 +863,10 @@ export class GLCollector {
   // только у сфер, капсул и плоских граней) и не обводятся (обводка есть у сфер, капсул и путей,
   // включая грани и крышки); вернуться, когда эти тела понадобятся объёмными.
 
-  /** A shadow: an ellipse facing the camera, filled flat at the depth of its center. */
+  /**
+   * A shadow: an ellipse facing the camera, filled flat at the depth of its center, in its color
+   * only (no stroke or outline; Canvas 2D draws it the same).
+   */
   #blobShadow(shadow: BlobShadow, bucket: Bucket): void {
     const m = nodeView;
     const s = this.#s;

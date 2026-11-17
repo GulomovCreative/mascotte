@@ -5,6 +5,7 @@ import { Surface, type SurfaceOptions, type SurfaceOutline } from './surface.ts'
 
 const SHADOW_PARAMS = {
   width: { kind: 'length', default: 1 },
+  // A ratio, not a length; `length` gives it its check (finite, not negative).
   squash: { kind: 'length', default: 1 / 3 },
 } as const satisfies ParamSchema;
 
@@ -20,11 +21,11 @@ export const BLOB_SHADOW_DEFAULTS = { opacity: 0.2, sortMode: 'layer', layer: -1
 
 /**
  * A soft shadow under a mascot: a flat ellipse `width` across and `width × squash` high, centered
- * at the node's origin,
- * always facing the camera (seen nearly level, a shadow on the ground plane would be a line).
- * It lies in layer −1, below the rest, faint and black (`BLOB_SHADOW_DEFAULTS`, the style's
- * defaults). Put it next to the mascot's root rather than under it, so it stays on the ground
- * while the mascot hops.
+ * at the node's origin, always facing the camera (seen nearly level, a shadow on the ground plane
+ * would be a line). It lies in layer −1, below the rest, and faint (`BLOB_SHADOW_DEFAULTS` for
+ * the node), filled black by default; of its style only the color is used. Make it a sibling of
+ * the mascot's root, not its child, so it stays on the ground while the mascot hops or turns.
+ * Hit testing passes through it.
  */
 export class BlobShadow extends Surface<typeof SHADOW_PARAMS> {
   static override readonly typeName: string = 'BlobShadow';
@@ -62,7 +63,10 @@ export class BlobShadow extends Surface<typeof SHADOW_PARAMS> {
     const k = Math.hypot(a.x - o.x, a.y - o.y, a.z - o.z) * s;
     const rx = (this.width / 2) * k;
     ellipse(out, o.x * s, o.y * s, o.z, rx, rx * this.squash);
-    this.applyStyle(out, this.style.stroke * k);
+    // Only the color: a shadow is a filled ellipse in both backends.
+    this.applyStyle(out, 0);
+    out.hasStroke = false;
+    out.hasFill = true;
     return true;
   }
 }

@@ -94,7 +94,7 @@ function line(from: Vec3, to: Vec3) {
 }
 
 /**
- * Builds Pip: a `stage` with its `shadow` and its root `pip` at its feet; `body`, which holds the wings `wing-left` and
+ * Builds Pip under a `stage` that also holds its `shadow`: the root `pip` at its feet; `body`, which holds the wings `wing-left` and
  * `wing-right` and the `head` at the body's center; the head holds the body sphere with its
  * belly, the face (eyes, cheeks, beak) and the crest, so they all turn together. The body's
  * origin is at its bottom, so breathing swells it upwards.
@@ -279,7 +279,8 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
     'crest.M': 'crest-m',
     'crest.R': 'crest-r',
   });
-  // The shadow lies next to Pip, not under it, so it stays on the ground while Pip moves.
+  // The shadow is a sibling of Pip's root, not its child, so it stays on the ground while Pip
+  // moves.
   const stage = new Node({ id: 'stage' });
   stage.add(
     new BlobShadow({ id: 'shadow', width: 100, squash: 0.22, position: { x: 0, y: 64, z: 0 } }),
