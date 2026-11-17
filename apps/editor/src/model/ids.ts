@@ -22,9 +22,13 @@ export function expandedIds(document: MascotDocument): Set<string> {
   return ids;
 }
 
-/** `base`, or `base-2`, `base-3`, … : the first not in `taken`. */
+/**
+ * `base`, or `base-2`, `base-3`, … : the first not in `taken`. Only what the format refuses in an
+ * id is changed: a `/` (it joins a solid's id to its parts') and a leading `~` (built nodes'
+ * own); an empty id becomes `node`.
+ */
 export function uniqueId(base: string, taken: ReadonlySet<string>): string {
-  const clean = base.replace(/[^A-Za-z0-9_.-]+/g, '-').replace(/^-+|-+$/g, '') || 'node';
+  const clean = base.trim().replaceAll('/', '-').replace(/^~+/, '') || 'node';
   if (!taken.has(clean)) return clean;
   for (let n = 2; ; n++) {
     const candidate = `${clean}-${n}`;

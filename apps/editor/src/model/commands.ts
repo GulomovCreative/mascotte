@@ -30,19 +30,28 @@ function existing(document: MascotDocument, path: DocPath): NodeDocument {
   return node;
 }
 
+/** Whether two stored values are the same (as JSON). */
+function same(a: unknown, b: unknown): boolean {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
 /** Sets the property `name` of the node at `path`, or removes it (back to its default). */
 export function setProp(path: DocPath, name: string, value: PropertyValue | undefined): Command {
   return {
     label: `Set ${name}`,
     merge: `prop ${pathString(path)} ${name}`,
-    run: (document) => ({
-      document: updateNode(document, path, (node) => {
-        const { [name]: _, ...rest } = node.props ?? {};
-        const props = value === undefined ? rest : { ...rest, [name]: value };
-        const { props: __, ...without } = node;
-        return Object.keys(props).length === 0 ? without : { ...without, props };
-      }),
-    }),
+    run: (document) => {
+      // The same value: nothing to change, no step to undo.
+      if (same(existing(document, path).props?.[name], value)) return { document };
+      return {
+        document: updateNode(document, path, (node) => {
+          const { [name]: _, ...rest } = node.props ?? {};
+          const props = value === undefined ? rest : { ...rest, [name]: value };
+          const { props: __, ...without } = node;
+          return Object.keys(props).length === 0 ? without : { ...without, props };
+        }),
+      };
+    },
   };
 }
 
@@ -50,19 +59,24 @@ export function setProp(path: DocPath, name: string, value: PropertyValue | unde
 export function setName(path: DocPath, name: string | undefined): Command {
   return {
     label: 'Rename',
-    run: (document) => ({
-      document: updateNode(document, path, (node) => {
-        const { name: _, ...rest } = node;
-        return name === undefined || name === '' ? rest : { ...rest, name };
-      }),
-    }),
+    run: (document) => {
+      const wanted = name?.trim() ? name : undefined;
+      if (existing(document, path).name === wanted) return { document };
+      return {
+        document: updateNode(document, path, (node) => {
+          const { name: _, ...rest } = node;
+          return wanted === undefined ? rest : { ...rest, name: wanted };
+        }),
+      };
+    },
   };
 }
 
 /**
- * Gives the node at `path` the id `id` (made unique against the expanded tree), and renames every
- * reference to its old id; for a prefab instance, also to the ids of its nodes, which its id
- * prefixes (`eye-left-pupil` → `eye-right-pupil`).
+ * Gives the node at `path` the id `id` (made unique against the expanded tree, see `uniqueId`:
+ * the id it gets may differ from the one asked for), and renames every reference to its old id;
+ * for a prefab instance, also to the ids its prefab makes, which its id prefixes
+ * (`eye-left-pupil` → `eye-right-pupil`).
  */
 export function renameNode(path: DocPath, id: string): Command {
   return {
@@ -70,33 +84,28 @@ export function renameNode(path: DocPath, id: string): Command {
     run: (document) => {
       const node = existing(document, path);
       const old = node.id;
-      if (old === id) return { document };
-      const taken = expandedIds(document);
-      if (old !== undefined) taken.delete(old);
-      const next = uniqueId(id, taken);
+      const before = expandedIds(document);
+      if (old !== undefined) before.delete(old);
+      const next = uniqueId(id, before);
+      if (old === next) return { document };
+      const renamed = updateNode(document, path, (current) => ({ ...current, id: next }));
       const names = new Map<string, string>();
       if (old !== undefined) {
         names.set(old, next);
         if (node.prefab !== undefined) {
-          const written = writtenIds(document.root);
+          // The ids this instance makes are those that go with its old id; another instance's
+          // that share its prefix (`eye` and `eye-left`) stay.
+          const after = expandedIds(renamed);
           for (const made of expandedIds(document)) {
-            if (made.startsWith(`${old}-`) && !written.has(made)) {
+            if (made.startsWith(`${old}-`) && !after.has(made)) {
               names.set(made, `${next}-${made.slice(old.length + 1)}`);
             }
           }
         }
       }
-      const renamed = updateNode(document, path, (current) => ({ ...current, id: next }));
       return { document: renameReferences(renamed, names) };
     },
   };
-}
-
-/** The ids written in the document's tree (not those prefab instances make). */
-function writtenIds(node: NodeDocument, out = new Set<string>()): Set<string> {
-  if (node.id !== undefined) out.add(node.id);
-  for (const child of node.children ?? []) writtenIds(child, out);
-  return out;
 }
 
 /**
@@ -107,6 +116,7 @@ export function addNode(parent: DocPath, node: NodeDocument, index?: number): Co
   return {
     label: 'Add node',
     run: (document) => {
+      if (index !== undefined) checkIndex(index);
       const taken = expandedIds(document);
       const base = node.id ?? (node.prefab ?? node.type ?? 'node').toLowerCase();
       const made = withUniqueIds({ ...node, id: base }, taken);
@@ -121,6 +131,11 @@ export function addNode(parent: DocPath, node: NodeDocument, index?: number): Co
       return { document: next, selection: [...parent, at] };
     },
   };
+}
+
+function checkIndex(index: number): void {
+  if (!Number.isInteger(index))
+    throw new RangeError(`A child index must be an integer, got ${index}.`);
 }
 
 /** The path `path` takes after the node at `removed` is taken out (null if it was inside). */
@@ -158,10 +173,10 @@ function afterInsert(path: DocPath, inserted: DocPath): DocPath {
 
 /** Removes the node at `path` (not the root) with its subtree; the selection follows. */
 export function removeNode(path: DocPath): Command {
-  if (path.length === 0) throw new RangeError('The root cannot be removed.');
   return {
     label: 'Remove node',
     run: (document, selection) => {
+      if (path.length === 0) throw new RangeError('The root cannot be removed.');
       existing(document, path);
       const parent = path.slice(0, -1);
       const index = path[path.length - 1] as number;
@@ -186,7 +201,9 @@ export function moveNode(path: DocPath, parent: DocPath, index: number): Command
     run: (document, selection) => {
       if (path.length === 0) throw new RangeError('The root cannot be moved.');
       if (isWithin(parent, path)) throw new RangeError('A node cannot move into itself.');
+      checkIndex(index);
       const node = existing(document, path);
+      existing(document, parent);
       const removed = removeNode(path).run(document, null).document;
       // Where the parent and the index are once the node is out.
       const target = afterRemove(parent, path) as DocPath;
@@ -215,10 +232,10 @@ export function moveNode(path: DocPath, parent: DocPath, index: number): Command
 
 /** Puts a copy of the node at `path`, with new ids, right after it, and selects the copy. */
 export function duplicateNode(path: DocPath): Command {
-  if (path.length === 0) throw new RangeError('The root cannot be duplicated.');
   return {
     label: 'Duplicate node',
     run: (document) => {
+      if (path.length === 0) throw new RangeError('The root cannot be duplicated.');
       const node = existing(document, path);
       const copy = withUniqueIds(node, expandedIds(document));
       const parent = path.slice(0, -1);

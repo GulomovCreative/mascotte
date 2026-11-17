@@ -5,13 +5,17 @@ import {
   DocumentError,
   type Issue,
   type MascotDocument,
-  validateDocument,
 } from '@mascotte/format';
 import type { Command } from './commands.ts';
-import type { DocPath } from './paths.ts';
+import { type DocPath, nodeAt, samePath } from './paths.ts';
 import { sourceMap } from './sources.ts';
 
-/** A document built for the viewport: the mascot, its scene and animator, and where nodes came from. */
+/**
+ * A document built for the viewport: the mascot, its scene and animator, and where each built
+ * node came from. The `EditorDocument` that made it destroys its scene when a newer one replaces
+ * it. While the document has issues this is an older document's scene: `sources` then names
+ * paths of that document (check `EditorState.stale` before picking through it).
+ */
 export interface BuiltScene {
   readonly document: MascotDocument;
   readonly built: BuiltMascot;
@@ -20,41 +24,61 @@ export interface BuiltScene {
   readonly sources: ReadonlyMap<Node, DocPath>;
 }
 
-/** One step of the history: the document and selection before a command. */
+/** The result of `check`: a scene for a document that builds, its issues for one that does not. */
+export type Checked =
+  | { readonly issues: readonly []; readonly scene: BuiltScene }
+  | { readonly issues: readonly [Issue, ...Issue[]]; readonly scene: null };
+
+/**
+ * Checks a document as the editor needs it: built (which validates the tree, rig and references)
+ * and animated, for what only the engine checks (tracks and keys, behaviors, machines,
+ * constraints, springs; those come one at a time). The format reports what is wrong with the
+ * document as a `DocumentError`; anything else is a bug and is thrown.
+ */
+export function check(document: MascotDocument): Checked {
+  let built: BuiltMascot;
+  let scene: Scene;
+  let animator: Animator;
+  try {
+    built = buildDocument(document);
+    scene = new Scene(built.root);
+    animator = new Animator(scene, { rig: built.rig });
+    built.animate(animator);
+    animator.evaluate();
+  } catch (error) {
+    if (error instanceof DocumentError && error.issues.length > 0) {
+      return { issues: error.issues as [Issue, ...Issue[]], scene: null };
+    }
+    throw error;
+  }
+  return {
+    issues: [],
+    scene: { document, built, scene, animator, sources: sourceMap(built.root, document) },
+  };
+}
+
+/** What the editor shows at a moment: one immutable value, replaced on every change. */
+export interface EditorState {
+  readonly document: MascotDocument;
+  /** The selected node's path, or `null`. */
+  readonly selection: DocPath | null;
+  /** The document's issues; empty when it builds and animates. */
+  readonly issues: readonly Issue[];
+  /** The last scene that built: the document's, or an older one while it has issues. */
+  readonly scene: BuiltScene | null;
+  /** Whether the scene is older than the document (which has issues now). */
+  readonly stale: boolean;
+  readonly canUndo: boolean;
+  readonly canRedo: boolean;
+  /** The label of the step `undo` would take back. */
+  readonly undoLabel: string | null;
+}
+
+/** One step of the history: the document and selection before a command, and its label. */
 interface Step {
   readonly document: MascotDocument;
   readonly selection: DocPath | null;
   readonly label: string;
-  readonly merge: string | undefined;
-}
-
-/**
- * Checks a document as the editor needs it: `validateDocument` for the tree, rig and references,
- * then a trial build and animation for what only the engine checks (tracks and keys, behaviors,
- * machines, constraints, springs; those come one at a time). Returns the issues and, for a valid
- * document, its built scene.
- */
-export function check(document: MascotDocument): {
-  issues: readonly Issue[];
-  scene: BuiltScene | null;
-} {
-  const issues = validateDocument(document);
-  if (issues.length > 0) return { issues, scene: null };
-  try {
-    const built = buildDocument(document);
-    const scene = new Scene(built.root);
-    const animator = new Animator(scene, { rig: built.rig });
-    built.animate(animator);
-    animator.evaluate();
-    return {
-      issues: [],
-      scene: { document, built, scene, animator, sources: sourceMap(built.root, document) },
-    };
-  } catch (error) {
-    if (error instanceof DocumentError) return { issues: error.issues, scene: null };
-    const message = error instanceof Error ? error.message : String(error);
-    return { issues: [{ path: '', message }], scene: null };
-  }
 }
 
 /**
@@ -63,45 +87,53 @@ export function check(document: MascotDocument): {
  * built (kept, and marked stale, while the document has issues). Every change is a `Command`;
  * the history keeps the documents before each, so undo restores them exactly. Commands with the
  * same merge key in a row are one step until `commit` ends the gesture.
+ *
+ * `state` is one immutable value, a new one after every change, for the interface to watch
+ * (`subscribe`). For now every change builds the scene anew; setting a property on the live
+ * node without a rebuild comes with the viewport's gizmos and the inspector.
  */
 export class EditorDocument {
   #document: MascotDocument;
   #selection: DocPath | null = null;
-  #issues: readonly Issue[] = [];
+  #issues: readonly Issue[];
   #scene: BuiltScene | null = null;
   readonly #undo: Step[] = [];
   readonly #redo: Step[] = [];
   #open: string | undefined;
+  #state: EditorState;
   readonly #listeners = new Set<() => void>();
 
   constructor(document: MascotDocument) {
     this.#document = document;
-    this.#check();
+    const checked = check(document);
+    this.#issues = checked.issues;
+    this.#scene = checked.scene;
+    this.#state = this.#snapshot();
   }
 
-  /** The document as it stands. */
+  /** The editor's state as it stands. */
+  get state(): EditorState {
+    return this.#state;
+  }
+
   get document(): MascotDocument {
     return this.#document;
   }
 
-  /** The selected node's path, or `null`. */
   get selection(): DocPath | null {
     return this.#selection;
   }
 
-  /** The document's issues; empty when it builds and animates. */
   get issues(): readonly Issue[] {
     return this.#issues;
   }
 
-  /** The last scene that built: the document's, or an older one while it has issues. */
   get scene(): BuiltScene | null {
     return this.#scene;
   }
 
-  /** Whether the scene is older than the document (which has issues now). */
   get stale(): boolean {
-    return this.#scene !== null && this.#scene.document !== this.#document;
+    return this.#state.stale;
   }
 
   get canUndo(): boolean {
@@ -112,36 +144,40 @@ export class EditorDocument {
     return this.#redo.length > 0;
   }
 
-  /** The label of the step `undo` would take back. */
-  get undoLabel(): string | null {
-    return this.#undo.at(-1)?.label ?? null;
-  }
-
-  /** Selects the node at `path` (or nothing). */
+  /** Selects the node at `path`, or nothing (also for a path with no node). */
   select(path: DocPath | null): void {
-    this.#selection = path;
-    this.#emit();
+    const next = path !== null && nodeAt(this.#document, path) ? path : null;
+    if (samePath(next, this.#selection)) return;
+    this.#selection = next;
+    this.#changed();
   }
 
-  /** Runs `command`: the document changes, the history gains a step (or merges into the open one). */
+  /**
+   * Runs `command`: the document changes, the history gains a step (or merges into the open
+   * one). A command that leaves the document as it is only moves the selection, if it does.
+   */
   execute(command: Command): void {
     const result = command.run(this.#document, this.#selection);
-    if (result.document === this.#document && result.selection === undefined) return;
-    const merging = command.merge !== undefined && command.merge === this.#open;
-    if (!merging) {
+    if (result.document === this.#document) {
+      if (result.selection !== undefined) this.select(result.selection);
+      return;
+    }
+    // Checked before anything changes: a bug thrown here leaves the editor as it was.
+    const checked = check(result.document);
+    if (!(command.merge !== undefined && command.merge === this.#open)) {
       this.#undo.push({
         document: this.#document,
         selection: this.#selection,
         label: command.label,
-        merge: command.merge,
       });
     }
     this.#redo.length = 0;
     this.#open = command.merge;
-    this.#document = result.document;
-    if (result.selection !== undefined) this.#selection = result.selection;
-    this.#check();
-    this.#emit();
+    this.#apply(
+      result.document,
+      result.selection === undefined ? this.#selection : result.selection,
+      checked,
+    );
   }
 
   /** Ends a gesture: the next command starts a new step even with the same merge key. */
@@ -151,41 +187,69 @@ export class EditorDocument {
 
   /** Takes back the last step. */
   undo(): void {
-    const step = this.#undo.pop();
+    const step = this.#undo.at(-1);
     if (!step) return;
+    const checked = check(step.document);
+    this.#undo.pop();
     this.#redo.push({ ...step, document: this.#document, selection: this.#selection });
-    this.#restore(step);
+    this.#open = undefined;
+    this.#apply(step.document, step.selection, checked);
   }
 
   /** Does again the step `undo` took back. */
   redo(): void {
-    const step = this.#redo.pop();
+    const step = this.#redo.at(-1);
     if (!step) return;
+    const checked = check(step.document);
+    this.#redo.pop();
     this.#undo.push({ ...step, document: this.#document, selection: this.#selection });
-    this.#restore(step);
+    this.#open = undefined;
+    this.#apply(step.document, step.selection, checked);
   }
 
-  /** Calls `listener` after every change; returns its removal. */
+  /**
+   * Calls `listener` after every change; returns its removal. A listener that throws does not
+   * keep the others from running; the first error is thrown after them all.
+   */
   subscribe(listener: () => void): () => void {
     this.#listeners.add(listener);
     return () => this.#listeners.delete(listener);
   }
 
-  #restore(step: Step): void {
-    this.#open = undefined;
-    this.#document = step.document;
-    this.#selection = step.selection;
-    this.#check();
-    this.#emit();
+  #apply(document: MascotDocument, selection: DocPath | null, checked: Checked): void {
+    this.#document = document;
+    this.#selection = selection;
+    this.#issues = checked.issues;
+    if (checked.scene) {
+      this.#scene?.scene.destroy();
+      this.#scene = checked.scene;
+    }
+    this.#changed();
   }
 
-  #check(): void {
-    const { issues, scene } = check(this.#document);
-    this.#issues = issues;
-    if (scene) this.#scene = scene;
+  #snapshot(): EditorState {
+    return {
+      document: this.#document,
+      selection: this.#selection,
+      issues: this.#issues,
+      scene: this.#scene,
+      stale: this.#scene !== null && this.#scene.document !== this.#document,
+      canUndo: this.#undo.length > 0,
+      canRedo: this.#redo.length > 0,
+      undoLabel: this.#undo.at(-1)?.label ?? null,
+    };
   }
 
-  #emit(): void {
-    for (const listener of this.#listeners) listener();
+  #changed(): void {
+    this.#state = this.#snapshot();
+    let failure: unknown = null;
+    for (const listener of this.#listeners) {
+      try {
+        listener();
+      } catch (error) {
+        failure ??= error;
+      }
+    }
+    if (failure !== null) throw failure;
   }
 }
