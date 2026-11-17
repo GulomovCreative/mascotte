@@ -1,7 +1,7 @@
 # Mascotte editor plan
 
 A separate plan for stage 6 of [PLAN.md](PLAN.md): what the editor is, how it is built, and the
-tasks it breaks into. Approved, the tasks become issues in a new stage, the editor itself.
+tasks it breaks into, issues in stage 7 of PLAN.md.
 
 ## 1. Goal
 
@@ -172,8 +172,7 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 
 - **Layout**: the viewport in the middle, the tree on the left, the inspector on the right, the
   timeline and the state machine editor in tabs at the bottom, the preview in a panel or a window.
-- **UI library**: Preact with signals is proposed: small, JSX, and signals fit a store that
-  commands change. To approve with the plan.
+- **UI library**: Preact with signals: small, JSX, and signals fit a store that commands change.
 - **Keys**: undo and redo, delete, duplicate, gizmo modes, play and pause, frame the selection.
 
 ### 3.10. Testing
@@ -231,8 +230,10 @@ the task that needs it.
     export, with inputs for sequences (player work). *Done when* every reference mascot rebuilt in
     the editor plays in the player as the original does, and a poke can be exported as frames.
 
-## 5. To approve
+## 5. Approved
 
-- The UI library (Preact with signals is proposed).
-- The scope of the first version as in section 1, and the task order in section 4.
-- Where the editor is published: with the site (#48) or on its own.
+- The plan, the scope of the first version and the task order.
+- **UI library**: Preact with signals.
+- **Publishing**: the editor is published with the project site (#48).
+
+The tasks are issues #85–#97 in the "Stage 7. Editor" milestone.
