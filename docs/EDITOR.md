@@ -182,8 +182,8 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 - **Browser tests** (Vitest browser mode with Chromium, as `test:gl` runs today) for the
   viewport and panels: picking, a gizmo drag becoming one command, the inspector setting and
   binding values, the timeline and machine editors.
-- The editor's build and both kinds of tests run in CI; the root `build` and `dev` scripts gain
-  the editor.
+- The editor's build and both kinds of tests run in CI; the root `build` script builds every app, and
+  `dev:editor` serves the editor.
 
 ## 4. Tasks
 

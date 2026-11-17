@@ -19,27 +19,55 @@ function Panel(props: { title: string; area: string; children?: ComponentChildre
   );
 }
 
-/** The bottom panel: the timeline and the state machine editor, in tabs. */
+/** The id of a bottom tab's button, which its panel is labelled by. */
+const tabId = (tab: BottomTab) => `tab-${tab.toLowerCase().replace(/\s+/g, '-')}`;
+
+/**
+ * The bottom panel: the timeline and the state machine editor, in tabs. Only the open tab is a
+ * tab stop; the arrow keys, Home and End move between tabs (the tabs pattern of ARIA).
+ */
 function BottomPanel() {
   const open = bottomTab.value;
+  const select = (tab: BottomTab, focus: boolean) => {
+    bottomTab.value = tab;
+    if (focus) document.getElementById(tabId(tab))?.focus();
+  };
+  const onKeyDown = (event: KeyboardEvent) => {
+    const at = BOTTOM_TABS.indexOf(open);
+    const last = BOTTOM_TABS.length - 1;
+    const next =
+      event.key === 'ArrowRight'
+        ? (at + 1) % BOTTOM_TABS.length
+        : event.key === 'ArrowLeft'
+          ? (at + last) % BOTTOM_TABS.length
+          : event.key === 'Home'
+            ? 0
+            : event.key === 'End'
+              ? last
+              : null;
+    if (next === null) return;
+    event.preventDefault();
+    select(BOTTOM_TABS[next] as BottomTab, true);
+  };
   return (
     <section class="panel bottom" aria-label="Animation">
-      <div class="tabs" role="tablist">
+      <div class="tabs" role="tablist" onKeyDown={onKeyDown}>
         {BOTTOM_TABS.map((tab) => (
           <button
             key={tab}
+            id={tabId(tab)}
             type="button"
             role="tab"
             aria-selected={tab === open}
-            onClick={() => {
-              bottomTab.value = tab;
-            }}
+            aria-controls="bottom-panel"
+            tabIndex={tab === open ? 0 : -1}
+            onClick={() => select(tab, false)}
           >
             {tab}
           </button>
         ))}
       </div>
-      <div class="panel-body" role="tabpanel" aria-label={open}>
+      <div class="panel-body" id="bottom-panel" role="tabpanel" aria-labelledby={tabId(open)}>
         <p class="empty">{open === 'Timeline' ? 'No motion open.' : 'No machine open.'}</p>
       </div>
     </section>
@@ -47,8 +75,9 @@ function BottomPanel() {
 }
 
 /**
- * The editor: the viewport in the middle, the scene tree on the left, the inspector on the
- * right, the timeline and the state machine editor in tabs at the bottom (docs/EDITOR.md, 3.9).
+ * The editor: a menu bar, the viewport in the middle, the scene tree on the left, the inspector
+ * on the right, the timeline and the state machine editor in tabs at the bottom (docs/EDITOR.md,
+ * 3.9; the preview comes with #97).
  */
 export function App() {
   return (
