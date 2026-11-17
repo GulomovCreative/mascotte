@@ -477,6 +477,8 @@ Status: **not started** · [milestone](https://github.com/GulomovCreative/mascot
 
 **Done when** a separate editor plan is approved and broken down into tasks.
 
+The plan: [EDITOR.md](EDITOR.md) (a web app in `apps/editor`; the tree and inspector, the viewport with gizmos, the timeline and the state machine editor in the first version).
+
 Minimum editor scope: scene tree, property inspector, viewport with gizmos, key timeline, state machine editor, palettes, document save and load, preview in the player.
 
 ## 10. Open questions
