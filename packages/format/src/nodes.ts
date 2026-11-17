@@ -1,4 +1,5 @@
 import {
+  BlobShadow,
   Box,
   Capsule,
   Cone,
@@ -35,5 +36,6 @@ export const NODE_TYPES: ReadonlyMap<string, NodeType> = new Map(
     Cylinder,
     Cone,
     Box,
+    BlobShadow,
   ].map((type) => [type.typeName, type as NodeType]),
 );

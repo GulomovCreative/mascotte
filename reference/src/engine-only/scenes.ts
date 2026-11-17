@@ -1,6 +1,7 @@
 import {
   type AimConstraint,
   type Animator,
+  BlobShadow,
   Box,
   Camera,
   Capsule,
@@ -370,6 +371,93 @@ const toon: EngineScene = {
   snapshotTimes: [Math.PI / 2],
 };
 
+const outline: EngineScene = {
+  id: 'engine-outline',
+  title: 'Outlines and a blob shadow',
+  width: 320,
+  height: 240,
+  background: '#f6efe4',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ zoom: 1.2 });
+    const ink = { outline: 2, outlineColor: '#2a1d14' };
+    const stage = new Node();
+    // The shadow stays on the ground; the rest stands on it.
+    stage.add(new BlobShadow({ width: 200, position: { x: 0, y: 80, z: 0 } }));
+    const figure = new Node();
+    const head = new Sphere({
+      diameter: 70,
+      position: { x: -60, y: -20, z: 0 },
+      style: { color: '#ffd54a', shadowColor: '#e5a92e', stroke: 0, ...ink },
+    });
+    // An eye on the head: its outline edges it over the head.
+    head.add(
+      new Sphere({
+        diameter: 16,
+        position: { x: 12, y: -6, z: 34 },
+        style: { color: '#ffffff', stroke: 0, ...ink },
+      }),
+    );
+    figure
+      .add(head)
+      .add(
+        new Capsule({
+          length: 60,
+          diameter: 22,
+          position: { x: 30, y: -30, z: 0 },
+          rotation: euler.create(0.4, 1.1, 0),
+          style: { color: '#7fc8f8', shadowColor: '#4c8fc0', stroke: 0, ...ink },
+        }),
+      )
+      .add(
+        // A stroke alone, and a filled face with a stroke.
+        new PathShape({
+          path: [
+            { type: 'move', point: { x: -110, y: 50, z: 0 } },
+            {
+              type: 'bezier',
+              control1: { x: -90, y: 20, z: 0 },
+              control2: { x: -50, y: 60, z: 10 },
+              point: { x: -20, y: 40, z: 10 },
+            },
+          ],
+          style: { color: '#9be08f', stroke: 10, ...ink },
+        }),
+      )
+      .add(
+        new PathShape({
+          path: [
+            { type: 'move', point: { x: 10, y: 20, z: 0 } },
+            { type: 'line', point: { x: 50, y: 30, z: 0 } },
+            { type: 'line', point: { x: 25, y: 60, z: 0 } },
+          ],
+          style: { color: '#f49ac1', fill: true, stroke: 4, ...ink },
+        }),
+      )
+      .add(
+        new Box({
+          width: 36,
+          height: 36,
+          depth: 36,
+          position: { x: 100, y: 40, z: 0 },
+          rotation: euler.create(-0.5, 0.6, 0),
+          style: { color: '#c8a2f0', fill: true, stroke: 2, ...ink },
+        }),
+      );
+    stage.add(figure);
+    root.add(stage);
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    // The figure hops over its shadow and turns.
+    const [stage] = root.children;
+    const figure = stage?.children[1];
+    figure?.position.set(0, -Math.abs(Math.sin(time)) * 20, 0);
+    figure?.setRotationFromEuler(euler.create(0, Math.sin(time) * 0.5, 0));
+  },
+  snapshotTimes: [Math.PI / 2],
+};
+
 /** New-engine-only scenes. */
 export const engineScenes: readonly EngineScene[] = [
   perspective,
@@ -377,4 +465,5 @@ export const engineScenes: readonly EngineScene[] = [
   mascot3d,
   earBehindHead,
   toon,
+  outline,
 ];

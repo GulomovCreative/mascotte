@@ -20,6 +20,13 @@ export interface ShapeStyleValues {
   shadowColor: string | null;
   /** Color of the part facing the light most (a toon highlight); `null` means no highlight. */
   highlightColor: string | null;
+  /**
+   * Width of the outline around the shape's silhouette, in scene units like the stroke; 0 means
+   * none. Drawn just behind the shape, so it also edges the shape where it lies over others.
+   */
+  outline: number;
+  /** The outline's color. */
+  outlineColor: string;
 }
 
 /**
@@ -37,6 +44,8 @@ export class ShapeStyle implements ShapeStyleValues {
     backfaceColor: { kind: 'optionalColor', default: null },
     shadowColor: { kind: 'optionalColor', default: null },
     highlightColor: { kind: 'optionalColor', default: null },
+    outline: { kind: 'length', default: 0 },
+    outlineColor: { kind: 'color', default: '#2b2b2b' },
   } as const satisfies Record<keyof ShapeStyleValues, StyleParamSpec>;
 
   #stroke: number;
@@ -46,6 +55,8 @@ export class ShapeStyle implements ShapeStyleValues {
   #backfaceColor: string | null;
   #shadowColor: string | null;
   #highlightColor: string | null;
+  #outline: number;
+  #outlineColor: string;
   readonly #onChange: () => void;
 
   constructor(onChange: () => void, values: Partial<ShapeStyleValues> = {}) {
@@ -58,6 +69,8 @@ export class ShapeStyle implements ShapeStyleValues {
     this.#backfaceColor = values.backfaceColor ?? p.backfaceColor.default;
     this.#shadowColor = values.shadowColor ?? p.shadowColor.default;
     this.#highlightColor = values.highlightColor ?? p.highlightColor.default;
+    this.#outline = checkLength('outline', values.outline ?? p.outline.default);
+    this.#outlineColor = values.outlineColor ?? p.outlineColor.default;
   }
 
   /** Whether the style shades: it has a shadow or a highlight color. */
@@ -131,6 +144,26 @@ export class ShapeStyle implements ShapeStyleValues {
   set highlightColor(value: string | null) {
     if (value !== this.#highlightColor) {
       this.#highlightColor = value;
+      this.#onChange();
+    }
+  }
+
+  get outline(): number {
+    return this.#outline;
+  }
+  set outline(value: number) {
+    if (checkLength('outline', value) !== this.#outline) {
+      this.#outline = value;
+      this.#onChange();
+    }
+  }
+
+  get outlineColor(): string {
+    return this.#outlineColor;
+  }
+  set outlineColor(value: string) {
+    if (value !== this.#outlineColor) {
+      this.#outlineColor = value;
       this.#onChange();
     }
   }

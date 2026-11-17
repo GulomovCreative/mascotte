@@ -4,6 +4,7 @@ import type { Node } from '../../scene/node.ts';
 import type { Scene } from '../../scene/scene.ts';
 import { PathOp } from '../../shapes/path.ts';
 import { Ellipse, Rect } from '../../shapes/primitives.ts';
+import { BlobShadow } from '../../shapes/shadow.ts';
 import { Shape } from '../../shapes/shape.ts';
 import {
   Box,
@@ -48,6 +49,8 @@ export const STRIDE = {
   cone: 11,
   /** triangle vertex: x y z, color */
   fill: 7,
+  /** an outline: ax ay az, bx by bz, inner and outer radius, push back, color */
+  ring: 13,
 } as const;
 
 export type PrimitiveKind = keyof typeof STRIDE;
@@ -74,6 +77,7 @@ export class Bucket {
     cylinder: new FloatBuffer(),
     cone: new FloatBuffer(),
     fill: new FloatBuffer(),
+    ring: new FloatBuffer(),
   };
 
   reset(): void {
@@ -189,6 +193,8 @@ const CORNERS: readonly (readonly [number, number])[] = [
   [-1, 1],
 ];
 const scratch: Vec3 = { x: 0, y: 0, z: 0 };
+// The two ends of an outline ring along a polyline edge.
+const ringPoints = new Float32Array(6);
 const local: Vec3 = { x: 0, y: 0, z: 0 };
 
 /**
@@ -225,6 +231,12 @@ export class GLCollector {
   #radius = 0;
   #opacity = 1;
   #axis = 1;
+  // The current shape's outline: its width in screen pixels (0 for none) and color, and the
+  // inner radius and push back of the rings being written.
+  #outline = 0;
+  #outlineCss = '';
+  #ringInner = 0;
+  #ringBack = 0;
   readonly #triangles = new IndexBuffer();
 
   collect(scene: Scene, camera: Camera): GLFrame {
@@ -382,6 +394,8 @@ export class GLCollector {
     if (!this.#scale(drawable, camera)) return;
     this.#opacity = opacity;
     this.#camera = camera;
+    this.#outline = 0;
+    this.#outlineCss = drawable.style.outlineColor;
     mat3x4.multiply(nodeView, camera.viewMatrix, drawable.worldMatrix);
     if (drawable instanceof Shape) this.#shape(drawable, bucket);
     else if (drawable instanceof Sphere) this.#sphere(drawable, bucket);
@@ -389,6 +403,7 @@ export class GLCollector {
     else if (drawable instanceof HemisphereDome) this.#dome(drawable, bucket);
     else if (drawable instanceof CylinderBody) this.#cylinderBody(drawable, bucket);
     else if (drawable instanceof ConeSurface) this.#coneSurface(drawable, bucket);
+    else if (drawable instanceof BlobShadow) this.#blobShadow(drawable, bucket);
   }
 
   /** Color `css` with the shape's opacity into `d` at index `o`. */
@@ -422,6 +437,57 @@ export class GLCollector {
     d[o + 3] = r;
     this.#writeTones(d, o + 4, tones, css);
     this.#extent(scratch.z, r);
+    if (this.#outline > 0) {
+      this.#ringInner = r;
+      this.#ringBack = 1 - r;
+      this.#pushRing(bucket, d, o, o);
+    }
+  }
+
+  /**
+   * An outline ring from `#ringInner` to `#ringInner + #outline`, pushed back by `#ringBack` from
+   * the segment between the points at `a` and `b` of `d` (equal for a sphere). Around a sphere or
+   * a capsule it stands a pixel behind the shape's front, so it edges the shape over whatever lies
+   * behind that, a head under an eye too, as in Canvas 2D; around a tube, a pixel behind its axis;
+   * around a face, behind the whole band, so the face covers its inner half.
+   * упрощение: у коробки WebGL обводит только силуэт, а Canvas 2D — каждую грань, так что
+   * внутренние рёбра видны только в Canvas 2D; вернуться, если коробки появятся в маскотах.
+   */
+  #pushRing(bucket: Bucket, d: Float32Array, a: number, b: number): void {
+    const out = bucket.data.ring;
+    const o = out.reserve(STRIDE.ring);
+    const r = out.data;
+    r[o] = d[a] as number;
+    r[o + 1] = d[a + 1] as number;
+    r[o + 2] = d[a + 2] as number;
+    r[o + 3] = d[b] as number;
+    r[o + 4] = d[b + 1] as number;
+    r[o + 5] = d[b + 2] as number;
+    r[o + 6] = this.#ringInner;
+    r[o + 7] = this.#ringInner + this.#outline;
+    r[o + 8] = this.#ringBack;
+    this.#writeColor(r, o + 9, this.#outlineCss);
+    this.#extent(r[o + 2] as number, r[o + 7] as number);
+    this.#extent(r[o + 5] as number, r[o + 7] as number);
+  }
+
+  /**
+   * Outline rings along the first `n` points of the polyline, and from the last back to the
+   * first if `closed`.
+   */
+  #outlineLine(bucket: Bucket, n: number, closed: boolean): void {
+    const line = this.#line;
+    const d = ringPoints;
+    for (let i = closed ? 0 : 1; i < n; i++) {
+      const j = i === 0 ? n - 1 : i - 1;
+      d[0] = line.xs[j] as number;
+      d[1] = line.ys[j] as number;
+      d[2] = line.zs[j] as number;
+      d[3] = line.xs[i] as number;
+      d[4] = line.ys[i] as number;
+      d[5] = line.zs[i] as number;
+      this.#pushRing(bucket, d, 0, 3);
+    }
   }
 
   /**
@@ -457,8 +523,14 @@ export class GLCollector {
     d[o + 4] = (ty + zy * to) * s;
     d[o + 5] = bz;
     d[o + 6] = r;
-    if (kind === 'capsule') this.#writeTones(d, o + 7, tones, css);
-    else this.#writeColor(d, o + 7, css);
+    if (kind === 'capsule') {
+      this.#writeTones(d, o + 7, tones, css);
+      if (this.#outline > 0) {
+        this.#ringInner = r;
+        this.#ringBack = 1 - r;
+        this.#pushRing(bucket, d, o, o + 3);
+      }
+    } else this.#writeColor(d, o + 7, css);
     this.#extent(az, r);
     this.#extent(bz, r);
   }
@@ -496,6 +568,20 @@ export class GLCollector {
     // Caps and faces of filled solids are full-size solid planes
     // including the stroke. A stroke tube along the edge would almost coincide in depth with the
     // cylinder side or with the tube of a neighboring face, and they would fight over pixels.
+    const s = this.#s;
+    const world = shape.worldMatrix;
+    const wx0 = world[0] as number;
+    const wx1 = world[1] as number;
+    const wx2 = world[2] as number;
+    const wy0 = world[3] as number;
+    const wy1 = world[4] as number;
+    const wy2 = world[5] as number;
+    const nodeScale = Math.sqrt(
+      Math.sqrt(wx0 * wx0 + wx1 * wx1 + wx2 * wx2) * Math.sqrt(wy0 * wy0 + wy1 * wy1 + wy2 * wy2),
+    );
+    this.#radius = (style.stroke * nodeScale * s) / 2;
+    this.#outline = style.outline * nodeScale * s;
+
     const owner = shape.owner;
     if (
       style.fill &&
@@ -509,19 +595,6 @@ export class GLCollector {
       this.#boxFace(shape, owner, bucket, css);
       return;
     }
-
-    const s = this.#s;
-    const world = shape.worldMatrix;
-    const wx0 = world[0] as number;
-    const wx1 = world[1] as number;
-    const wx2 = world[2] as number;
-    const wy0 = world[3] as number;
-    const wy1 = world[4] as number;
-    const wy2 = world[5] as number;
-    const nodeScale = Math.sqrt(
-      Math.sqrt(wx0 * wx0 + wx1 * wx1 + wx2 * wx2) * Math.sqrt(wy0 * wy0 + wy1 * wy1 + wy2 * wy2),
-    );
-    this.#radius = (style.stroke * nodeScale * s) / 2;
 
     // The perspective scale is part of the matrix: s · (V · W · p) = (s · V · W) · p.
     for (let k = 0; k < 12; k++) modelView[k] = (m[k] as number) * s;
@@ -645,6 +718,15 @@ export class GLCollector {
         if (bz + radius > this.#zMax) this.#zMax = bz + radius;
       }
     }
+    if (this.#outline > 0 && line.length > 1) {
+      // Around a lone stroke just behind it, as around a capsule; around a face behind the whole
+      // band, so a face tilted away still hides the inner half.
+      this.#ringInner = radius;
+      // A tube's segments overlap at the joints: its rings stay a pixel behind its axis, or each
+      // would cover its neighbors.
+      this.#ringBack = fill ? radius + this.#outline : 1;
+      this.#outlineLine(bucket, line.length, false);
+    }
     if (fill) this.#fill(bucket, css, closed && line.length > 2 ? line.length - 1 : line.length);
     line.clear();
   }
@@ -681,6 +763,7 @@ export class GLCollector {
       line.zs[n] = (xz * cx + yz * cy + tz) * s;
     }
     this.#fill(bucket, css, steps);
+    this.#outlineFace(bucket, steps);
   }
 
   /**
@@ -712,6 +795,15 @@ export class GLCollector {
       line.zs[n] = p.z * s;
     }
     this.#fill(bucket, css, 4);
+    this.#outlineFace(bucket, 4);
+  }
+
+  /** Outlines a cap or a box face, the closed polygon of the first `n` points of the polyline. */
+  #outlineFace(bucket: Bucket, n: number): void {
+    if (!(this.#outline > 0)) return;
+    this.#ringInner = 0;
+    this.#ringBack = this.#outline;
+    this.#outlineLine(bucket, n, true);
   }
 
   /** Fills the first `n` points of the current polyline with triangles. */
@@ -755,6 +847,7 @@ export class GLCollector {
     scratch.x = (m[9] as number) * s;
     scratch.y = (m[10] as number) * s;
     scratch.z = (m[11] as number) * s;
+    this.#outline = sphere.style.outline * this.#axis * s;
     this.#pushSphere(bucket, sphere.style.color, sphere.style);
   }
 
@@ -762,11 +855,38 @@ export class GLCollector {
     this.#axisLength(0);
     const half = capsule.length / 2;
     this.#radius = ((capsule.diameter + capsule.style.stroke) / 2) * this.#axis * this.#s;
+    this.#outline = capsule.style.outline * this.#axis * this.#s;
     this.#pushAxisSegment(bucket, 'capsule', -half, half, capsule.style.color, capsule.style);
   }
 
   // упрощение: купол полусферы, бок цилиндра и бок конуса не тонируются (тон по нормали есть
-  // только у сфер, капсул и плоских граней); вернуться, когда эти тела понадобятся объёмными.
+  // только у сфер, капсул и плоских граней) и не обводятся (обводка есть у сфер, капсул и путей,
+  // включая грани и крышки); вернуться, когда эти тела понадобятся объёмными.
+
+  /** A shadow: an ellipse facing the camera, filled flat at the depth of its center. */
+  #blobShadow(shadow: BlobShadow, bucket: Bucket): void {
+    const m = nodeView;
+    const s = this.#s;
+    this.#axisLength(0);
+    const k = this.#axis * s;
+    const rx = (shadow.width / 2) * k;
+    const ry = rx * shadow.squash;
+    const cx = (m[9] as number) * s;
+    const cy = (m[10] as number) * s;
+    const cz = (m[11] as number) * s;
+    const line = this.#line;
+    line.clear();
+    // About 3 pixels of the rim each.
+    const steps = Math.min(128, Math.max(16, Math.ceil((2 * Math.PI * Math.max(rx, ry)) / 3)));
+    for (let i = 0; i < steps; i++) {
+      const angle = (i / steps) * Math.PI * 2;
+      const n = line.add();
+      line.xs[n] = cx + Math.cos(angle) * rx;
+      line.ys[n] = cy + Math.sin(angle) * ry;
+      line.zs[n] = cz;
+    }
+    this.#fill(bucket, shadow.style.color, steps);
+  }
 
   #dome(dome: HemisphereDome, bucket: Bucket): void {
     const m = nodeView;

@@ -35,9 +35,9 @@ const cases: Case[] = [
       return { root, camera: new Camera({ zoom: scene.zoom }) };
     },
   })),
-  // Scenes with translucent shapes mix colors, so they are left out.
+  // Scenes with translucent shapes (a blob shadow too) mix colors, so they are left out.
   ...engineScenes
-    .filter((scene) => scene.id !== 'engine-layers-opacity')
+    .filter((scene) => scene.id !== 'engine-layers-opacity' && scene.id !== 'engine-outline')
     .map((scene) => ({
       id: scene.id,
       width: scene.width,
@@ -75,6 +75,7 @@ describe('hit test matches the WebGL frame', () => {
         // One color per shape: no toon tones.
         drawable.style.shadowColor = null;
         drawable.style.highlightColor = null;
+        drawable.style.outline = 0;
         colors.set(drawable, [r, g, b]);
       }
 

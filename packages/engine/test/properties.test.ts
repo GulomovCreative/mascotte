@@ -42,7 +42,12 @@ function another(property: Property): unknown {
   switch (property.type) {
     case 'number': {
       const max = property.max ?? Number.POSITIVE_INFINITY;
-      return property.default + 1 <= max ? property.default + 1 : property.default - 1;
+      const min = property.min ?? Number.NEGATIVE_INFINITY;
+      // One more or one less, or halfway to the nearer bound (opacity 0.2 has neither).
+      for (const value of [property.default + 1, property.default - 1]) {
+        if (value <= max && value >= min) return value;
+      }
+      return (property.default + max) / 2;
     }
     case 'bool':
       return !property.default;

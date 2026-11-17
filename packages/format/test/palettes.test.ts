@@ -1,4 +1,4 @@
-import { Animator, type Box, Scene, type Sphere } from '@mascotte/engine';
+import { Animator, type BlobShadow, type Box, Scene, type Sphere } from '@mascotte/engine';
 import { describe, expect, it } from 'vitest';
 import {
   buildDocument,
@@ -7,6 +7,7 @@ import {
   readDocument,
   VERSION,
   validateDocument,
+  writeNode,
 } from '../src/index.ts';
 
 /** A ball and a box colored by role, with a light and a partial dark palette. */
@@ -224,5 +225,44 @@ describe('palettes', () => {
     // Dark names a body and no trim: the base's trim stays.
     expect([ball.style.shadowColor, ball.style.highlightColor]).toEqual(['#6b5a1e', '#ff9a1f']);
     expect(issues(doc({ camera: { props: { light: { x: 0, y: 0 } } } }))).toHaveLength(1);
+  });
+});
+
+describe('blob shadows and outlines', () => {
+  it('read with their defaults and write back what they read', () => {
+    const shaded = doc({
+      root: {
+        type: 'Node',
+        id: 'stage',
+        children: [
+          { type: 'BlobShadow', id: 'shadow', props: { width: 60 } },
+          {
+            type: 'Sphere',
+            id: 'ball',
+            props: { 'style.outline': 2, 'style.outlineColor': { color: 'trim' } },
+          },
+        ],
+      },
+    });
+    const built = buildDocument(readDocument(JSON.stringify(shaded)));
+    const scene = new Scene(built.root);
+    const shadow = scene.getById('shadow') as BlobShadow;
+    expect([shadow.width, shadow.squash, shadow.opacity, shadow.layer]).toEqual([
+      60,
+      1 / 3,
+      0.2,
+      -1,
+    ]);
+    expect((scene.getById('ball') as Sphere).style.outlineColor).toBe('#ff9a1f');
+    const written = writeNode(built.root);
+    const again = buildDocument(readDocument({ ...shaded, root: written }));
+    const copy = new Scene(again.root).getById('shadow') as BlobShadow;
+    expect([copy.width, copy.squash, copy.opacity, copy.sortMode, copy.layer]).toEqual([
+      60,
+      1 / 3,
+      0.2,
+      'layer',
+      -1,
+    ]);
   });
 });

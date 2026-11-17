@@ -2,6 +2,7 @@ import type { Quat, Vec3 } from '@mascotte/math';
 import { Camera, DEFAULT_LIGHT, PROJECTIONS } from '../scene/camera.ts';
 import { Node, SORT_MODES } from '../scene/node.ts';
 import type { ParamSchema, StyleParamSpec } from '../shapes/params.ts';
+import { BLOB_SHADOW_DEFAULTS, BlobShadow } from '../shapes/shadow.ts';
 import { Shape } from '../shapes/shape.ts';
 import { Cylinder } from '../shapes/solids.ts';
 import { ShapeStyle, type ShapeStyleValues } from '../shapes/style.ts';
@@ -413,6 +414,15 @@ registerProperties(Cylinder, [
     },
   },
 ]);
+
+// A shadow's own defaults: the node properties, with the values a shadow starts with.
+registerProperties(
+  BlobShadow,
+  (['opacity', 'sortMode', 'layer'] as const).map((name) => ({
+    ...(findProperty(Node, name) as Property<Node>),
+    default: BLOB_SHADOW_DEFAULTS[name],
+  })) as Property<BlobShadow>[],
+);
 
 registerProperties(Camera, [
   {

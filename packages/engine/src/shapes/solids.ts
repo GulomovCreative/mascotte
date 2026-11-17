@@ -61,6 +61,7 @@ export class Sphere extends Surface<typeof SPHERE_PARAMS> {
     this.applyStyle(out, this.style.stroke * k * s);
     out.setSphereOccluder(o.x * s, o.y * s, radius + out.lineWidth / 2, o.z, s);
     out.setSphereShade(this.style, out.occluderX, out.occluderY, out.occluderRadius);
+    out.setOutline(this.style, k * s);
     return true;
   }
 }
@@ -126,6 +127,7 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
       out.hasFill = true;
       out.setSphereOccluder(o.x * s, o.y * s, width / 2, o.z, s);
       out.setSphereShade(this.style, o.x * s, o.y * s, width / 2);
+      out.setOutline(this.style, k * s);
       return true;
     }
     out.path
@@ -146,6 +148,7 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
     out.occluderRadius = width / 2;
     out.occluderDepth = o.z;
     out.setCapsuleShade(this.style, a.x * s, a.y * s, b.x * s, b.y * s, width / 2);
+    out.setOutline(this.style, k * s);
     return true;
   }
 }
@@ -340,6 +343,8 @@ function copyStyle(target: ShapeStyle, source: ShapeStyle, color = source.color)
   target.backfaceColor = source.backfaceColor;
   target.shadowColor = source.shadowColor;
   target.highlightColor = source.highlightColor;
+  target.outline = source.outline;
+  target.outlineColor = source.outlineColor;
 }
 
 const HEMISPHERE_PARAMS = {

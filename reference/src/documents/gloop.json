@@ -42,264 +42,293 @@
   },
   "root": {
     "type": "Node",
-    "id": "gloop",
-    "props": {
-      "position": {
-        "x": 0,
-        "y": 46,
-        "z": 0
-      },
-      "rotation": {
-        "x": -0.049418,
-        "y": 0.149251,
-        "z": -0.007469,
-        "w": 0.987535
-      }
-    },
+    "id": "stage",
     "children": [
       {
+        "type": "BlobShadow",
+        "id": "shadow",
+        "props": {
+          "width": 80,
+          "position": {
+            "x": 0,
+            "y": 46,
+            "z": 0
+          },
+          "squash": 0.25
+        }
+      },
+      {
         "type": "Node",
-        "id": "body",
+        "id": "gloop",
+        "props": {
+          "position": {
+            "x": 0,
+            "y": 46,
+            "z": 0
+          },
+          "rotation": {
+            "x": -0.049418,
+            "y": 0.149251,
+            "z": -0.007469,
+            "w": 0.987535
+          }
+        },
         "children": [
           {
-            "type": "Sphere",
-            "id": "blob",
-            "props": {
-              "diameter": 84,
-              "position": {
-                "x": 0,
-                "y": -42,
-                "z": 0
-              },
-              "style.color": {
-                "color": "body"
-              },
-              "style.stroke": 0,
-              "style.shadowColor": {
-                "color": "shade"
-              }
-            }
-          },
-          {
-            "type": "Sphere",
-            "id": "drop",
-            "props": {
-              "diameter": 16,
-              "position": {
-                "x": 3,
-                "y": -86,
-                "z": -2
-              },
-              "style.color": {
-                "color": "body"
-              },
-              "style.stroke": 0,
-              "style.shadowColor": {
-                "color": "shade"
-              }
-            }
-          },
-          {
-            "type": "Sphere",
-            "id": "shine",
-            "props": {
-              "diameter": 13,
-              "position": {
-                "x": -20,
-                "y": -66,
-                "z": 27
-              },
-              "style.color": {
-                "color": "shine"
-              },
-              "style.stroke": 0
-            }
-          },
-          {
             "type": "Node",
-            "id": "cheeks",
+            "id": "body",
             "children": [
               {
                 "type": "Sphere",
+                "id": "blob",
                 "props": {
-                  "diameter": 11,
+                  "diameter": 84,
                   "position": {
-                    "x": -27,
-                    "y": -36,
-                    "z": 31
+                    "x": 0,
+                    "y": -42,
+                    "z": 0
                   },
                   "style.color": {
-                    "color": "cheek"
+                    "color": "body"
+                  },
+                  "style.stroke": 0,
+                  "style.shadowColor": {
+                    "color": "shade"
+                  },
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                }
+              },
+              {
+                "type": "Sphere",
+                "id": "drop",
+                "props": {
+                  "diameter": 16,
+                  "position": {
+                    "x": 3,
+                    "y": -86,
+                    "z": -2
+                  },
+                  "style.color": {
+                    "color": "body"
+                  },
+                  "style.stroke": 0,
+                  "style.shadowColor": {
+                    "color": "shade"
+                  },
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                }
+              },
+              {
+                "type": "Sphere",
+                "id": "shine",
+                "props": {
+                  "diameter": 13,
+                  "position": {
+                    "x": -20,
+                    "y": -66,
+                    "z": 27
+                  },
+                  "style.color": {
+                    "color": "shine"
                   },
                   "style.stroke": 0
                 }
               },
               {
-                "type": "Sphere",
-                "props": {
-                  "diameter": 11,
-                  "position": {
-                    "x": 27,
-                    "y": -36,
-                    "z": 31
-                  },
-                  "style.color": {
-                    "color": "cheek"
-                  },
-                  "style.stroke": 0
-                }
-              }
-            ]
-          },
-          {
-            "type": "Node",
-            "id": "eyes",
-            "props": {
-              "position": {
-                "x": 0,
-                "y": -48,
-                "z": 0
-              }
-            },
-            "children": [
-              {
-                "prefab": "eye",
-                "id": "eye-left",
-                "params": {
-                  "size": {
-                    "param": "eyeSize"
-                  }
-                },
-                "props": {
-                  "position": {
-                    "x": -14,
-                    "y": 0,
-                    "z": 36
-                  }
-                }
-              },
-              {
-                "prefab": "eye",
-                "id": "eye-right",
-                "params": {
-                  "size": {
-                    "param": "eyeSize"
-                  }
-                },
-                "props": {
-                  "position": {
-                    "x": 14,
-                    "y": 0,
-                    "z": 36
-                  }
-                }
-              }
-            ]
-          },
-          {
-            "type": "Node",
-            "id": "lids",
-            "props": {
-              "position": {
-                "x": 0,
-                "y": -48,
-                "z": 0
-              },
-              "visible": false
-            },
-            "children": [
-              {
-                "type": "PathShape",
-                "props": {
-                  "closed": false,
-                  "style.stroke": 3,
-                  "style.color": {
-                    "color": "ink"
-                  }
-                },
-                "path": [
+                "type": "Node",
+                "id": "cheeks",
+                "children": [
                   {
-                    "type": "move",
-                    "point": {
-                      "x": -22,
-                      "y": 0,
-                      "z": 36
+                    "type": "Sphere",
+                    "props": {
+                      "diameter": 11,
+                      "position": {
+                        "x": -27,
+                        "y": -36,
+                        "z": 31
+                      },
+                      "style.color": {
+                        "color": "cheek"
+                      },
+                      "style.stroke": 0
                     }
                   },
                   {
-                    "type": "line",
-                    "point": {
-                      "x": -14,
-                      "y": 2,
-                      "z": 40
+                    "type": "Sphere",
+                    "props": {
+                      "diameter": 11,
+                      "position": {
+                        "x": 27,
+                        "y": -36,
+                        "z": 31
+                      },
+                      "style.color": {
+                        "color": "cheek"
+                      },
+                      "style.stroke": 0
+                    }
+                  }
+                ],
+                "props": {}
+              },
+              {
+                "type": "Node",
+                "id": "eyes",
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -48,
+                    "z": 0
+                  }
+                },
+                "children": [
+                  {
+                    "prefab": "eye",
+                    "id": "eye-left",
+                    "params": {
+                      "size": {
+                        "param": "eyeSize"
+                      }
+                    },
+                    "props": {
+                      "position": {
+                        "x": -14,
+                        "y": 0,
+                        "z": 36
+                      }
                     }
                   },
                   {
-                    "type": "line",
-                    "point": {
-                      "x": -6,
-                      "y": 0,
-                      "z": 40
+                    "prefab": "eye",
+                    "id": "eye-right",
+                    "params": {
+                      "size": {
+                        "param": "eyeSize"
+                      }
+                    },
+                    "props": {
+                      "position": {
+                        "x": 14,
+                        "y": 0,
+                        "z": 36
+                      }
                     }
                   }
                 ]
               },
               {
-                "type": "PathShape",
+                "type": "Node",
+                "id": "lids",
                 "props": {
-                  "closed": false,
-                  "style.stroke": 3,
+                  "position": {
+                    "x": 0,
+                    "y": -48,
+                    "z": 0
+                  },
+                  "visible": false
+                },
+                "children": [
+                  {
+                    "type": "PathShape",
+                    "props": {
+                      "closed": false,
+                      "style.stroke": 3,
+                      "style.color": {
+                        "color": "ink"
+                      }
+                    },
+                    "path": [
+                      {
+                        "type": "move",
+                        "point": {
+                          "x": -22,
+                          "y": 0,
+                          "z": 36
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": -14,
+                          "y": 2,
+                          "z": 40
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": -6,
+                          "y": 0,
+                          "z": 40
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "PathShape",
+                    "props": {
+                      "closed": false,
+                      "style.stroke": 3,
+                      "style.color": {
+                        "color": "ink"
+                      }
+                    },
+                    "path": [
+                      {
+                        "type": "move",
+                        "point": {
+                          "x": 6,
+                          "y": 0,
+                          "z": 40
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": 14,
+                          "y": 2,
+                          "z": 40
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": 22,
+                          "y": 0,
+                          "z": 36
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "prefab": "mouth",
+                "id": "mouth",
+                "params": {
+                  "width": 12,
+                  "depth": 4,
+                  "stroke": 3
+                },
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -30,
+                    "z": 41
+                  },
                   "style.color": {
                     "color": "ink"
                   }
-                },
-                "path": [
-                  {
-                    "type": "move",
-                    "point": {
-                      "x": 6,
-                      "y": 0,
-                      "z": 40
-                    }
-                  },
-                  {
-                    "type": "line",
-                    "point": {
-                      "x": 14,
-                      "y": 2,
-                      "z": 40
-                    }
-                  },
-                  {
-                    "type": "line",
-                    "point": {
-                      "x": 22,
-                      "y": 0,
-                      "z": 36
-                    }
-                  }
-                ]
+                }
               }
-            ]
-          },
-          {
-            "prefab": "mouth",
-            "id": "mouth",
-            "params": {
-              "width": 12,
-              "depth": 4,
-              "stroke": 3
-            },
-            "props": {
-              "position": {
-                "x": 0,
-                "y": -30,
-                "z": 41
-              },
-              "style.color": {
-                "color": "ink"
-              }
-            }
+            ],
+            "props": {}
           }
         ]
       }

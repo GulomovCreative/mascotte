@@ -53,6 +53,10 @@
           },
           "style.shadowColor": {
             "color": "shade"
+          },
+          "style.outline": 1.2,
+          "style.outlineColor": {
+            "color": "ink"
           }
         },
         "path": [
@@ -146,340 +150,46 @@
   },
   "root": {
     "type": "Node",
-    "id": "miso",
-    "props": {
-      "position": {
-        "x": 4,
-        "y": 44,
-        "z": 0
-      },
-      "rotation": {
-        "x": -0.051888,
-        "y": 0.500311,
-        "z": -0.030055,
-        "w": 0.863767
-      }
-    },
+    "id": "stage",
     "children": [
       {
-        "type": "Node",
-        "id": "leg-fl",
+        "type": "BlobShadow",
+        "id": "shadow",
         "props": {
+          "width": 76,
           "position": {
-            "x": -9,
-            "y": -16,
-            "z": 10
-          }
-        },
-        "children": [
-          {
-            "type": "PathShape",
-            "props": {
-              "closed": false,
-              "style.stroke": 9,
-              "style.color": {
-                "color": "fur"
-              },
-              "style.shadowColor": {
-                "color": "shade"
-              },
-              "zBias": -100
-            },
-            "path": [
-              {
-                "type": "move",
-                "point": {
-                  "x": 0,
-                  "y": 0,
-                  "z": 0
-                }
-              },
-              {
-                "type": "line",
-                "point": {
-                  "x": 0,
-                  "y": 11,
-                  "z": 0
-                }
-              }
-            ]
-          },
-          {
-            "prefab": "paw",
-            "id": "leg-fl-paw",
-            "params": {
-              "size": 10
-            },
-            "props": {
-              "position": {
-                "x": 0,
-                "y": 12,
-                "z": 2
-              },
-              "style.color": {
-                "color": "cream"
-              },
-              "zBias": -100
-            }
-          }
-        ]
-      },
-      {
-        "type": "Node",
-        "id": "leg-fr",
-        "props": {
-          "position": {
-            "x": 9,
-            "y": -16,
-            "z": 10
-          }
-        },
-        "children": [
-          {
-            "type": "PathShape",
-            "props": {
-              "closed": false,
-              "style.stroke": 9,
-              "style.color": {
-                "color": "fur"
-              },
-              "style.shadowColor": {
-                "color": "shade"
-              },
-              "zBias": -100
-            },
-            "path": [
-              {
-                "type": "move",
-                "point": {
-                  "x": 0,
-                  "y": 0,
-                  "z": 0
-                }
-              },
-              {
-                "type": "line",
-                "point": {
-                  "x": 0,
-                  "y": 11,
-                  "z": 0
-                }
-              }
-            ]
-          },
-          {
-            "prefab": "paw",
-            "id": "leg-fr-paw",
-            "params": {
-              "size": 10
-            },
-            "props": {
-              "position": {
-                "x": 0,
-                "y": 12,
-                "z": 2
-              },
-              "style.color": {
-                "color": "cream"
-              },
-              "zBias": -100
-            }
-          }
-        ]
-      },
-      {
-        "type": "Node",
-        "id": "leg-bl",
-        "props": {
-          "position": {
-            "x": -9,
-            "y": -16,
-            "z": -16
-          }
-        },
-        "children": [
-          {
-            "type": "PathShape",
-            "props": {
-              "closed": false,
-              "style.stroke": 9,
-              "style.color": {
-                "color": "fur"
-              },
-              "style.shadowColor": {
-                "color": "shade"
-              },
-              "zBias": -100
-            },
-            "path": [
-              {
-                "type": "move",
-                "point": {
-                  "x": 0,
-                  "y": 0,
-                  "z": 0
-                }
-              },
-              {
-                "type": "line",
-                "point": {
-                  "x": 0,
-                  "y": 11,
-                  "z": 0
-                }
-              }
-            ]
-          },
-          {
-            "prefab": "paw",
-            "id": "leg-bl-paw",
-            "params": {
-              "size": 10
-            },
-            "props": {
-              "position": {
-                "x": 0,
-                "y": 12,
-                "z": 2
-              },
-              "style.color": {
-                "color": "cream"
-              },
-              "zBias": -100
-            }
-          }
-        ]
-      },
-      {
-        "type": "Node",
-        "id": "leg-br",
-        "props": {
-          "position": {
-            "x": 9,
-            "y": -16,
-            "z": -16
-          }
-        },
-        "children": [
-          {
-            "type": "PathShape",
-            "props": {
-              "closed": false,
-              "style.stroke": 9,
-              "style.color": {
-                "color": "fur"
-              },
-              "style.shadowColor": {
-                "color": "shade"
-              },
-              "zBias": -100
-            },
-            "path": [
-              {
-                "type": "move",
-                "point": {
-                  "x": 0,
-                  "y": 0,
-                  "z": 0
-                }
-              },
-              {
-                "type": "line",
-                "point": {
-                  "x": 0,
-                  "y": 11,
-                  "z": 0
-                }
-              }
-            ]
-          },
-          {
-            "prefab": "paw",
-            "id": "leg-br-paw",
-            "params": {
-              "size": 10
-            },
-            "props": {
-              "position": {
-                "x": 0,
-                "y": 12,
-                "z": 2
-              },
-              "style.color": {
-                "color": "cream"
-              },
-              "zBias": -100
-            }
-          }
-        ]
-      },
-      {
-        "type": "Node",
-        "id": "body",
-        "props": {
-          "position": {
-            "x": 0,
-            "y": -16,
+            "x": 4,
+            "y": 44,
             "z": 0
+          },
+          "squash": 0.25
+        }
+      },
+      {
+        "type": "Node",
+        "id": "miso",
+        "props": {
+          "position": {
+            "x": 4,
+            "y": 44,
+            "z": 0
+          },
+          "rotation": {
+            "x": -0.051888,
+            "y": 0.500311,
+            "z": -0.030055,
+            "w": 0.863767
           }
         },
         "children": [
-          {
-            "type": "PathShape",
-            "id": "torso",
-            "props": {
-              "closed": false,
-              "style.stroke": 30,
-              "style.color": {
-                "color": "fur"
-              },
-              "style.shadowColor": {
-                "color": "shade"
-              }
-            },
-            "path": [
-              {
-                "type": "move",
-                "point": {
-                  "x": 0,
-                  "y": -12,
-                  "z": 10
-                }
-              },
-              {
-                "type": "line",
-                "point": {
-                  "x": 0,
-                  "y": -12,
-                  "z": -16
-                }
-              }
-            ]
-          },
-          {
-            "type": "Sphere",
-            "id": "chest",
-            "props": {
-              "diameter": 12,
-              "position": {
-                "x": 0,
-                "y": -15,
-                "z": 20
-              },
-              "style.color": {
-                "color": "cream"
-              },
-              "style.stroke": 0
-            }
-          },
           {
             "type": "Node",
-            "id": "tail",
+            "id": "leg-fl",
             "props": {
               "position": {
-                "x": 0,
+                "x": -9,
                 "y": -16,
-                "z": -28
+                "z": 10
               }
             },
             "children": [
@@ -487,12 +197,17 @@
                 "type": "PathShape",
                 "props": {
                   "closed": false,
-                  "style.stroke": 7,
+                  "style.stroke": 9,
                   "style.color": {
                     "color": "fur"
                   },
                   "style.shadowColor": {
                     "color": "shade"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
                   }
                 },
                 "path": [
@@ -505,267 +220,619 @@
                     }
                   },
                   {
-                    "type": "bezier",
-                    "control1": {
-                      "x": 0,
-                      "y": -6,
-                      "z": -12
-                    },
-                    "control2": {
-                      "x": 0,
-                      "y": -24,
-                      "z": -12
-                    },
+                    "type": "line",
                     "point": {
-                      "x": 4,
-                      "y": -32,
-                      "z": -5
+                      "x": 0,
+                      "y": 11,
+                      "z": 0
                     }
                   }
                 ]
               },
               {
-                "type": "Sphere",
+                "prefab": "paw",
+                "id": "leg-fl-paw",
+                "params": {
+                  "size": 10
+                },
                 "props": {
-                  "diameter": 9,
                   "position": {
-                    "x": 4,
-                    "y": -32,
-                    "z": -5
+                    "x": 0,
+                    "y": 12,
+                    "z": 2
                   },
                   "style.color": {
-                    "color": "tip"
+                    "color": "cream"
                   },
-                  "style.stroke": 0
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
                 }
               }
             ]
           },
           {
             "type": "Node",
-            "id": "head",
+            "id": "leg-fr",
             "props": {
               "position": {
-                "x": 0,
-                "y": -30,
-                "z": 16
-              },
-              "rotation": {
-                "x": 0.02326,
-                "y": -0.366158,
-                "z": -0.009156,
-                "w": 0.930217
+                "x": 9,
+                "y": -16,
+                "z": 10
               }
             },
             "children": [
               {
-                "type": "Sphere",
-                "id": "skull",
+                "type": "PathShape",
                 "props": {
-                  "diameter": 36,
-                  "position": {
-                    "x": 0,
-                    "y": -12,
-                    "z": 4
-                  },
+                  "closed": false,
+                  "style.stroke": 9,
                   "style.color": {
                     "color": "fur"
                   },
-                  "style.stroke": 0,
                   "style.shadowColor": {
                     "color": "shade"
-                  }
-                }
-              },
-              {
-                "prefab": "catEar",
-                "id": "ear-left",
-                "params": {
-                  "length": {
-                    "param": "earLength"
-                  }
-                },
-                "props": {
-                  "position": {
-                    "x": -9,
-                    "y": -25,
-                    "z": 4
                   },
-                  "rotation": {
-                    "x": 0,
-                    "y": 0,
-                    "z": -0.149438,
-                    "w": 0.988771
-                  }
-                }
-              },
-              {
-                "prefab": "catEar",
-                "id": "ear-right",
-                "params": {
-                  "length": {
-                    "param": "earLength"
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
                   }
                 },
-                "props": {
-                  "position": {
-                    "x": 9,
-                    "y": -25,
-                    "z": 4
-                  },
-                  "rotation": {
-                    "x": 0,
-                    "y": 0,
-                    "z": 0.149438,
-                    "w": 0.988771
-                  }
-                }
-              },
-              {
-                "type": "Node",
-                "id": "eyes",
-                "props": {
-                  "position": {
-                    "x": 0,
-                    "y": -14,
-                    "z": 4
-                  }
-                },
-                "children": [
+                "path": [
                   {
-                    "prefab": "eye",
-                    "id": "eye-left",
-                    "params": {
-                      "size": 9
-                    },
-                    "props": {
-                      "position": {
-                        "x": -7,
-                        "y": 0,
-                        "z": 15
-                      }
+                    "type": "move",
+                    "point": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
                     }
                   },
                   {
-                    "prefab": "eye",
-                    "id": "eye-right",
-                    "params": {
-                      "size": 9
-                    },
-                    "props": {
-                      "position": {
-                        "x": 7,
-                        "y": 0,
-                        "z": 15
-                      }
+                    "type": "line",
+                    "point": {
+                      "x": 0,
+                      "y": 11,
+                      "z": 0
                     }
                   }
                 ]
               },
               {
-                "type": "Node",
-                "id": "lids",
+                "prefab": "paw",
+                "id": "leg-fr-paw",
+                "params": {
+                  "size": 10
+                },
                 "props": {
                   "position": {
                     "x": 0,
-                    "y": -14,
-                    "z": 4
+                    "y": 12,
+                    "z": 2
                   },
-                  "visible": false
+                  "style.color": {
+                    "color": "cream"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "leg-bl",
+            "props": {
+              "position": {
+                "x": -9,
+                "y": -16,
+                "z": -16
+              }
+            },
+            "children": [
+              {
+                "type": "PathShape",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 9,
+                  "style.color": {
+                    "color": "fur"
+                  },
+                  "style.shadowColor": {
+                    "color": "shade"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
                 },
-                "children": [
+                "path": [
                   {
-                    "type": "PathShape",
-                    "props": {
-                      "closed": false,
-                      "style.stroke": 2.5,
-                      "style.color": {
-                        "color": "ink"
-                      }
-                    },
-                    "path": [
-                      {
-                        "type": "move",
-                        "point": {
-                          "x": -11,
-                          "y": 0,
-                          "z": 17.5
-                        }
-                      },
-                      {
-                        "type": "line",
-                        "point": {
-                          "x": -3,
-                          "y": 0,
-                          "z": 17.5
-                        }
-                      }
-                    ]
+                    "type": "move",
+                    "point": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
                   },
                   {
-                    "type": "PathShape",
-                    "props": {
-                      "closed": false,
-                      "style.stroke": 2.5,
-                      "style.color": {
-                        "color": "ink"
-                      }
-                    },
-                    "path": [
-                      {
-                        "type": "move",
-                        "point": {
-                          "x": 3,
-                          "y": 0,
-                          "z": 17.5
-                        }
-                      },
-                      {
-                        "type": "line",
-                        "point": {
-                          "x": 11,
-                          "y": 0,
-                          "z": 17.5
-                        }
-                      }
-                    ]
+                    "type": "line",
+                    "point": {
+                      "x": 0,
+                      "y": 11,
+                      "z": 0
+                    }
+                  }
+                ]
+              },
+              {
+                "prefab": "paw",
+                "id": "leg-bl-paw",
+                "params": {
+                  "size": 10
+                },
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": 12,
+                    "z": 2
+                  },
+                  "style.color": {
+                    "color": "cream"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "leg-br",
+            "props": {
+              "position": {
+                "x": 9,
+                "y": -16,
+                "z": -16
+              }
+            },
+            "children": [
+              {
+                "type": "PathShape",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 9,
+                  "style.color": {
+                    "color": "fur"
+                  },
+                  "style.shadowColor": {
+                    "color": "shade"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                },
+                "path": [
+                  {
+                    "type": "move",
+                    "point": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "type": "line",
+                    "point": {
+                      "x": 0,
+                      "y": 11,
+                      "z": 0
+                    }
+                  }
+                ]
+              },
+              {
+                "prefab": "paw",
+                "id": "leg-br-paw",
+                "params": {
+                  "size": 10
+                },
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": 12,
+                    "z": 2
+                  },
+                  "style.color": {
+                    "color": "cream"
+                  },
+                  "zBias": -100,
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "body",
+            "props": {
+              "position": {
+                "x": 0,
+                "y": -16,
+                "z": 0
+              }
+            },
+            "children": [
+              {
+                "type": "PathShape",
+                "id": "torso",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 30,
+                  "style.color": {
+                    "color": "fur"
+                  },
+                  "style.shadowColor": {
+                    "color": "shade"
+                  },
+                  "style.outline": 1.2,
+                  "style.outlineColor": {
+                    "color": "ink"
+                  }
+                },
+                "path": [
+                  {
+                    "type": "move",
+                    "point": {
+                      "x": 0,
+                      "y": -12,
+                      "z": 10
+                    }
+                  },
+                  {
+                    "type": "line",
+                    "point": {
+                      "x": 0,
+                      "y": -12,
+                      "z": -16
+                    }
                   }
                 ]
               },
               {
                 "type": "Sphere",
-                "id": "nose",
+                "id": "chest",
                 "props": {
-                  "diameter": 5,
+                  "diameter": 12,
                   "position": {
                     "x": 0,
-                    "y": -7,
-                    "z": 21.5
+                    "y": -15,
+                    "z": 20
                   },
                   "style.color": {
-                    "color": "nose"
+                    "color": "cream"
                   },
                   "style.stroke": 0
                 }
               },
               {
-                "prefab": "mouth",
-                "id": "mouth",
-                "params": {
-                  "width": 7,
-                  "depth": 2,
-                  "stroke": 2
-                },
+                "type": "Node",
+                "id": "tail",
                 "props": {
                   "position": {
                     "x": 0,
-                    "y": -4,
-                    "z": 20.5
-                  },
-                  "style.color": {
-                    "color": "ink"
+                    "y": -16,
+                    "z": -28
                   }
-                }
+                },
+                "children": [
+                  {
+                    "type": "PathShape",
+                    "props": {
+                      "closed": false,
+                      "style.stroke": 7,
+                      "style.color": {
+                        "color": "fur"
+                      },
+                      "style.shadowColor": {
+                        "color": "shade"
+                      },
+                      "style.outline": 1.2,
+                      "style.outlineColor": {
+                        "color": "ink"
+                      }
+                    },
+                    "path": [
+                      {
+                        "type": "move",
+                        "point": {
+                          "x": 0,
+                          "y": 0,
+                          "z": 0
+                        }
+                      },
+                      {
+                        "type": "bezier",
+                        "control1": {
+                          "x": 0,
+                          "y": -6,
+                          "z": -12
+                        },
+                        "control2": {
+                          "x": 0,
+                          "y": -24,
+                          "z": -12
+                        },
+                        "point": {
+                          "x": 4,
+                          "y": -32,
+                          "z": -5
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Sphere",
+                    "props": {
+                      "diameter": 9,
+                      "position": {
+                        "x": 4,
+                        "y": -32,
+                        "z": -5
+                      },
+                      "style.color": {
+                        "color": "tip"
+                      },
+                      "style.stroke": 0
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Node",
+                "id": "head",
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -30,
+                    "z": 16
+                  },
+                  "rotation": {
+                    "x": 0.02326,
+                    "y": -0.366158,
+                    "z": -0.009156,
+                    "w": 0.930217
+                  }
+                },
+                "children": [
+                  {
+                    "type": "Sphere",
+                    "id": "skull",
+                    "props": {
+                      "diameter": 36,
+                      "position": {
+                        "x": 0,
+                        "y": -12,
+                        "z": 4
+                      },
+                      "style.color": {
+                        "color": "fur"
+                      },
+                      "style.stroke": 0,
+                      "style.shadowColor": {
+                        "color": "shade"
+                      },
+                      "style.outline": 1.2,
+                      "style.outlineColor": {
+                        "color": "ink"
+                      }
+                    }
+                  },
+                  {
+                    "prefab": "catEar",
+                    "id": "ear-left",
+                    "params": {
+                      "length": {
+                        "param": "earLength"
+                      }
+                    },
+                    "props": {
+                      "position": {
+                        "x": -9,
+                        "y": -25,
+                        "z": 4
+                      },
+                      "rotation": {
+                        "x": 0,
+                        "y": 0,
+                        "z": -0.149438,
+                        "w": 0.988771
+                      }
+                    }
+                  },
+                  {
+                    "prefab": "catEar",
+                    "id": "ear-right",
+                    "params": {
+                      "length": {
+                        "param": "earLength"
+                      }
+                    },
+                    "props": {
+                      "position": {
+                        "x": 9,
+                        "y": -25,
+                        "z": 4
+                      },
+                      "rotation": {
+                        "x": 0,
+                        "y": 0,
+                        "z": 0.149438,
+                        "w": 0.988771
+                      }
+                    }
+                  },
+                  {
+                    "type": "Node",
+                    "id": "eyes",
+                    "props": {
+                      "position": {
+                        "x": 0,
+                        "y": -14,
+                        "z": 4
+                      }
+                    },
+                    "children": [
+                      {
+                        "prefab": "eye",
+                        "id": "eye-left",
+                        "params": {
+                          "size": 9
+                        },
+                        "props": {
+                          "position": {
+                            "x": -7,
+                            "y": 0,
+                            "z": 15
+                          }
+                        }
+                      },
+                      {
+                        "prefab": "eye",
+                        "id": "eye-right",
+                        "params": {
+                          "size": 9
+                        },
+                        "props": {
+                          "position": {
+                            "x": 7,
+                            "y": 0,
+                            "z": 15
+                          }
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Node",
+                    "id": "lids",
+                    "props": {
+                      "position": {
+                        "x": 0,
+                        "y": -14,
+                        "z": 4
+                      },
+                      "visible": false
+                    },
+                    "children": [
+                      {
+                        "type": "PathShape",
+                        "props": {
+                          "closed": false,
+                          "style.stroke": 2.5,
+                          "style.color": {
+                            "color": "ink"
+                          }
+                        },
+                        "path": [
+                          {
+                            "type": "move",
+                            "point": {
+                              "x": -11,
+                              "y": 0,
+                              "z": 17.5
+                            }
+                          },
+                          {
+                            "type": "line",
+                            "point": {
+                              "x": -3,
+                              "y": 0,
+                              "z": 17.5
+                            }
+                          }
+                        ]
+                      },
+                      {
+                        "type": "PathShape",
+                        "props": {
+                          "closed": false,
+                          "style.stroke": 2.5,
+                          "style.color": {
+                            "color": "ink"
+                          }
+                        },
+                        "path": [
+                          {
+                            "type": "move",
+                            "point": {
+                              "x": 3,
+                              "y": 0,
+                              "z": 17.5
+                            }
+                          },
+                          {
+                            "type": "line",
+                            "point": {
+                              "x": 11,
+                              "y": 0,
+                              "z": 17.5
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  },
+                  {
+                    "type": "Sphere",
+                    "id": "nose",
+                    "props": {
+                      "diameter": 5,
+                      "position": {
+                        "x": 0,
+                        "y": -7,
+                        "z": 21.5
+                      },
+                      "style.color": {
+                        "color": "nose"
+                      },
+                      "style.stroke": 0
+                    }
+                  },
+                  {
+                    "prefab": "mouth",
+                    "id": "mouth",
+                    "params": {
+                      "width": 7,
+                      "depth": 2,
+                      "stroke": 2
+                    },
+                    "props": {
+                      "position": {
+                        "x": 0,
+                        "y": -4,
+                        "z": 20.5
+                      },
+                      "style.color": {
+                        "color": "ink"
+                      }
+                    }
+                  }
+                ]
               }
             ]
           }
