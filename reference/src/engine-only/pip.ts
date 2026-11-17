@@ -117,10 +117,8 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   /*
    * The belly: a smaller sphere set forward and down inside the body, so only a shallow cap of
    * it stands out of the body's surface; the cap's edge is the circle where the two spheres
-   * meet. In WebGL, from any angle, it is a patch on the body, not a flat disc.
-   * упрощение: Canvas 2D не режет шар шаром и рисует брюшко целым кругом радиуса 36 (шапка —
-   * около 32): спереди светлое заходит на щёки и под глаза, сбоку выступает за тело; вернуться,
-   * когда Canvas 2D научится обрезать шар шаром (#74).
+   * meet. From any angle it is a patch on the body, not a flat disc: by depth in WebGL, cut by
+   * the body's sphere in Canvas 2D.
    */
   head.add(
     new Sphere({

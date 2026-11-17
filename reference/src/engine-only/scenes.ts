@@ -458,6 +458,54 @@ const outline: EngineScene = {
   snapshotTimes: [Math.PI / 2],
 };
 
+const sphereCuts: EngineScene = {
+  id: 'engine-sphere-cuts',
+  title: 'Spheres in spheres',
+  width: 320,
+  height: 240,
+  background: '#eef3ea',
+  build() {
+    const root = new Node();
+    const camera = new Camera({ zoom: 1.2 });
+    // A body with a belly sunk in it, a cap standing out; a head with an eye half in it; and a
+    // small ball wholly inside the big one, which never shows.
+    const body = new Sphere({
+      diameter: 100,
+      position: { x: -50, y: 10, z: 0 },
+      style: { color: '#ffd54a', stroke: 0 },
+    });
+    body.add(
+      new Sphere({
+        diameter: 70,
+        position: { x: 0, y: 12, z: 22 },
+        style: { color: '#fff0b3', stroke: 0 },
+      }),
+    );
+    body.add(
+      new Sphere({ diameter: 20, position: { x: 0, y: -10, z: 10 }, style: { color: '#f00' } }),
+    );
+    const head = new Sphere({
+      diameter: 70,
+      position: { x: 70, y: -10, z: 0 },
+      style: { color: '#7fc8f8', stroke: 0, outline: 2, outlineColor: '#24323d' },
+    });
+    head.add(
+      new Sphere({
+        diameter: 26,
+        position: { x: 10, y: -8, z: 30 },
+        style: { color: '#ffffff', stroke: 0, outline: 2, outlineColor: '#24323d' },
+      }),
+    );
+    root.add(body).add(head);
+    return { root, camera };
+  },
+  pose(root, _camera, time) {
+    root.setRotationFromEuler(euler.create(-0.2, Math.sin(time) * 1.3, 0));
+  },
+  // From the front, and turned to the side, where the caps meet the silhouettes.
+  snapshotTimes: [Math.PI / 2],
+};
+
 /** New-engine-only scenes. */
 export const engineScenes: readonly EngineScene[] = [
   perspective,
@@ -466,4 +514,5 @@ export const engineScenes: readonly EngineScene[] = [
   earBehindHead,
   toon,
   outline,
+  sphereCuts,
 ];

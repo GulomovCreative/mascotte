@@ -214,9 +214,10 @@ class SvgTarget {
     for (; this.#state.groups > 0; this.#state.groups--) this.#body.push('</g>');
   }
 
-  clip(): void {
+  clip(rule: 'nonzero' | 'evenodd' = 'nonzero'): void {
     const id = `c${this.#clips++}`;
-    this.#defs.push(`<clipPath id="${id}"><path d="${this.#path}"/></clipPath>`);
+    const fill = rule === 'evenodd' ? ' clip-rule="evenodd"' : '';
+    this.#defs.push(`<clipPath id="${id}"><path d="${this.#path}"${fill}/></clipPath>`);
     this.#body.push(`<g clip-path="url(#${id})">`);
     this.#state.groups++;
   }

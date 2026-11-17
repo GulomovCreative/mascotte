@@ -24,6 +24,11 @@ export class DisplayItem extends SurfaceOutline {
   readonly behind: DisplayItem[] = [];
   /** @internal Parts of other strokes drawn after this occluder. */
   readonly inFront: DisplayItem[] = [];
+  /**
+   * The spheres drawn before this sphere that it intersects: the backend draws only its part
+   * outside each of them (`clipSphereCut` in Canvas 2D), as depth does in WebGL.
+   */
+  readonly sphereCuts: DisplayItem[] = [];
 }
 
 export interface DisplayListOptions {
@@ -55,6 +60,7 @@ export class DisplayList {
   #partCount = 0;
   readonly #order: DisplayItem[] = [];
   readonly #queue: DisplayItem[] = [];
+  readonly #spheres: DisplayItem[] = [];
 
   constructor(options: DisplayListOptions = {}) {
     this.#partialOcclusion = options.partialOcclusion ?? true;
@@ -119,6 +125,29 @@ export class DisplayList {
       for (const part of item.behind) order.push(part);
       order.push(item);
       for (const part of item.inFront) order.push(part);
+    }
+    this.#cutSpheres();
+  }
+
+  /**
+   * Notes for each sphere the spheres drawn before it that it intersects in space: there it is
+   * partly inside them, and only its part outside them shows. Decals take no part, and nothing is
+   * cut with partial occlusion off.
+   */
+  #cutSpheres(): void {
+    const order = this.#order;
+    const spheres = this.#spheres;
+    spheres.length = 0;
+    for (let i = 0; i < order.length; i++) {
+      const item = order[i] as DisplayItem;
+      item.sphereCuts.length = 0;
+      // A decal is drawn over its anchor, clipped to it: it neither is cut nor cuts.
+      if (item.occluder !== 'sphere' || item.clip !== 'none' || !this.#partialOcclusion) continue;
+      for (let j = 0; j < spheres.length; j++) {
+        const other = spheres[j] as DisplayItem;
+        if (spheresIntersect(item, other)) item.sphereCuts.push(other);
+      }
+      spheres.push(item);
     }
   }
 
@@ -226,6 +255,22 @@ export class DisplayList {
     part.outlineColor = shape.outlineColor;
     return part;
   }
+}
+
+/**
+ * Whether the item's sphere reaches into the other's in screen 3D (depth scaled like x and y):
+ * they overlap and the item does not hold the other whole (then it covers it anyway). An item
+ * all inside the other counts: it is cut to nothing.
+ */
+function spheresIntersect(item: DisplayItem, other: DisplayItem): boolean {
+  const dx = other.occluderX - item.occluderX;
+  const dy = other.occluderY - item.occluderY;
+  const dz = other.occluderDepth * other.occluderScale - item.occluderDepth * item.occluderScale;
+  const d = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  // Apart, or the item holds the other (the item covers it anyway).
+  return (
+    d < item.occluderRadius + other.occluderRadius && d + other.occluderRadius > item.occluderRadius
+  );
 }
 
 /**
