@@ -108,4 +108,126 @@ describe('sphere cuts', () => {
     new CanvasRenderer().render(ctx, world, camera, { width: 80, height: 80 });
     expect(calls).toContain('clip evenodd');
   });
+
+  /** The calls a frame of `nodes` makes, clips with their rule. */
+  function frame(...nodes: Node[]): string[] {
+    const calls: string[] = [];
+    const ctx = new Proxy(
+      {},
+      {
+        get:
+          (_, key: string) =>
+          (...args: unknown[]) =>
+            calls.push(key === 'clip' ? `clip ${args[0] ?? 'nonzero'}` : key),
+        set: () => true,
+      },
+    ) as CanvasTarget;
+    const root = new Node();
+    for (const node of nodes) root.add(node);
+    new CanvasRenderer().render(ctx, new Scene(root), camera, { width: 120, height: 120 });
+    return calls;
+  }
+
+  it('cut out the circle where a small sphere in front sinks into a big one drawn after it', () => {
+    // The big ball is drawn last (zBias) and the small one in front reaches into its front.
+    const big = new Sphere({ diameter: 40, zBias: 100, style: { stroke: 0 } });
+    const small = new Sphere({
+      diameter: 12,
+      position: { x: 0, y: 0, z: 22 },
+      style: { stroke: 0 },
+    });
+    const calls = frame(small, big);
+    const clip = calls.indexOf('clip evenodd');
+    expect(clip).toBeGreaterThan(0);
+    // The big disk, then the whole circle where they meet (a move and 24 lines), cut out.
+    const path = calls.slice(calls.lastIndexOf('beginPath', clip), clip);
+    expect(path.filter((call) => call === 'arc')).toHaveLength(1);
+    expect(path.filter((call) => call === 'lineTo')).toHaveLength(24);
+  });
+
+  it('leave out a sphere whose whole front is inside one drawn before it', () => {
+    // Behind the big ball's center, its front all inside the big ball; drawn last all the same.
+    const big = new Sphere({ diameter: 40, style: { stroke: 0 } });
+    const back = new Sphere({
+      diameter: 20,
+      position: { x: 0, y: 0, z: -15 },
+      zBias: 100,
+      style: { stroke: 0 },
+    });
+    expect(frame(big, back).filter((call) => call === 'fill')).toHaveLength(1);
+    // Touching from inside on the same depth, it is all inside: not drawn either.
+    const inner = new Sphere({
+      diameter: 10,
+      position: { x: 5, y: 0, z: 0 },
+      zBias: 100,
+      style: { stroke: 0 },
+    });
+    const outer = new Sphere({ diameter: 20, style: { stroke: 0 } });
+    expect(frame(outer, inner).filter((call) => call === 'fill')).toHaveLength(1);
+  });
+
+  it('keep the outline of a belly seen from the front', () => {
+    const body = new Sphere({ diameter: 40, style: { stroke: 0 } });
+    body.add(
+      new Sphere({
+        diameter: 30,
+        position: { x: 0, y: 0, z: 12 },
+        style: { stroke: 0, outline: 2 },
+      }),
+    );
+    // The disk with the outline, the belly's own disk and the circle, even-odd: the circle's
+    // inside and the outline band show.
+    const calls = frame(body);
+    const clip = calls.indexOf('clip evenodd');
+    expect(clip).toBeGreaterThan(0);
+    const path = calls.slice(calls.lastIndexOf('beginPath', clip), clip);
+    expect(path.filter((call) => call === 'arc')).toHaveLength(2);
+  });
+
+  it('cut by every sphere reached, give a decal the cuts of its anchor, and forget them when apart', () => {
+    const root = new Node();
+    const left = new Sphere({
+      id: 'left',
+      diameter: 30,
+      position: { x: -12, y: 0, z: 0 },
+      style: { stroke: 0 },
+    });
+    const right = new Sphere({
+      id: 'right',
+      diameter: 30,
+      position: { x: 12, y: 0, z: 0 },
+      style: { stroke: 0 },
+    });
+    const middle = new Sphere({
+      id: 'middle',
+      diameter: 16,
+      position: { x: 0, y: 0, z: 10 },
+      style: { stroke: 0 },
+    });
+    middle.add(
+      new Sphere({
+        id: 'pupil',
+        diameter: 4,
+        position: { x: 0, y: 0, z: 8 },
+        sortMode: 'attached',
+        style: { stroke: 0 },
+      }),
+    );
+    root.add(left).add(right).add(middle);
+    const world = new Scene(root);
+    const list = new DisplayList();
+    const item = (id: string) => {
+      for (let i = 0; i < list.count; i++) {
+        if ((list.item(i).node as Node).id === id) return list.item(i);
+      }
+      throw new Error(`no ${id}`);
+    };
+    list.build(world, camera);
+    expect(new Set(item('middle').sphereCuts)).toEqual(new Set([item('left'), item('right')]));
+    expect(item('pupil').cutBase).toBe(item('middle'));
+    expect(new Set(item('pupil').sphereCuts)).toEqual(new Set(item('middle').sphereCuts));
+    middle.position.set(0, 80, 10);
+    list.build(world, camera);
+    expect([item('middle').sphereCuts, item('pupil').sphereCuts]).toEqual([[], []]);
+  });
 });

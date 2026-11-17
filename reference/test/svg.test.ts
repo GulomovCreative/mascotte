@@ -35,6 +35,14 @@ async function differing(scene: Scene, camera: Camera, viewport: Viewport): Prom
   );
 }
 
+/**
+ * The differing pixels allowed: none, or a few edge pixels where the frame clips (a decal, a
+ * sphere cut by another), since Canvas's clip and an SVG clip path antialias a little apart.
+ */
+function slack(scene: Scene, camera: Camera, viewport: Viewport): number {
+  return new SvgRenderer().render(scene, camera, viewport).includes('clip-path') ? 4 : 0;
+}
+
 describe('SVG export', () => {
   it.each(engineScenes.map((scene) => [scene.id, scene] as const))(
     '%s draws as the Canvas 2D frame',
@@ -47,9 +55,10 @@ describe('SVG export', () => {
         pixelRatio: 2,
         background: scene.background,
       };
-      // A few edge pixels may differ where a sphere is cut by another: Canvas's clip and an
-      // SVG clip path round their antialiased edges a little differently.
-      expect(await differing(new Scene(root), camera, viewport)).toBeLessThanOrEqual(4);
+      const world = new Scene(root);
+      expect(await differing(world, camera, viewport)).toBeLessThanOrEqual(
+        slack(world, camera, viewport),
+      );
     },
   );
 
@@ -64,7 +73,10 @@ describe('SVG export', () => {
       const built = buildDocument(document);
       const { width, height, background } = document.view;
       const viewport = { width, height, pixelRatio: 2, ...(background ? { background } : {}) };
-      expect(await differing(new Scene(built.root), built.camera, viewport)).toBeLessThanOrEqual(4);
+      const scene = new Scene(built.root);
+      expect(await differing(scene, built.camera, viewport)).toBeLessThanOrEqual(
+        slack(scene, built.camera, viewport),
+      );
     },
   );
 
