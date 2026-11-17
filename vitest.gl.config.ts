@@ -3,12 +3,12 @@ import { defineConfig } from 'vitest/config';
 import { glCommands } from './reference/src/gl-snapshot.ts';
 
 /*
- * WebGL2 tests in a real browser: headless Chromium with the SwiftShader software renderer,
- * so frames do not depend on the GPU. Run with `pnpm test:gl`.
+ * Tests in a real browser: WebGL2 frames and the editor's interface, in headless Chromium with
+ * the SwiftShader software renderer, so frames do not depend on the GPU. Run with `pnpm test:gl`.
  */
 export default defineConfig({
   test: {
-    include: ['reference/test-gl/**/*.test.ts'],
+    include: ['reference/test-gl/**/*.test.ts', 'apps/editor/test/**/*.test.tsx'],
     browser: {
       enabled: true,
       headless: true,

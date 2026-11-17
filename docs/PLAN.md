@@ -483,9 +483,9 @@ The plan: [EDITOR.md](EDITOR.md): a web app in `apps/editor`, whose first versio
 
 ### Stage 7. Editor
 
-Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/8)
+Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/8)
 
-- [ ] Editor app and layout ([#85](https://github.com/GulomovCreative/mascotte/issues/85))
+- [x] Editor app and layout ([#85](https://github.com/GulomovCreative/mascotte/issues/85))
 - [ ] Editor document model ([#86](https://github.com/GulomovCreative/mascotte/issues/86))
 - [ ] Editor files ([#87](https://github.com/GulomovCreative/mascotte/issues/87))
 - [ ] Editor viewport, picking and debug view ([#88](https://github.com/GulomovCreative/mascotte/issues/88))
