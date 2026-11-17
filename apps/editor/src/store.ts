@@ -47,7 +47,7 @@ function cancelDraft(): void {
 // A page closed before the delay is over still keeps its draft.
 globalThis.addEventListener?.('pagehide', () => {
   if (pendingDraft !== undefined) {
-    cancelDraft();
+    clearTimeout(pendingDraft);
     keepDraftNow();
   }
 });

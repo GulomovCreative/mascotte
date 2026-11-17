@@ -2,7 +2,7 @@ import type { MascotDocument } from '@mascotte/format';
 import { documentText, readDocumentText } from './documents.ts';
 
 /** The parts of the File System Access API the editor uses (not every browser has them). */
-interface FileHandle {
+export interface FileHandle {
   readonly name: string;
   getFile(): Promise<File>;
   createWritable(): Promise<{
@@ -147,5 +147,3 @@ export async function saveFile(
   download(document, name);
   return { name, handle: null };
 }
-
-export type { FileHandle };

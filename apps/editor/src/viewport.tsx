@@ -1,20 +1,16 @@
-import { Camera, CanvasRenderer, Scene, WebGLRenderer } from '@mascotte/engine';
+import {
+  Camera,
+  CanvasRenderer,
+  type Viewport as Frame,
+  Scene,
+  WebGLRenderer,
+} from '@mascotte/engine';
 import { effect } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import { state } from './store.ts';
 
-/** Draws `scene` from `camera` on a canvas of `width` × `height` CSS pixels, anew. */
-type Draw = (
-  scene: Scene,
-  camera: Camera,
-  width: number,
-  height: number,
-  background: string | undefined,
-) => void;
-
-/** The frame options for a background, or none. */
-const backdrop = (background: string | undefined) =>
-  background === undefined ? {} : { background };
+/** Draws `scene` from `camera` in `frame`, anew. */
+type Draw = (scene: Scene, camera: Camera, frame: Frame) => void;
 
 /**
  * A renderer for the canvas: WebGL2, or Canvas 2D where the browser has no WebGL2. A canvas that
@@ -32,15 +28,10 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
       throw new Error('The viewport could not start WebGL2.', { cause: error });
     }
     return {
-      draw: (scene, camera, width, height, background) => {
+      draw: (scene, camera, frame) => {
         // A canvas given its size again is cleared: the frame must be drawn anew.
         gl.invalidate();
-        gl.render(scene, camera, {
-          width,
-          height,
-          pixelRatio: devicePixelRatio || 1,
-          ...backdrop(background),
-        });
+        gl.render(scene, camera, frame);
       },
       destroy: () => gl.destroy(),
     };
@@ -49,13 +40,7 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
   if (!ctx) throw new Error('The viewport has neither WebGL2 nor a 2D context.');
   const canvas2d = new CanvasRenderer();
   return {
-    draw: (scene, camera, width, height, background) =>
-      canvas2d.render(ctx, scene, camera, {
-        width,
-        height,
-        pixelRatio: devicePixelRatio || 1,
-        ...backdrop(background),
-      }),
+    draw: (scene, camera, frame) => canvas2d.render(ctx, scene, camera, frame),
     destroy: () => {},
   };
 }
@@ -85,14 +70,14 @@ export function Viewport() {
       if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
       if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       const built = state.peek().scene;
-      renderer.draw(
-        built?.scene ?? empty,
-        built?.built.camera ?? fallback,
+      // The built scene's view: validated, unlike the document while it has issues.
+      const background = built?.built.view.background;
+      renderer.draw(built?.scene ?? empty, built?.built.camera ?? fallback, {
         width,
         height,
-        // The built scene's view: validated, unlike the document while it has issues.
-        built?.built.view.background,
-      );
+        pixelRatio: ratio,
+        ...(background === undefined ? {} : { background }),
+      });
     };
     // Redrawn whenever the state changes (a new scene, an edit).
     const stop = effect(() => {
