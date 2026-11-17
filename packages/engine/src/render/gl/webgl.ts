@@ -9,6 +9,7 @@ import {
   cylinderProgram,
   fillProgram,
   hemisphereProgram,
+  ringProgram,
   sphereProgram,
 } from './shaders.ts';
 
@@ -33,10 +34,13 @@ const SOURCES: Record<PrimitiveKind, ProgramSource> = {
   cylinder: cylinderProgram,
   cone: coneProgram,
   fill: fillProgram,
+  ring: ringProgram,
 };
 
 /** Drawing order of kinds within a bucket. */
 const ORDER: readonly PrimitiveKind[] = [
+  // Outlines first: a decal, drawn in order without a depth test, then covers its own.
+  'ring',
   'fill',
   'cylinder',
   'cone',

@@ -222,6 +222,8 @@ export class DisplayList {
     part.shadeRadius = shape.shadeRadius;
     part.shadowColor = shape.shadowColor;
     part.highlightColor = shape.highlightColor;
+    part.outlineWidth = shape.outlineWidth;
+    part.outlineColor = shape.outlineColor;
     return part;
   }
 }
@@ -373,6 +375,7 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   const path = out.path.reset();
   out.color = color;
   out.lineCap = 'round';
+  out.setOutline(style, nodeScale * s);
 
   if (opCount === 1) {
     // A point: a circle with a diameter equal to the stroke width, as in Zdog.

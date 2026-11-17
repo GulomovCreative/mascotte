@@ -94,6 +94,17 @@ export class CanvasRenderer {
         alpha = item.opacity;
         ctx.globalAlpha = alpha;
       }
+      if (item.outlineWidth > 0) {
+        // The outline: the item's path stroked wider, just behind it.
+        trace(ctx, item.path);
+        ctx.lineCap = 'round';
+        ctx.lineWidth = (item.hasStroke ? item.lineWidth : 0) + 2 * item.outlineWidth;
+        ctx.strokeStyle = item.outlineColor;
+        ctx.stroke();
+        lineCap = 'round';
+        lineWidth = Number.NaN;
+        strokeStyle = item.outlineColor;
+      }
       if (item.shade !== 'none') {
         // Shaded: the brush changes several times, the state cache starts over.
         // упрощение: тона рисуются слоями поверх основы, поэтому у полупрозрачной фигуры они

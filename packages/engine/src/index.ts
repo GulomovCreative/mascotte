@@ -170,6 +170,7 @@ export {
   RoundedRect,
   type RoundedRectOptions,
 } from './shapes/primitives.ts';
+export { BLOB_SHADOW_DEFAULTS, BlobShadow, type BlobShadowOptions } from './shapes/shadow.ts';
 export { PathShape, type PathShapeOptions, Shape, type ShapeOptions } from './shapes/shape.ts';
 export {
   BOX_FACES,

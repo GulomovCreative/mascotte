@@ -64,6 +64,12 @@ export class SurfaceOutline {
   shadeRadius = 0;
   shadowColor: string | null = null;
   highlightColor: string | null = null;
+  /**
+   * The outline (see `ShapeStyle.outline`): its width in pixels beyond the item's edge, 0 for
+   * none, and color. The backend strokes the item's path wider in this color just before it.
+   */
+  outlineWidth = 0;
+  outlineColor = '';
 
   /** Resets occlusion, clipping and shading data before collection. */
   resetOcclusion(): void {
@@ -73,6 +79,13 @@ export class SurfaceOutline {
     this.shade = 'none';
     this.shadowColor = null;
     this.highlightColor = null;
+    this.outlineWidth = 0;
+  }
+
+  /** Records the outline of `style`, whose units are `scale` pixels each. */
+  setOutline(style: Readonly<ShapeStyleValues>, scale: number): void {
+    this.outlineWidth = style.outline * scale;
+    this.outlineColor = style.outlineColor;
   }
 
   /** Records the shading of a sphere (center and radius in pixels) if `style` is toned. */

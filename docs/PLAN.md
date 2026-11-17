@@ -189,6 +189,14 @@ Without shading mascots look flat; with shading they gain volume. Shading stays 
 - **Not shaded yet:** the hemisphere dome and the cylinder and cone sides.
 - **The reference mascots** have shadow colors from a `shade` role (Gloop, Miso) or their own (Pip's body, belly and wings), and the `engine-toon` scene checks the tones in both backends.
 
+**Outline and blob shadow** (#33):
+- **Outline.** A style option: `outline` (a width in scene units like the stroke, 0 by default) and `outlineColor`. It edges the shape's silhouette from just behind it, so it also edges the shape where it lies over others (an eye on a head). Spheres, points, capsules and paths (strokes, filled faces, box faces and caps) have it; hemisphere domes and cylinder and cone sides do not yet.
+  - **Canvas 2D** strokes the item's path wider in the outline's color just before the item.
+  - **WebGL** draws a ring primitive: the band around the shape's segment (a point for a sphere) on screen. Around a sphere or a capsule it stands a pixel behind the shape's front, around a tube a pixel behind its axis (its segments overlap at the joints), around a face behind the whole band, so the face covers the inner half.
+  - Difference: Canvas 2D outlines every face of a box, so its inner edges show; WebGL only its silhouette.
+- **Blob shadow.** `BlobShadow`: a flat ellipse `width` across and `width × squash` high (a third by default), always facing the camera, since seen nearly level a shadow on the ground plane would be a line. It lies in layer −1, below the rest, black at opacity 0.2 unless told otherwise (`BLOB_SHADOW_DEFAULTS`, which the registry reports as its defaults). A document puts it next to the mascot's root, in a stage node, so it stays on the ground while the mascot hops.
+- **The reference mascots** stand on blob shadows; Gloop and Miso have outlines in their `ink` role. The `engine-outline` scene checks outlines and the shadow in both backends.
+
 ### 5.9. Animation
 
 **Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry. `propertiesOf(node or class)` lists inherited properties first; `findProperty` looks one up by name (`position`, `style.color`, `width`). Numeric shape parameters come from the schema the node actually uses (its class's `params`) and style fields from `ShapeStyle.params`, with defaults taken from the class (`defaultStyle`, `defaultClosed`). Values are read and written without allocations (vectors and quaternions are read into an `out` object), and writes go through the node's own setters, so they are validated and mark the scene as changed. Structural settings (`sortMode`, `layer`, camera `projection`) are listed but not animatable. Custom node types add theirs with `registerProperties`; a subclass registering an inherited name replaces it in place. Enum values come from `SORT_MODES` and `PROJECTIONS`, and the setters reject unknown values. Per-face settings of a box (`setFace`) are not in the registry yet.
@@ -448,7 +456,7 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
 
 - [x] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
-- [ ] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
+- [x] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
 - [ ] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 
 **Done when** the reference mascots look three-dimensional and the export matches the in-browser render.
