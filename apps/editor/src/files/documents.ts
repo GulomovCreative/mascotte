@@ -1,6 +1,8 @@
 import {
+  DocumentError,
   FORMAT,
   type MascotDocument,
+  migrate,
   type NodeDocument,
   readDocument,
   VERSION,
@@ -14,11 +16,25 @@ export function documentText(document: MascotDocument): string {
 }
 
 /**
- * Reads a document from a file's text: parsed, migrated to the current version and validated
- * (`readDocument`). Throws a `DocumentError` for a file that is not a mascot document.
+ * Reads a document from a file's text: parsed and migrated to the current version, but not
+ * validated, so a document saved (or kept as a draft) with issues opens again and the editor
+ * shows them. Throws a `DocumentError` for text that is not JSON, not a mascot document, or has
+ * no root node to edit.
  */
 export function readDocumentText(text: string): MascotDocument {
-  return readDocument(text);
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    const message = `not JSON: ${(error as Error).message}`;
+    throw new DocumentError([{ path: '', message }], { cause: error });
+  }
+  const document = migrate(value);
+  const root = document.root;
+  if (typeof root !== 'object' || root === null || Array.isArray(root)) {
+    throw new DocumentError([{ path: 'root', message: 'expected a node.' }]);
+  }
+  return document as unknown as MascotDocument;
 }
 
 /** The reference mascots the editor opens from its menu, by name. */

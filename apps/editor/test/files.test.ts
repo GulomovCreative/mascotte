@@ -43,9 +43,16 @@ describe('editor files', () => {
     expect(readDocumentText(text)).toEqual(document);
   });
 
-  it('refuses a file that is not a mascot document', () => {
+  it('refuses a file that is not a mascot document, and reads one with issues for the editor to show', () => {
     expect(() => readDocumentText('{')).toThrow(/not JSON/);
     expect(() => readDocumentText('{"format":"other"}')).toThrow();
+    const document = newDocument('blob');
+    expect(() => readDocumentText(JSON.stringify({ ...document, root: 5 }))).toThrow(/root/);
+    // A slot bound to no node: an issue, read all the same.
+    const broken = { ...document, rig: { slots: { ...document.rig?.slots, body: 'gone' } } };
+    const read = readDocumentText(JSON.stringify(broken));
+    expect(read).toEqual(broken);
+    expect(check(read).issues.length).toBeGreaterThan(0);
   });
 
   it('keeps a draft, gives it back and forgets it, and goes on without storage', () => {

@@ -5,7 +5,11 @@ import { documentText, readDocumentText } from './documents.ts';
 interface FileHandle {
   readonly name: string;
   getFile(): Promise<File>;
-  createWritable(): Promise<{ write(data: string): Promise<void>; close(): Promise<void> }>;
+  createWritable(): Promise<{
+    write(data: string): Promise<void>;
+    close(): Promise<void>;
+    abort?(): Promise<void>;
+  }>;
 }
 interface FilePickers {
   showOpenFilePicker?(options: object): Promise<FileHandle[]>;
@@ -34,14 +38,24 @@ function cancelled(error: unknown): boolean {
   return error instanceof DOMException && error.name === 'AbortError';
 }
 
-/** Asks for a file with the browser's file input and reads its text, or `null` if none is chosen. */
+/**
+ * Asks for a file with the browser's file input, or `null` if none is chosen. The input is in
+ * the page while it is open (some browsers do not report a detached one). Browsers without the
+ * `cancel` event leave the promise pending when the user cancels: nothing happens, as wanted.
+ */
 function pickWithInput(): Promise<File | null> {
   return new Promise((resolve) => {
     const input = document.createElement('input');
     input.type = 'file';
     input.accept = '.json,application/json';
-    input.addEventListener('change', () => resolve(input.files?.[0] ?? null), { once: true });
-    input.addEventListener('cancel', () => resolve(null), { once: true });
+    input.hidden = true;
+    const settle = (file: File | null) => {
+      input.remove();
+      resolve(file);
+    };
+    input.addEventListener('change', () => settle(input.files?.[0] ?? null), { once: true });
+    input.addEventListener('cancel', () => settle(null), { once: true });
+    document.body.append(input);
     input.click();
   });
 }
@@ -69,11 +83,29 @@ export async function openFile(): Promise<OpenedFile | null> {
   return { document: readDocumentText(await file.text()), name: file.name, handle: null };
 }
 
-/** Writes `document` to `handle`. */
+/**
+ * Writes `document` to `handle`; a write that fails is aborted, leaving the file as it was. A
+ * file opened for reading asks for leave to write: refused, it says to save elsewhere.
+ */
 async function write(handle: FileHandle, document: MascotDocument): Promise<void> {
-  const writable = await handle.createWritable();
-  await writable.write(documentText(document));
-  await writable.close();
+  let writable: Awaited<ReturnType<FileHandle['createWritable']>>;
+  try {
+    writable = await handle.createWritable();
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'NotAllowedError') {
+      throw new Error(`Not allowed to write ${handle.name}: use Save as… to save elsewhere.`, {
+        cause: error,
+      });
+    }
+    throw error;
+  }
+  try {
+    await writable.write(documentText(document));
+    await writable.close();
+  } catch (error) {
+    await writable.abort?.().catch(() => undefined);
+    throw error;
+  }
 }
 
 /** Hands `document` to the browser as a download named `name`. */

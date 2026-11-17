@@ -6,28 +6,44 @@ import {
   discardDraft,
   editor,
   fileName,
+  isUnsaved,
   markSaved,
   offeredDraft,
   openDocument,
   problem,
-  savedDocument,
   state,
 } from './store.ts';
 
-/** Runs `task`, showing what goes wrong in the menu bar. */
-async function attempt(task: () => Promise<void> | void): Promise<void> {
+/**
+ * Runs `task`, showing what goes wrong in the menu bar after `what` ("Could not open"); the
+ * error goes to the console too, with its stack and cause.
+ */
+async function attempt(what: string, task: () => Promise<void> | void): Promise<void> {
   try {
     await task();
   } catch (error) {
-    problem.value = error instanceof Error ? error.message : String(error);
+    console.error(error);
+    problem.value = `${what}: ${error instanceof Error ? error.message : String(error)}`;
   }
 }
 
+/**
+ * Whether the open document may be replaced: asked when it has unsaved changes, or when a draft
+ * is on offer (replacing the document sets the draft aside for good).
+ */
+function mayReplace(): boolean {
+  if (offeredDraft.value !== null) {
+    return confirm('Replace the document? The unsaved draft offered will be discarded.');
+  }
+  return !isUnsaved() || confirm('Replace the document? Its unsaved changes will be lost.');
+}
+
 async function save(as: boolean): Promise<void> {
-  const document = state.value.document;
-  const name = fileName.value ?? `${document.meta.name || 'mascot'}.json`;
+  const from = editor.value;
+  const document = from.state.document;
+  const name = fileName.value ?? `${document.meta?.name || 'mascot'}.json`;
   const saved = await saveFile(document, name, as ? null : currentHandle());
-  if (saved) markSaved(saved.name, saved.handle);
+  if (saved) markSaved(saved, document, from);
 }
 
 /** A select that runs `choose` with the option picked, then shows its label again. */
@@ -62,7 +78,7 @@ function Choice(props: {
  */
 export function MenuBar() {
   const current = state.value;
-  const unsaved = current.document !== savedDocument.value;
+  const unsaved = isUnsaved();
   const issues = current.issues.length;
   return (
     <header class="menubar">
@@ -71,12 +87,16 @@ export function MenuBar() {
         <Choice
           label="New"
           options={[...ARCHETYPES.keys()]}
-          choose={(archetype) => attempt(() => openDocument(newDocument(archetype), null))}
+          choose={(archetype) =>
+            mayReplace() &&
+            attempt('Could not make it', () => openDocument(newDocument(archetype), null))
+          }
         />
         <button
           type="button"
           onClick={() =>
-            attempt(async () => {
+            mayReplace() &&
+            attempt('Could not open the file', async () => {
               const opened = await openFile();
               if (opened) openDocument(opened.document, opened.name, opened.handle);
             })
@@ -87,25 +107,36 @@ export function MenuBar() {
         <Choice
           label="Reference"
           options={[...REFERENCE_DOCUMENTS.keys()]}
-          choose={(name) =>
-            attempt(() => openDocument((REFERENCE_DOCUMENTS.get(name) as () => never)(), null))
-          }
+          choose={(name) => {
+            const make = REFERENCE_DOCUMENTS.get(name);
+            if (make && mayReplace()) {
+              attempt(`Could not open ${name}`, () => openDocument(make(), null));
+            }
+          }}
         />
-        <button type="button" onClick={() => attempt(() => save(false))}>
+        <button type="button" onClick={() => attempt('Could not save', () => save(false))}>
           Save
         </button>
-        <button type="button" onClick={() => attempt(() => save(true))}>
+        <button type="button" onClick={() => attempt('Could not save', () => save(true))}>
           Save as…
         </button>
-        <button type="button" disabled={!current.canUndo} onClick={() => editor.value.undo()}>
+        <button
+          type="button"
+          disabled={!current.canUndo}
+          onClick={() => attempt('Could not undo', () => editor.value.undo())}
+        >
           Undo
         </button>
-        <button type="button" disabled={!current.canRedo} onClick={() => editor.value.redo()}>
+        <button
+          type="button"
+          disabled={!current.canRedo}
+          onClick={() => attempt('Could not redo', () => editor.value.redo())}
+        >
           Redo
         </button>
       </nav>
       <span class="document-title">
-        {current.document.meta.name}
+        {current.document.meta?.name}
         {fileName.value ? ` — ${fileName.value}` : ''}
         {unsaved ? ' •' : ''}
       </span>
@@ -137,7 +168,13 @@ export function DraftBanner() {
       <span>An unsaved draft from {when} was kept.</span>
       <button
         type="button"
-        onClick={() => attempt(() => openDocument(readDocumentText(draft.text), draft.fileName))}
+        onClick={() =>
+          (!isUnsaved() ||
+            confirm('Restore the draft? The unsaved changes made since will be lost.')) &&
+          attempt('Could not restore the draft', () =>
+            openDocument(readDocumentText(draft.text), draft.fileName, null, true),
+          )
+        }
       >
         Restore
       </button>
