@@ -52,8 +52,16 @@ export type Num = number | ScalarRef;
 /** A property value as the registry reads and writes it, as JSON: plain, with no references. */
 export type PlainValue = number | boolean | string | null | Vec3 | Quat;
 
-/** A property value as stored in the tree: plain, or computed from parameters. */
-export type PropertyValue = PlainValue | ParamRef;
+/**
+ * A color taken from the palette by its role (`{ "color": "body" }`): the running palette's
+ * color for that role, or the first palette's if the running one does not name it.
+ */
+export interface ColorRef {
+  readonly color: string;
+}
+
+/** A property value as stored in the tree: plain, computed from parameters, or a palette color. */
+export type PropertyValue = PlainValue | ParamRef | ColorRef;
 
 /** A path command as stored: each of its points may be computed from parameters. */
 export type PathCommandDocument = PathCommand extends infer C
@@ -96,7 +104,11 @@ export interface NodeDocument {
   readonly name?: string;
   readonly props?: Readonly<Record<string, PropertyValue>>;
   readonly path?: readonly PathCommandDocument[];
-  readonly faces?: Readonly<Partial<Record<BoxFace, Partial<BoxFaceSettings>>>>;
+  readonly faces?: Readonly<
+    Partial<
+      Record<BoxFace, Partial<Omit<BoxFaceSettings, 'color'> & { color: string | null | ColorRef }>>
+    >
+  >;
   readonly children?: readonly NodeDocument[];
 }
 
@@ -151,6 +163,12 @@ export interface MascotDocument {
    * (`buildDocument`'s `params`, the player's `params` option).
    */
   readonly params?: Readonly<Record<string, ShapeParam>>;
+  /**
+   * Palettes: CSS colors by role (`body`, `belly`, `eyes`), which colors in the tree refer to.
+   * The first is the base, with every role; the others (`dark`, a brand) may name only some,
+   * the rest coming from the base. A built mascot switches between them on the fly.
+   */
+  readonly palettes?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** The document's own prefabs, by name, next to the library's; one with a library name replaces it. */
   readonly prefabs?: Readonly<Record<string, PrefabDocument>>;
   /**

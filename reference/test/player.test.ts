@@ -465,4 +465,51 @@ describe('Player', () => {
     expect(big.scene.root.scale.y).toBe(2);
     big.destroy();
   });
+
+  it('switches palettes on the fly and keeps the palette across a swap', () => {
+    const { canvas, pixel } = fakeCanvas();
+    const { ticker, step } = manualTicker();
+    const day = pipDocument();
+    // A sphere in front of everything, colored by role, fills the frame.
+    const themed = {
+      ...day,
+      palettes: { day: { screen: '#ffffff' }, night: { screen: '#000000' } },
+      root: {
+        ...day.root,
+        children: [
+          ...(day.root.children ?? []),
+          {
+            type: 'Sphere',
+            id: 'screen',
+            props: {
+              diameter: 600,
+              position: { x: 0, y: -60, z: 200 },
+              'style.color': { color: 'screen' },
+            },
+          },
+        ],
+      },
+    };
+    const player = new Player(canvas, JSON.stringify(themed), {
+      renderer: 'canvas',
+      ticker,
+      palette: 'night',
+    });
+    expect(pixel(5, 5)).toEqual([0, 0, 0, 255]);
+    expect(player.palettes).toEqual(['day', 'night']);
+    const time = player.animator.layers[0]?.time ?? 0;
+    step(0.2);
+    player.setPalette('day');
+    expect(pixel(5, 5)).toEqual([255, 255, 255, 255]);
+    // Nothing was rebuilt: the animation went on.
+    step(0.2);
+    expect(player.animator.layers[0]?.time).toBeGreaterThan(time + 0.3);
+    player.load(JSON.stringify(themed));
+    expect(pixel(5, 5)).toEqual([255, 255, 255, 255]);
+    player.load(JSON.stringify(themed), { palette: 'night' });
+    expect(pixel(5, 5)).toEqual([0, 0, 0, 255]);
+    expect(() => player.setPalette('dusk')).toThrow(/no palette "dusk"/);
+    expect(() => player.load(JSON.stringify(day))).toThrow(/no palette "night"/);
+    player.destroy();
+  });
 });

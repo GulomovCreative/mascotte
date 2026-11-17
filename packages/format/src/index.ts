@@ -9,6 +9,7 @@ export {
 } from './build.ts';
 export {
   type BlendDocument,
+  type ColorRef,
   type ConstraintDocument,
   DocumentError,
   FORMAT,

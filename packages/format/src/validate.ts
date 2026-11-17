@@ -51,6 +51,24 @@ function list(values: Iterable<string>): string {
 
 class Checker {
   readonly issues: Issue[] = [];
+  /** The palette roles colors may refer to (the first palette's). */
+  roles: ReadonlySet<string> = new Set();
+
+  /** Checks a color: a CSS color, a palette role `{ color }`, or null where allowed. */
+  color(value: unknown, path: string, nullable: boolean): void {
+    if (value === null && nullable) return;
+    if (isObject(value) && Object.keys(value).length === 1 && typeof value.color === 'string') {
+      if (!this.roles.has(value.color)) {
+        const known = list(this.roles) || 'none';
+        this.fail(join(path, 'color'), `no palette role "${value.color}" (there are ${known}).`);
+      }
+      return;
+    }
+    if (typeof value !== 'string' || color.parse(value) === null) {
+      const or = nullable ? ', a palette role {color} or null' : ' or a palette role {color}';
+      this.fail(path, `expected a CSS color${or}, got ${show(value)}.`);
+    }
+  }
 
   fail(path: string, message: string): void {
     this.issues.push({ path, message });
@@ -128,6 +146,7 @@ const DOCUMENT_KEYS = fields<MascotDocument>()([
   'meta',
   'params',
   'prefabs',
+  'palettes',
   'archetype',
   'view',
   'camera',
@@ -177,11 +196,7 @@ function checkValue(c: Checker, property: Property, value: unknown, path: string
       }
       return;
     case 'color':
-      if (value === null && property.nullable) return;
-      if (typeof value !== 'string' || color.parse(value) === null) {
-        const or = property.nullable ? ' or null' : '';
-        c.fail(path, `expected a CSS color${or}, got ${show(value)}.`);
-      }
+      c.color(value, path, property.nullable);
       return;
     case 'vec3':
       checkVector(c, value, path, ['x', 'y', 'z']);
@@ -264,10 +279,7 @@ function checkFaces(c: Checker, value: unknown, path: string): void {
     if (settings.visible !== undefined && typeof settings.visible !== 'boolean') {
       c.fail(join(at, 'visible'), `expected true or false, got ${show(settings.visible)}.`);
     }
-    const tint = settings.color;
-    if (tint !== undefined && tint !== null && (typeof tint !== 'string' || !color.parse(tint))) {
-      c.fail(join(at, 'color'), `expected a CSS color or null, got ${show(tint)}.`);
-    }
+    if (settings.color !== undefined) c.color(settings.color, join(at, 'color'), true);
   }
 }
 
@@ -446,6 +458,31 @@ function checkMotion(
   }
 }
 
+/** Checks the palettes and sets the roles colors may refer to: the first palette's. */
+function checkPalettes(c: Checker, value: unknown): void {
+  if (!c.object(value, 'palettes', 'an object of palettes')) return;
+  const entries = Object.entries(value);
+  if (entries.length === 0) {
+    c.fail('palettes', 'expected at least one palette: the first holds every role.');
+    return;
+  }
+  const roles = new Set<string>();
+  entries.forEach(([name, palette], i) => {
+    const at = join('palettes', name);
+    if (!c.object(palette, at, 'a palette of colors by role')) return;
+    for (const [role, tint] of Object.entries(palette)) {
+      if (i === 0) roles.add(role);
+      else if (!roles.has(role)) {
+        c.fail(join(at, role), `the first palette has no role "${role}": every role starts there.`);
+      }
+      if (typeof tint !== 'string' || color.parse(tint) === null) {
+        c.fail(join(at, role), `expected a CSS color, got ${show(tint)}.`);
+      }
+    }
+  });
+  c.roles = roles;
+}
+
 /** Checks a list of named entries: each an object, names unique when given (or required). */
 function checkNamed(
   c: Checker,
@@ -500,6 +537,7 @@ export function validateDocument(
       c.fail('meta.description', `expected a string, got ${show(description)}.`);
     }
   }
+  if (value.palettes !== undefined) checkPalettes(c, value.palettes);
   if (c.object(value.view, 'view', 'an object {width, height, background}')) {
     c.keys(value.view, VIEW_KEYS, 'view');
     c.number(value.view.width, 'view.width', 0, true);

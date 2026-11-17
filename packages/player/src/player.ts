@@ -62,6 +62,11 @@ export interface PlayerOptions {
    * own; a name the new document does not declare is a `DocumentError`.
    */
   readonly params?: Readonly<Record<string, number>>;
+  /**
+   * The palette to start with (`'dark'`, a brand); the document's first by default. `setPalette`
+   * switches it on the fly, and `load` keeps it unless it is given its own.
+   */
+  readonly palette?: string;
   /** Whether the animation runs from the start; true by default. */
   readonly autoplay?: boolean;
   /**
@@ -84,6 +89,8 @@ interface Running {
   readonly pointer: PointerInputs | null;
   readonly turn: DragRotate | null;
   readonly gaze: Gaze | null;
+  /** Recolors the running mascot with a palette. */
+  readonly palette: (name: string) => void;
 }
 
 type Draw = (scene: Scene, camera: Camera, viewport: Viewport) => void;
@@ -168,6 +175,7 @@ export class Player {
   readonly #canvas: PlayerCanvas;
   readonly #options: PlayerOptions;
   #params: Readonly<Record<string, number>>;
+  #palette: string | undefined;
   readonly #draw: Draw;
   readonly #invalidate: () => void;
   readonly #subscription: TickSubscription;
@@ -188,7 +196,8 @@ export class Player {
     this.#canvas = canvas;
     this.#options = options;
     this.#params = options.params ?? {};
-    this.#running = this.#start(readDocument(document), this.#params);
+    this.#palette = options.palette;
+    this.#running = this.#start(readDocument(document), this.#params, this.#palette);
     const renderer = this.#renderer(options.renderer ?? 'auto');
     this.renderer = renderer.kind;
     this.#draw = renderer.draw;
@@ -266,16 +275,18 @@ export class Player {
    * pointer stay, and so does whether it plays. `params` replace the shape parameters from now
    * on (`{}` for the new document's defaults). A document that cannot be read or built, or does
    * not fit the options, throws as in the constructor and the running one (and its
-   * parameters) stays.
+   * parameters) stays. `palette` likewise replaces the palette (`undefined` for the first).
    */
   load(
     document: unknown,
-    options: { readonly params?: Readonly<Record<string, number>> } = {},
+    options: { readonly params?: Readonly<Record<string, number>>; readonly palette?: string } = {},
   ): void {
     this.#check();
     const params = options.params ?? this.#params;
-    const next = this.#start(readDocument(document), params);
+    const palette = 'palette' in options ? options.palette : this.#palette;
+    const next = this.#start(readDocument(document), params, palette);
     this.#params = params;
+    this.#palette = palette;
     this.#running.pointer?.leave();
     this.#running = next;
     this.#invalidate();
@@ -312,8 +323,12 @@ export class Player {
     if (this.#destroyed) throw new Error('Player: it has been destroyed.');
   }
 
-  #start(document: MascotDocument, params: Readonly<Record<string, number>>): Running {
-    const built = buildDocument(document, { params });
+  #start(
+    document: MascotDocument,
+    params: Readonly<Record<string, number>>,
+    palette: string | undefined,
+  ): Running {
+    const built = buildDocument(document, palette === undefined ? { params } : { params, palette });
     const scene = new Scene(built.root);
     const animator = new Animator(scene, { rig: built.rig });
     const { machines, constraints } = built.animate(animator);
@@ -358,7 +373,24 @@ export class Player {
       pointer,
       turn,
       gaze,
+      palette: (name) => built.palette(name),
     };
+  }
+
+  /** The palettes of the running document, the first being its base. */
+  get palettes(): readonly string[] {
+    return Object.keys(this.#running.document.palettes ?? {});
+  }
+
+  /**
+   * Recolors the mascot with another palette of its document, on the fly: nothing is rebuilt and
+   * the animation goes on. Throws a `DocumentError` for a palette the document does not have.
+   */
+  setPalette(name: string): void {
+    this.#check();
+    this.#running.palette(name);
+    this.#palette = name;
+    this.render();
   }
 
   #renderer(kind: 'auto' | 'webgl' | 'canvas'): {
