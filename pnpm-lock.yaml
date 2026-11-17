@@ -203,6 +203,9 @@ importers:
         specifier: 11.1.1
         version: 11.1.1
     devDependencies:
+      '@mascotte/reference':
+        specifier: workspace:*
+        version: link:../../reference
       vite:
         specifier: 8.3.5
         version: 8.3.5(@types/node@26.6.6)

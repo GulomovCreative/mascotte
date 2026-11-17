@@ -372,7 +372,7 @@ So that the editor does not need hacks, the engine provides:
 - hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, with the editor's viewport;
 - data for a debug view: axes, pivots, bones, sort order and sort points, decal anchors — to do, with the editor's viewport;
 - hot swapping of the document without recreating the player (`Player.load`) — done;
-- a map from built nodes to the document paths they came from — to do, in the format, with the editor's document model.
+- a map from built nodes to the document paths they came from — done in the editor (the format keeps the tree's order; `expandDocument` is exported for the ids prefab instances make).
 
 Changes through commands, so that undo and redo work, are the editor's own (EDITOR.md, section 3.1): the engine and the format stay plain data and objects.
 
@@ -486,7 +486,7 @@ The plan: [EDITOR.md](EDITOR.md): a web app in `apps/editor`, whose first versio
 Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/8)
 
 - [x] Editor app and layout ([#85](https://github.com/GulomovCreative/mascotte/issues/85))
-- [ ] Editor document model ([#86](https://github.com/GulomovCreative/mascotte/issues/86))
+- [x] Editor document model ([#86](https://github.com/GulomovCreative/mascotte/issues/86))
 - [ ] Editor files ([#87](https://github.com/GulomovCreative/mascotte/issues/87))
 - [ ] Editor viewport, picking and debug view ([#88](https://github.com/GulomovCreative/mascotte/issues/88))
 - [ ] Editor gizmos ([#89](https://github.com/GulomovCreative/mascotte/issues/89))

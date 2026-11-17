@@ -42,18 +42,20 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 - `EditorDocument` holds the document being edited, the selection and the undo history.
 - **Identity.** A node of the document is addressed by its **path** in the document tree
   (`root.children[1].children[0]`), not by its id: ids are optional, and nodes inside a prefab
-  instance or a solid's parts have no node of their own in the document. Building records a map
-  from each live node to the document path it came from (format work: `buildDocument` returns
-  it). A picked live node maps to its document node; a node inside a prefab instance maps to the
-  instance, a solid's part to the solid.
+  instance or a solid's parts have no node of their own in the document. The editor maps each
+  built node to the document path it came from by walking the built tree beside the document
+  (building keeps the order: a solid's own parts carry an `owner`, and a prefab instance's own
+  children come before the prefab's nodes). A picked live node maps to its document node; a node
+  inside a prefab instance maps to the instance, a solid's part to the solid.
 - **Ids.** A node the editor creates gets an id at once, unique against the **expanded** tree
   (prefab instances prefix their nodes' ids, so `eye` + `left` must not collide with a node
   `eye-left`). Nodes opened without ids keep none until something needs one (a track, a slot, a
   constraint): then the editor gives it one, as a command.
-- **Commands.** Every change is a small object that applies a change to the document and knows
-  its inverse (set a property, add, remove or move a node, set a key, add a transition, …). Undo
-  and redo replay inverses; a drag of a gizmo or a slider is merged into one command. A command
-  checks its value before it applies it (ranges, types), so a live node is never set out of range.
+- **Commands.** Every change is a small object that makes a new document from the current one
+  (set a property, add, remove or move a node, set a key, add a transition, …); documents share
+  what a change leaves alone, so the history keeps the document before each step and undo
+  restores it exactly. A drag of a gizmo or a slider merges into one step until the gesture ends.
+  A command that also sets a live node checks its value first (ranges, types).
 - **Renaming an id** (or a prefab instance, whose id prefixes its nodes') updates everything that
   names it: rig slots, track and behavior targets, layer masks, constraint `target`, `at`, `mid`,
   `pole` and `from`, spring targets.
@@ -193,7 +195,7 @@ the task that needs it.
 1. **Editor app and layout.** `apps/editor` with the UI library, the panel layout, an empty
    viewport, the scripts and CI. *Done when* the app opens with its panels and its tests run in
    CI.
-2. **Document model.** `EditorDocument`: paths, the live-node-to-path map (format work), ids
+2. **Document model.** `EditorDocument`: paths, the built-node-to-path map, ids
    unique against the expanded tree, the commands for properties and the tree, merged drags,
    undo and redo, renames that follow every reference, validation with the trial build, the last
    good scene. *Done when* every command undoes to the same document, tested on the reference

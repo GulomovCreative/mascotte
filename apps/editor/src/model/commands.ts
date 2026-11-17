@@ -1,0 +1,234 @@
+import type { MascotDocument, NodeDocument, PropertyValue } from '@mascotte/format';
+import { expandedIds, uniqueId, withUniqueIds } from './ids.ts';
+import { type DocPath, isWithin, nodeAt, pathString, updateNode } from './paths.ts';
+import { renameReferences } from './references.ts';
+
+/** What a command leaves: the new document, and the selection if it moves it. */
+export interface CommandResult {
+  readonly document: MascotDocument;
+  /** The selection after it; left out, the selection stays. */
+  readonly selection?: DocPath | null;
+}
+
+/**
+ * A change to the document. The editor keeps the document before it, so undo is exact; commands
+ * build new documents and never change the one they are given.
+ */
+export interface Command {
+  readonly label: string;
+  /**
+   * Run one after another with the same key (a drag, a slider), commands merge into one undo
+   * step until the editor commits the gesture.
+   */
+  readonly merge?: string;
+  run(document: MascotDocument, selection: DocPath | null): CommandResult;
+}
+
+function existing(document: MascotDocument, path: DocPath): NodeDocument {
+  const node = nodeAt(document, path);
+  if (!node) throw new RangeError(`No node at ${pathString(path)}.`);
+  return node;
+}
+
+/** Sets the property `name` of the node at `path`, or removes it (back to its default). */
+export function setProp(path: DocPath, name: string, value: PropertyValue | undefined): Command {
+  return {
+    label: `Set ${name}`,
+    merge: `prop ${pathString(path)} ${name}`,
+    run: (document) => ({
+      document: updateNode(document, path, (node) => {
+        const { [name]: _, ...rest } = node.props ?? {};
+        const props = value === undefined ? rest : { ...rest, [name]: value };
+        const { props: __, ...without } = node;
+        return Object.keys(props).length === 0 ? without : { ...without, props };
+      }),
+    }),
+  };
+}
+
+/** Sets the node's display name, or removes it. */
+export function setName(path: DocPath, name: string | undefined): Command {
+  return {
+    label: 'Rename',
+    run: (document) => ({
+      document: updateNode(document, path, (node) => {
+        const { name: _, ...rest } = node;
+        return name === undefined || name === '' ? rest : { ...rest, name };
+      }),
+    }),
+  };
+}
+
+/**
+ * Gives the node at `path` the id `id` (made unique against the expanded tree), and renames every
+ * reference to its old id; for a prefab instance, also to the ids of its nodes, which its id
+ * prefixes (`eye-left-pupil` → `eye-right-pupil`).
+ */
+export function renameNode(path: DocPath, id: string): Command {
+  return {
+    label: 'Rename id',
+    run: (document) => {
+      const node = existing(document, path);
+      const old = node.id;
+      if (old === id) return { document };
+      const taken = expandedIds(document);
+      if (old !== undefined) taken.delete(old);
+      const next = uniqueId(id, taken);
+      const names = new Map<string, string>();
+      if (old !== undefined) {
+        names.set(old, next);
+        if (node.prefab !== undefined) {
+          const written = writtenIds(document.root);
+          for (const made of expandedIds(document)) {
+            if (made.startsWith(`${old}-`) && !written.has(made)) {
+              names.set(made, `${next}-${made.slice(old.length + 1)}`);
+            }
+          }
+        }
+      }
+      const renamed = updateNode(document, path, (current) => ({ ...current, id: next }));
+      return { document: renameReferences(renamed, names) };
+    },
+  };
+}
+
+/** The ids written in the document's tree (not those prefab instances make). */
+function writtenIds(node: NodeDocument, out = new Set<string>()): Set<string> {
+  if (node.id !== undefined) out.add(node.id);
+  for (const child of node.children ?? []) writtenIds(child, out);
+  return out;
+}
+
+/**
+ * Adds `node` as a child of the node at `parent`, at `index` (the end by default), with its ids
+ * made unique; a node the editor makes gets an id from its type when it has none. Selects it.
+ */
+export function addNode(parent: DocPath, node: NodeDocument, index?: number): Command {
+  return {
+    label: 'Add node',
+    run: (document) => {
+      const taken = expandedIds(document);
+      const base = node.id ?? (node.prefab ?? node.type ?? 'node').toLowerCase();
+      const made = withUniqueIds({ ...node, id: base }, taken);
+      const children = existing(document, parent).children ?? [];
+      const at =
+        index === undefined ? children.length : Math.max(0, Math.min(index, children.length));
+      const next = updateNode(document, parent, (current) => {
+        const list = [...(current.children ?? [])];
+        list.splice(at, 0, made);
+        return { ...current, children: list };
+      });
+      return { document: next, selection: [...parent, at] };
+    },
+  };
+}
+
+/** The path `path` takes after the node at `removed` is taken out (null if it was inside). */
+function afterRemove(path: DocPath, removed: DocPath): DocPath | null {
+  if (isWithin(path, removed)) return null;
+  const depth = removed.length - 1;
+  const prefix = removed.slice(0, depth);
+  if (
+    path.length > depth &&
+    isWithin(path, prefix) &&
+    (path[depth] as number) > (removed[depth] as number)
+  ) {
+    const next = [...path];
+    next[depth] = (path[depth] as number) - 1;
+    return next;
+  }
+  return path;
+}
+
+/** The path `path` takes after a node is put in at `inserted`. */
+function afterInsert(path: DocPath, inserted: DocPath): DocPath {
+  const depth = inserted.length - 1;
+  const prefix = inserted.slice(0, depth);
+  if (
+    path.length > depth &&
+    isWithin(path, prefix) &&
+    (path[depth] as number) >= (inserted[depth] as number)
+  ) {
+    const next = [...path];
+    next[depth] = (path[depth] as number) + 1;
+    return next;
+  }
+  return path;
+}
+
+/** Removes the node at `path` (not the root) with its subtree; the selection follows. */
+export function removeNode(path: DocPath): Command {
+  if (path.length === 0) throw new RangeError('The root cannot be removed.');
+  return {
+    label: 'Remove node',
+    run: (document, selection) => {
+      existing(document, path);
+      const parent = path.slice(0, -1);
+      const index = path[path.length - 1] as number;
+      const next = updateNode(document, parent, (current) => {
+        const list = [...(current.children ?? [])];
+        list.splice(index, 1);
+        const { children: _, ...rest } = current;
+        return list.length === 0 ? rest : { ...current, children: list };
+      });
+      return { document: next, selection: selection && afterRemove(selection, path) };
+    },
+  };
+}
+
+/**
+ * Moves the node at `path` under the node at `parent`, to `index` among its children as they are
+ * before the move; a node cannot move into itself. The selection follows.
+ */
+export function moveNode(path: DocPath, parent: DocPath, index: number): Command {
+  return {
+    label: 'Move node',
+    run: (document, selection) => {
+      if (path.length === 0) throw new RangeError('The root cannot be moved.');
+      if (isWithin(parent, path)) throw new RangeError('A node cannot move into itself.');
+      const node = existing(document, path);
+      const removed = removeNode(path).run(document, null).document;
+      // Where the parent and the index are once the node is out.
+      const target = afterRemove(parent, path) as DocPath;
+      const siblings = path.length - 1 === parent.length && isWithin(path, parent);
+      const at = siblings && index > (path[path.length - 1] as number) ? index - 1 : index;
+      const children = existing(removed, target).children ?? [];
+      const slot = Math.max(0, Math.min(at, children.length));
+      const next = updateNode(removed, target, (current) => {
+        const list = [...(current.children ?? [])];
+        list.splice(slot, 0, node);
+        return { ...current, children: list };
+      });
+      const moved = [...target, slot];
+      let followed: DocPath | null = selection;
+      if (selection !== null) {
+        if (isWithin(selection, path)) followed = [...moved, ...selection.slice(path.length)];
+        else {
+          const out = afterRemove(selection, path);
+          followed = out && afterInsert(out, moved);
+        }
+      }
+      return { document: next, selection: followed };
+    },
+  };
+}
+
+/** Puts a copy of the node at `path`, with new ids, right after it, and selects the copy. */
+export function duplicateNode(path: DocPath): Command {
+  if (path.length === 0) throw new RangeError('The root cannot be duplicated.');
+  return {
+    label: 'Duplicate node',
+    run: (document) => {
+      const node = existing(document, path);
+      const copy = withUniqueIds(node, expandedIds(document));
+      const parent = path.slice(0, -1);
+      const at = (path[path.length - 1] as number) + 1;
+      const next = updateNode(document, parent, (current) => {
+        const list = [...(current.children ?? [])];
+        list.splice(at, 0, copy);
+        return { ...current, children: list };
+      });
+      return { document: next, selection: [...parent, at] };
+    },
+  };
+}
