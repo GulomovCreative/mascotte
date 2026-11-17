@@ -29,15 +29,34 @@ function sceneWith(...nodes: Node[]): Scene {
 const camera = new Camera();
 const ink = { outline: 2, outlineColor: '#000000' } as const;
 
-/** The outline rings of a frame's first opaque bucket: [inner, outer, back] each. */
-function rings(frame: GLFrame): number[][] {
+/** The outline ring instances of a frame's first opaque bucket: ends, radii, back and color. */
+function ringData(frame: GLFrame): number[][] {
   const buffer = frame.layers[0]?.opaque[0]?.data.ring;
   const out: number[][] = [];
   if (!buffer) return out;
   for (let i = 0; i < buffer.length; i += STRIDE.ring) {
-    out.push(Array.from(buffer.data.subarray(i + 6, i + 9)));
+    out.push(Array.from(buffer.data.subarray(i, i + STRIDE.ring)));
   }
   return out;
+}
+
+/** The outline rings of a frame's first opaque bucket: [inner, outer, back] each. */
+function rings(frame: GLFrame): number[][] {
+  return ringData(frame).map((ring) => ring.slice(6, 9));
+}
+
+/** A Canvas 2D context that records each method called and each property set into `calls`. */
+function recorder(calls: string[]): CanvasTarget {
+  return new Proxy(
+    {},
+    {
+      get: (_, key: string) => () => calls.push(key),
+      set: (_, key: string, value) => {
+        calls.push(`${key}=${value}`);
+        return true;
+      },
+    },
+  ) as CanvasTarget;
 }
 
 function collect(...nodes: Node[]): GLFrame {
@@ -98,16 +117,7 @@ describe('outlines', () => {
 
   it('are stroked wider just before the item in Canvas 2D, on cut parts too', () => {
     const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get: (_, key: string) => () => calls.push(key),
-        set: (_, key: string, value) => {
-          calls.push(`${key}=${value}`);
-          return true;
-        },
-      },
-    ) as CanvasTarget;
+    const ctx = recorder(calls);
     const sphere = new Sphere({ diameter: 10, style: { ...ink, stroke: 0, color: '#ff0000' } });
     new CanvasRenderer().render(ctx, sceneWith(sphere), camera, { width: 40, height: 40 });
     // The circle stroked 2 wider on each side in the outline's color, then filled in its own.
@@ -138,17 +148,6 @@ describe('outlines', () => {
 });
 
 describe('outline details', () => {
-  /** The whole ring instances: ends, radii, back and color. */
-  function ringData(frame: GLFrame): number[][] {
-    const buffer = frame.layers[0]?.opaque[0]?.data.ring;
-    const out: number[][] = [];
-    if (!buffer) return out;
-    for (let i = 0; i < buffer.length; i += STRIDE.ring) {
-      out.push(Array.from(buffer.data.subarray(i, i + STRIDE.ring)));
-    }
-    return out;
-  }
-
   it('run a capsule ring along its axis and close a face, in the outline color', () => {
     const capsule = new Capsule({ length: 10, diameter: 4, style: { ...ink, stroke: 0 } });
     capsule.setRotationFromEuler({ x: 0, y: Math.PI / 2, z: 0, order: 'XYZ' } as never);
@@ -191,16 +190,7 @@ describe('outline details', () => {
 
   it('widen a stroke by the outline on both sides in Canvas 2D', () => {
     const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get: (_, key: string) => () => calls.push(key),
-        set: (_, key: string, value) => {
-          calls.push(`${key}=${value}`);
-          return true;
-        },
-      },
-    ) as CanvasTarget;
+    const ctx = recorder(calls);
     const tube = new PathShape({
       path: [
         { type: 'move', point: { x: -10, y: 0, z: 0 } },
@@ -210,12 +200,8 @@ describe('outline details', () => {
       style: { ...ink, stroke: 10, color: '#ff0000' },
     });
     new CanvasRenderer().render(ctx, sceneWith(tube), camera, { width: 40, height: 40 });
-    expect(
-      calls.slice(
-        calls.indexOf('strokeStyle=#000000') - 1,
-        calls.indexOf('strokeStyle=#000000') + 1,
-      ),
-    ).toEqual(['lineWidth=14', 'strokeStyle=#000000']);
+    const outline = calls.indexOf('strokeStyle=#000000');
+    expect(calls.slice(outline - 1, outline + 1)).toEqual(['lineWidth=14', 'strokeStyle=#000000']);
     expect(calls).toContain('lineWidth=10');
   });
 });
