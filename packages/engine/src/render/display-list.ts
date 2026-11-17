@@ -25,10 +25,15 @@ export class DisplayItem extends SurfaceOutline {
   /** @internal Parts of other strokes drawn after this occluder. */
   readonly inFront: DisplayItem[] = [];
   /**
-   * The spheres drawn before this sphere that it intersects: the backend draws only its part
-   * outside each of them (`clipSphereCut` in Canvas 2D), as depth does in WebGL.
+   * The spheres drawn before this sphere that it reaches into: the backend draws only its part
+   * outside each of them (`clipSphereCut` in Canvas 2D), matching WebGL's depth where the spheres
+   * overlap. A decal on a sphere takes its anchor's, cut as its anchor (`cutBase`).
    */
   readonly sphereCuts: DisplayItem[] = [];
+  /** The sphere whose cuts apply: the item itself, or a decal's anchor. */
+  cutBase: DisplayItem | null = null;
+  /** @internal The sphere a decal is clipped to, this frame. */
+  decalAnchor: DisplayItem | null = null;
 }
 
 export interface DisplayListOptions {
@@ -40,6 +45,8 @@ export interface DisplayListOptions {
 }
 
 const modelView = mat3x4.create();
+/** How many spheres the cut sweep's sort keys hold: the low part of a key is the index. */
+const SORT_INDEX = 1 << 20;
 const point: Vec3 = { x: 0, y: 0, z: 0 };
 const front: Vec3 = { x: 0, y: 0, z: 0 };
 
@@ -61,6 +68,7 @@ export class DisplayList {
   readonly #order: DisplayItem[] = [];
   readonly #queue: DisplayItem[] = [];
   readonly #spheres: DisplayItem[] = [];
+  #keys = new Float64Array(64);
 
   constructor(options: DisplayListOptions = {}) {
     this.#partialOcclusion = options.partialOcclusion ?? true;
@@ -114,6 +122,7 @@ export class DisplayList {
       item.split = false;
       item.behind.length = 0;
       item.inFront.length = 0;
+      item.decalAnchor = null;
     }
     if (this.#partialOcclusion) {
       this.#clipDecals();
@@ -130,24 +139,63 @@ export class DisplayList {
   }
 
   /**
-   * Notes for each sphere the spheres drawn before it that it intersects in space: there it is
-   * partly inside them, and only its part outside them shows. Decals take no part, and nothing is
-   * cut with partial occlusion off.
+   * Notes for each sphere the spheres drawn before it that it reaches into in space: there it is
+   * partly inside them, and only its part outside them shows. Only spheres that overlap on screen
+   * can meet, so they are swept by their left edges: sorted by a numeric key packing the left
+   * edge (to 1/64 pixel) with the sphere's place in the drawing order, in a typed array, which
+   * sorts without allocating. A decal clipped to a sphere neither cuts nor is cut on its own: it
+   * takes its anchor's cuts. Nothing is cut with partial occlusion off.
    */
   #cutSpheres(): void {
     const order = this.#order;
     const spheres = this.#spheres;
     spheres.length = 0;
+    let lowest = Number.POSITIVE_INFINITY;
     for (let i = 0; i < order.length; i++) {
       const item = order[i] as DisplayItem;
       item.sphereCuts.length = 0;
-      // A decal is drawn over its anchor, clipped to it: it neither is cut nor cuts.
-      if (item.occluder !== 'sphere' || item.clip !== 'none' || !this.#partialOcclusion) continue;
-      for (let j = 0; j < spheres.length; j++) {
-        const other = spheres[j] as DisplayItem;
-        if (spheresIntersect(item, other)) item.sphereCuts.push(other);
-      }
+      item.cutBase = null;
+      if (!this.#partialOcclusion || item.occluder !== 'sphere' || item.clip !== 'none') continue;
       spheres.push(item);
+      const left = item.occluderX - item.occluderRadius;
+      if (left < lowest) lowest = left;
+    }
+    const count = spheres.length;
+    if (count > SORT_INDEX) throw new RangeError(`More than ${SORT_INDEX} spheres to cut.`);
+    if (this.#keys.length < count)
+      this.#keys = new Float64Array(Math.max(count, this.#keys.length * 2));
+    const keys = this.#keys;
+    for (let i = 0; i < count; i++) {
+      const item = spheres[i] as DisplayItem;
+      const left = item.occluderX - item.occluderRadius - lowest;
+      keys[i] = Math.floor(left * 64) * SORT_INDEX + i;
+    }
+    keys.fill(Number.POSITIVE_INFINITY, count);
+    keys.sort();
+    for (let i = 0; i < count; i++) {
+      const ai = (keys[i] as number) % SORT_INDEX;
+      const a = spheres[ai] as DisplayItem;
+      // The keys round left edges down to 1/64 pixel: look that much further.
+      const right = a.occluderX + a.occluderRadius + 1 / 32;
+      for (let j = i + 1; j < count; j++) {
+        const bi = (keys[j] as number) % SORT_INDEX;
+        const b = spheres[bi] as DisplayItem;
+        if (b.occluderX - b.occluderRadius > right) break;
+        if (Math.abs(b.occluderY - a.occluderY) > a.occluderRadius + b.occluderRadius) continue;
+        // The one drawn later is cut by the one drawn before it.
+        if (bi > ai) {
+          if (spheresIntersect(b, a)) b.sphereCuts.push(a);
+        } else if (spheresIntersect(a, b)) a.sphereCuts.push(b);
+      }
+    }
+    for (let i = 0; i < order.length; i++) {
+      const item = order[i] as DisplayItem;
+      const anchor = item.decalAnchor;
+      if (anchor === null) continue;
+      item.cutBase = anchor;
+      for (let j = 0; j < anchor.sphereCuts.length; j++) {
+        item.sphereCuts.push(anchor.sphereCuts[j] as DisplayItem);
+      }
     }
   }
 
@@ -159,6 +207,7 @@ export class DisplayList {
       const item = items[i] as DisplayItem;
       const anchor = this.#anchorItem(item);
       if (anchor?.occluder !== 'sphere') continue;
+      item.decalAnchor = anchor;
       item.clip = 'circle';
       item.clipX = anchor.occluderX;
       item.clipY = anchor.occluderY;

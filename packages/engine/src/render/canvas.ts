@@ -91,10 +91,14 @@ export class CanvasRenderer {
           ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
           ctx.clip();
         }
+        // A decal is cut as its anchor.
+        const base = item.cutBase ?? item;
         let shown = true;
-        for (const other of item.sphereCuts) shown &&= clipSphereCut(ctx, item, other);
+        for (let k = 0; k < item.sphereCuts.length && shown; k++) {
+          shown = clipSphereCut(ctx, base, item.sphereCuts[k] as SurfaceOutline);
+        }
         if (!shown) {
-          // All inside a sphere drawn before it: nothing of it shows.
+          // Nothing of its front shows outside a sphere drawn before it.
           ctx.restore();
           alpha = Number.NaN;
           lineCap = '';
@@ -193,13 +197,51 @@ const TAU = Math.PI * 2;
 const CUT_STEPS = 24;
 
 /**
- * Clips the context to the part of the item's sphere outside `other`'s, a sphere drawn before it
- * that it reaches into. Returns `false` if nothing of it shows. Both spheres are in screen 3D
- * (pixels, depth scaled alike). The part of the item's sphere inside the other is a cap around
- * the direction `u` towards the other's center, bounded by the circle where the spheres meet
- * (`n·u > h`); seen from the front, it is the region between that circle's front arc and the
- * item's silhouette (or the inside of the whole circle, or all or nothing), cut out of the item's
- * disk with the even-odd rule. As WebGL's depth test does, per pixel.
+ * The circle where two spheres meet, on the cut sphere: center (`x`, `y`) and radius `r` on
+ * screen, the cap's axis `u`, and P(φ) = h·u + s·(cos φ·e1 + sin φ·e2), e1 across `u` in the
+ * screen plane and e2 = u × e1. Reused, so a cut allocates nothing.
+ */
+const circle = { x: 0, y: 0, r: 0, h: 0, s: 0, ux: 0, uy: 0, e1x: 0, e1y: 0, e2x: 0, e2y: 0 };
+
+/** Adds the circle's point at angle `phi` to the path, moving there if `move`. */
+function circlePoint(ctx: CanvasTarget, phi: number, move: boolean): void {
+  const c = circle;
+  const cos = Math.cos(phi);
+  const sin = Math.sin(phi);
+  const px = c.x + c.r * (c.h * c.ux + c.s * (cos * c.e1x + sin * c.e2x));
+  const py = c.y + c.r * (c.h * c.uy + c.s * (cos * c.e1y + sin * c.e2y));
+  if (move) ctx.moveTo(px, py);
+  else ctx.lineTo(px, py);
+}
+
+/** The screen angle, around the sphere's center, of the circle's point at angle `phi`. */
+function circleAngle(phi: number): number {
+  const c = circle;
+  const cos = Math.cos(phi);
+  const sin = Math.sin(phi);
+  return Math.atan2(
+    c.h * c.uy + c.s * (cos * c.e1y + sin * c.e2y),
+    c.h * c.ux + c.s * (cos * c.e1x + sin * c.e2x),
+  );
+}
+
+/**
+ * Clips the context to the part of `item`'s sphere outside `other`'s, a sphere drawn before it
+ * that it reaches into, with `item`'s outline. Returns `false` if nothing of its front shows.
+ * Both spheres are in screen 3D (pixels, depth scaled alike). The part of the item's sphere
+ * inside the other is a cap around the direction `u` towards the other's center, bounded by the
+ * circle where the spheres meet: the points whose unit normal n has n·u > h. Seen from the front
+ * it is one of:
+ * - the region between the circle's front arc and the item's silhouette (the circle crosses the
+ *   silhouette): cut out of the item's disk with the even-odd rule;
+ * - the inside of the circle (all in front, `u` towards the viewer): cut out the same way;
+ * - all but the inside of the circle (all in front, `u` away): the clip keeps the inside;
+ * - all or nothing (the circle all behind).
+ * This matches WebGL's depth where the spheres overlap; elsewhere the draw order decides, as
+ * for any two shapes in Canvas 2D.
+ * упрощение: глубина в экранном 3D берётся с масштабом перспективы каждой сферы, так что у сфер
+ * с разными опорными узлами перспективы срез слегка расходится с WebGL; вернуться, если такие
+ * сферы будут пересекаться в маскотах.
  */
 function clipSphereCut(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOutline): boolean {
   const r = item.occluderRadius;
@@ -214,64 +256,65 @@ function clipSphereCut(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOu
   const ra = other.occluderRadius;
   if (d + r <= ra) return false;
   if (!(d > 0)) return true;
-  // The cap: around u, out to the angle whose cosine is h.
   const ux = dx / d;
   const uy = dy / d;
   const uz = dz / d;
   const h = (d * d + r * r - ra * ra) / (2 * d * r);
   const s = Math.sqrt(Math.max(0, 1 - h * h));
-  // The circle where the spheres meet: P(φ) = h·u + s·(cos φ·e1 + sin φ·e2), e1 across u in the
-  // screen plane, e2 = u × e1; its point is in front where P.z > 0.
+  // Spheres just touching: the cap is a point (nothing to cut) or the whole sphere.
+  if (!(s > 0)) return h > 0;
   const across = Math.hypot(ux, uy);
-  const e1x = across > 1e-9 ? -uy / across : 1;
-  const e1y = across > 1e-9 ? ux / across : 0;
-  const e2x = uy * 0 - uz * e1y;
-  const e2y = uz * e1x - ux * 0;
-  const e2z = ux * e1y - uy * e1x;
+  const c = circle;
+  c.x = x;
+  c.y = y;
+  c.r = r;
+  c.h = h;
+  c.s = s;
+  c.ux = ux;
+  c.uy = uy;
+  c.e1x = across > 1e-9 ? -uy / across : 1;
+  c.e1y = across > 1e-9 ? ux / across : 0;
+  c.e2x = -uz * c.e1y;
+  c.e2y = uz * c.e1x;
+  const e2z = ux * c.e1y - uy * c.e1x;
+  // The circle's point is in front where P.z = h·uz + s·sin φ·e2z > 0.
   const k = s * e2z;
-  const c = h * uz;
-  const at = (phi: number, move: boolean) => {
-    const px = x + r * (h * ux + s * (Math.cos(phi) * e1x + Math.sin(phi) * e2x));
-    const py = y + r * (h * uy + s * (Math.cos(phi) * e1y + Math.sin(phi) * e2y));
-    if (move) ctx.moveTo(px, py);
-    else ctx.lineTo(px, py);
-  };
+  const front = h * uz;
   ctx.beginPath();
-  if (Math.abs(k) <= Math.abs(c)) {
-    if (c < 0) {
+  if (Math.abs(k) <= Math.abs(front)) {
+    if (front < 0) {
       // The circle is all behind: the cap is behind (nothing to cut) or holds the whole front.
       if (uz > 0) return false;
+      clipOutlineOver(ctx, item, other);
       return true;
     }
     // The circle is all in front.
-    if (uz > 0) {
-      // The cap is inside it: the disk without the circle's inside.
-      ctx.arc(x, y, outer, 0, TAU);
-      ctx.closePath();
-    }
-    // Otherwise the cap holds the rest of the front: only the circle's inside shows.
-    for (let i = 0; i <= CUT_STEPS; i++) at((i / CUT_STEPS) * TAU, i === 0);
+    ctx.arc(x, y, outer, 0, TAU);
     ctx.closePath();
-    ctx.clip(uz > 0 ? 'evenodd' : 'nonzero');
+    if (uz <= 0 && item.outlineWidth > 0) {
+      // The cap holds the rest of the front: the circle's inside shows, and the outline band.
+      ctx.arc(x, y, r, 0, TAU);
+      ctx.closePath();
+    } else if (uz <= 0) {
+      ctx.beginPath();
+    }
+    for (let i = 0; i <= CUT_STEPS; i++) circlePoint(ctx, (i / CUT_STEPS) * TAU, i === 0);
+    ctx.closePath();
+    ctx.clip(uz > 0 || item.outlineWidth > 0 ? 'evenodd' : 'nonzero');
     clipOutlineOver(ctx, item, other);
     return true;
   }
-  // The circle crosses the silhouette: its front arc, from φ0 to φ1, and the silhouette back
-  // around the side the cap is on (towards u).
-  const phi = Math.asin(-c / k);
+  // The circle crosses the silhouette: its front arc, and the silhouette back around the side
+  // the cap is on (towards u).
+  const phi = Math.asin(-front / k);
   const from = k > 0 ? phi : Math.PI - phi;
   const to = k > 0 ? Math.PI - phi : TAU + phi;
   ctx.arc(x, y, outer, 0, TAU);
   ctx.closePath();
-  for (let i = 0; i <= CUT_STEPS; i++) at(from + ((to - from) * i) / CUT_STEPS, i === 0);
-  const end = Math.atan2(
-    h * uy + s * (Math.cos(to) * e1y + Math.sin(to) * e2y),
-    h * ux + s * (Math.cos(to) * e1x + Math.sin(to) * e2x),
-  );
-  const start = Math.atan2(
-    h * uy + s * (Math.cos(from) * e1y + Math.sin(from) * e2y),
-    h * ux + s * (Math.cos(from) * e1x + Math.sin(from) * e2x),
-  );
+  for (let i = 0; i <= CUT_STEPS; i++)
+    circlePoint(ctx, from + ((to - from) * i) / CUT_STEPS, i === 0);
+  const end = circleAngle(to);
+  const start = circleAngle(from);
   // Clockwise from the arc's end back to its start passes the cap's side, or the other way.
   const toward = Math.atan2(uy, ux);
   const sweep = (((start - end) % TAU) + TAU) % TAU;
