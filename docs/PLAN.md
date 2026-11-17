@@ -267,12 +267,12 @@ This is the main requirement, and the architecture is built around it.
 - **Validation and reading.** Validation checks the tree as it will be built, with the parameters set and the prefabs in place, and reports parameter, range and reference problems with paths. `readDocument` keeps the document as written, so the editor (stage 6) can save prefabs and references rather than their expansion; `writeNode` writes a built, expanded tree.
 
 **Palettes** (`@mascotte/format`, the player):
-- **In a document.** It declares `palettes`: CSS colors by role (`body`, `belly`, `trim`). The first palette is the base and holds every role. The others (`dark`, a brand) may name only some roles; the rest come from the base.
+- **In a document.** It declares `palettes`: CSS colors by role (`body`, `belly`, `trim`). The first palette is the base and holds every role; palette names cannot be numbers, which JavaScript would move first. The others (`dark`, a brand) may name only some roles; the rest come from the base.
 - **References.** A color in the tree refers to a role as `{ "color": "body" }`: a node's color property, or a box face's color. Validation checks that the role exists and that the reference stands where a color goes.
 - **Switching.** Building takes the palette to start with (`buildDocument(document, { palette })`). The built mascot recolors itself on the fly (`palette(name)`) without rebuilding, so the animation goes on.
-- **The player.** It has a `palette` option and `setPalette(name)`, and `load` keeps the palette unless given its own.
-- **Light and dark.** These are two palettes; the page switches them by `prefers-color-scheme`.
-- **Limit.** A color a clip animates is that clip's: a palette recolors its rest value, which the clip overrides while it plays.
+- **The player.** It has a `palette` option, `setPalette(name)` and `palette` (the running one). `load` keeps the palette where the new document has it and falls back to its first where it does not; a palette given to `load` must exist.
+- **Light and dark, skins.** A theme or a brand skin is a palette; a page switches light and dark by `prefers-color-scheme` with `setPalette`.
+- **Animated colors.** An animator writes the rest values of the properties its clips animate every frame, so a recolor also takes the new color as the rest value (`Animator.refreshRest`; the player passes its animator to `palette(name, animator)`). While a clip plays a color, the clip's value wins.
 
 Requirement check: by the end of stage 4 at least three mascots of different archetypes must work. All three are assembled only from documents and use the shared animation library.
 

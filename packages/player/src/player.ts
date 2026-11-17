@@ -275,16 +275,29 @@ export class Player {
    * pointer stay, and so does whether it plays. `params` replace the shape parameters from now
    * on (`{}` for the new document's defaults). A document that cannot be read or built, or does
    * not fit the options, throws as in the constructor and the running one (and its
-   * parameters) stays. `palette` likewise replaces the palette (`undefined` for the first).
+   * parameters) stays. `palette` replaces the palette (`undefined` for the new document's first);
+   * left out, the current one stays where the new document has it, and the first is used where
+   * it does not.
    */
   load(
     document: unknown,
-    options: { readonly params?: Readonly<Record<string, number>>; readonly palette?: string } = {},
+    options: {
+      readonly params?: Readonly<Record<string, number>>;
+      readonly palette?: string | undefined;
+    } = {},
   ): void {
     this.#check();
+    const read = readDocument(document);
     const params = options.params ?? this.#params;
-    const palette = 'palette' in options ? options.palette : this.#palette;
-    const next = this.#start(readDocument(document), params, palette);
+    // A palette given is required; one kept from before falls back to the base where missing.
+    const kept = this.#palette;
+    const palette =
+      'palette' in options
+        ? options.palette
+        : kept !== undefined && Object.hasOwn(read.palettes ?? {}, kept)
+          ? kept
+          : undefined;
+    const next = this.#start(read, params, palette);
     this.#params = params;
     this.#palette = palette;
     this.#running.pointer?.leave();
@@ -373,8 +386,13 @@ export class Player {
       pointer,
       turn,
       gaze,
-      palette: (name) => built.palette(name),
+      palette: (name) => built.palette(name, animator),
     };
+  }
+
+  /** The running palette: the one set, or the document's first; `undefined` without palettes. */
+  get palette(): string | undefined {
+    return this.#palette ?? this.palettes[0];
   }
 
   /** The palettes of the running document, the first being its base. */
@@ -384,7 +402,8 @@ export class Player {
 
   /**
    * Recolors the mascot with another palette of its document, on the fly: nothing is rebuilt and
-   * the animation goes on. Throws a `DocumentError` for a palette the document does not have.
+   * the animation goes on (colors its clips animate rest at the new color). Throws a
+   * `DocumentError` for a palette the document does not have, and changes nothing then.
    */
   setPalette(name: string): void {
     this.#check();

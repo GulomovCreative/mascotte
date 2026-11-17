@@ -98,10 +98,113 @@ describe('palettes', () => {
       'palettes: expected at least one palette: the first holds every role.',
     );
     // Without palettes, a role refers to nothing.
-    const { palettes, ...plain } = doc();
-    expect(palettes).toBeDefined();
+    const plain: Record<string, unknown> = { ...doc() };
+    delete plain.palettes;
     expect(issues(plain)).toContain(
       'root.children[0].props.style.color.color: no palette role "body" (there are none).',
     );
+  });
+
+  it('recolors box faces and nullable colors on the fly, and goes back to the base for roles a palette leaves out', () => {
+    const themed = doc({
+      palettes: {
+        light: { body: '#ffd54a', trim: '#ff9a1f' },
+        brand: { body: '#112233', trim: '#00ff00' },
+        dark: { body: '#6b5a1e' },
+      },
+    });
+    const root = themed.root as { children: unknown[] };
+    root.children.push({
+      type: 'Cylinder',
+      id: 'can',
+      props: { frontFaceColor: { color: 'trim' } },
+    });
+    const built = buildDocument(readDocument(themed));
+    const scene = new Scene(built.root);
+    const box = scene.getById('box') as Box;
+    const can = scene.getById('can') as unknown as { frontFaceColor: string | null };
+    const before = scene.changeVersion;
+    built.palette('brand');
+    expect([box.getFace('top').color, box.style.color, box.getFace('front').color]).toEqual([
+      '#00ff00',
+      '#ffffff',
+      null,
+    ]);
+    expect(can.frontFaceColor).toBe('#00ff00');
+    expect(scene.changeVersion).not.toBe(before);
+    // Dark names no trim: it is the base's again, not the brand's.
+    built.palette('dark');
+    expect([box.getFace('top').color, can.frontFaceColor]).toEqual(['#ff9a1f', '#ff9a1f']);
+  });
+
+  it('keeps a recolored animated color, given the animator', () => {
+    const animated = doc({
+      motions: {
+        glow: {
+          duration: 1,
+          loop: 'loop',
+          tracks: [
+            {
+              target: 'ball',
+              property: 'style.color',
+              keys: [
+                { time: 0, value: '#000000' },
+                { time: 1, value: '#000000' },
+              ],
+            },
+          ],
+        },
+      },
+      layers: [{ name: 'glow', play: 'glow', weight: 0 }],
+    });
+    const built = buildDocument(readDocument(animated));
+    const scene = new Scene(built.root);
+    const animator = new Animator(scene, { rig: built.rig });
+    built.animate(animator);
+    animator.update(0.1);
+    const ball = scene.getById('ball') as Sphere;
+    // The layer's weight is 0: the ball shows its rest color, which the animator owns.
+    expect(ball.style.color).toBe('#ffd54a');
+    built.palette('dark', animator);
+    animator.update(0.1);
+    expect(ball.style.color).toBe('#6b5a1e');
+    // Without the animator the next frame writes the old rest color back.
+    built.palette('light');
+    animator.update(0.1);
+    expect(ball.style.color).toBe('#6b5a1e');
+  });
+
+  it('takes palette colors through prefabs, in their definitions and instance props', () => {
+    const withPrefab = doc({
+      prefabs: {
+        dot: { root: { type: 'Sphere', id: 'core', props: { 'style.color': { color: 'trim' } } } },
+      },
+      root: {
+        type: 'Node',
+        children: [
+          { prefab: 'dot', id: 'a' },
+          { prefab: 'dot', id: 'b', props: { 'style.color': { color: 'body' } } },
+        ],
+      },
+    });
+    const built = buildDocument(readDocument(withPrefab));
+    const scene = new Scene(built.root);
+    const color = (id: string) => (scene.getById(id) as Sphere).style.color;
+    expect([color('a'), color('b')]).toEqual(['#ff9a1f', '#ffd54a']);
+    built.palette('dark');
+    expect([color('a'), color('b')]).toEqual(['#ff9a1f', '#6b5a1e']);
+  });
+
+  it('refuses number-like palette names and reports broken palettes once', () => {
+    // JavaScript would put "2" first, making it the base.
+    expect(
+      issues(doc({ palettes: { light: { body: '#fff', trim: '#000' }, '2': { body: '#000' } } })),
+    ).toContain(
+      'palettes.2: a palette name cannot be a number: the order of palettes would change.',
+    );
+    // A broken base is one problem, not one more for every color that refers to it.
+    expect(issues(doc({ palettes: { light: 'yellow' } }))).toEqual([
+      'palettes.light: expected a palette of colors by role, got "yellow".',
+    ]);
   });
 });

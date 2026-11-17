@@ -516,3 +516,29 @@ describe('Animator', () => {
     expect(() => animator.update(Number.NaN)).toThrow(RangeError);
   });
 });
+
+describe('refreshRest', () => {
+  it('takes a property it owns at its current value as rest again, and leaves others', () => {
+    const world = new Scene();
+    const ball = new Node({ id: 'ball', position: { x: 1, y: 0, z: 0 } });
+    world.root.add(ball);
+    const animator = new Animator(world);
+    // A layer at weight 0: the animator owns the position and writes its rest every frame.
+    animator.addLayer({ weight: 0 }).play({
+      duration: 1,
+      loop: 'loop',
+      tracks: [
+        { target: 'ball', property: 'position', keys: [{ time: 0, value: { x: 9, y: 9, z: 9 } }] },
+      ],
+    });
+    animator.update(0.1);
+    ball.position.x = 5;
+    animator.update(0.1);
+    expect(ball.position.x).toBe(1);
+    ball.position.x = 5;
+    expect(animator.refreshRest(ball, 'position')).toBe(true);
+    animator.update(0.1);
+    expect(ball.position.x).toBe(5);
+    expect(animator.refreshRest(ball, 'scale')).toBe(false);
+  });
+});

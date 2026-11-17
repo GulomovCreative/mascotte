@@ -508,8 +508,35 @@ describe('Player', () => {
     expect(pixel(5, 5)).toEqual([255, 255, 255, 255]);
     player.load(JSON.stringify(themed), { palette: 'night' });
     expect(pixel(5, 5)).toEqual([0, 0, 0, 255]);
+    // A failed switch changes nothing: the night stays, and so does the kept palette.
+    const scene = player.scene;
     expect(() => player.setPalette('dusk')).toThrow(/no palette "dusk"/);
-    expect(() => player.load(JSON.stringify(day))).toThrow(/no palette "night"/);
+    expect([pixel(5, 5), player.palette, player.scene]).toEqual([[0, 0, 0, 255], 'night', scene]);
+    // A palette given must exist; a kept one falls back to the first where the document lacks it.
+    expect(() => player.load(JSON.stringify(day), { palette: 'night' })).toThrow(
+      /no palette "night"/,
+    );
+    expect(player.palette).toBe('night');
+    player.load(JSON.stringify(day));
+    expect(player.palette).toBeUndefined();
+    player.load(JSON.stringify(themed));
+    expect(player.palette).toBe('day');
+    // Params and a palette, each kept while the other changes.
+    const sized = {
+      ...themed,
+      params: { size: { default: 1, min: 0.5, max: 2 } },
+      root: {
+        ...themed.root,
+        props: { ...themed.root.props, scale: { param: 'size', times: { x: 1, y: 1, z: 1 } } },
+      },
+    };
+    player.load(JSON.stringify(sized), { params: { size: 1.5 }, palette: 'night' });
+    player.load(JSON.stringify(sized), { palette: 'day' });
+    expect([player.scene.root.scale.x, player.palette]).toEqual([1.5, 'day']);
+    player.load(JSON.stringify(sized), { params: { size: 2 } });
+    expect([player.scene.root.scale.x, player.palette]).toEqual([2, 'day']);
+    player.load(JSON.stringify(sized), { palette: undefined });
+    expect(player.palette).toBe('day');
     player.destroy();
   });
 });

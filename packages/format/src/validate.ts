@@ -15,6 +15,7 @@ import { color } from '@mascotte/math';
 import {
   FORMAT,
   type Issue,
+  isColorRef,
   type LayerDocument,
   type MascotDocument,
   type NodeDocument,
@@ -51,14 +52,15 @@ function list(values: Iterable<string>): string {
 
 class Checker {
   readonly issues: Issue[] = [];
-  /** The palette roles colors may refer to (the first palette's). */
-  roles: ReadonlySet<string> = new Set();
+  /** The palette roles colors may refer to (the first palette's); null when the palettes are broken. */
+  roles: ReadonlySet<string> | null = new Set();
 
   /** Checks a color: a CSS color, a palette role `{ color }`, or null where allowed. */
   color(value: unknown, path: string, nullable: boolean): void {
     if (value === null && nullable) return;
-    if (isObject(value) && Object.keys(value).length === 1 && typeof value.color === 'string') {
-      if (!this.roles.has(value.color)) {
+    if (isColorRef(value)) {
+      // Broken palettes are reported once; their roles are not guessed at.
+      if (this.roles && !this.roles.has(value.color)) {
         const known = list(this.roles) || 'none';
         this.fail(join(path, 'color'), `no palette role "${value.color}" (there are ${known}).`);
       }
@@ -460,6 +462,7 @@ function checkMotion(
 
 /** Checks the palettes and sets the roles colors may refer to: the first palette's. */
 function checkPalettes(c: Checker, value: unknown): void {
+  c.roles = null;
   if (!c.object(value, 'palettes', 'an object of palettes')) return;
   const entries = Object.entries(value);
   if (entries.length === 0) {
@@ -467,8 +470,19 @@ function checkPalettes(c: Checker, value: unknown): void {
     return;
   }
   const roles = new Set<string>();
+  if (!isObject(entries[0]?.[1])) {
+    c.object(
+      entries[0]?.[1],
+      join('palettes', entries[0]?.[0] ?? ''),
+      'a palette of colors by role',
+    );
+    return;
+  }
   entries.forEach(([name, palette], i) => {
     const at = join('palettes', name);
+    // JavaScript puts number-like keys first, so the first palette written would not be the base.
+    if (/^\d+$/.test(name))
+      c.fail(at, 'a palette name cannot be a number: the order of palettes would change.');
     if (!c.object(palette, at, 'a palette of colors by role')) return;
     for (const [role, tint] of Object.entries(palette)) {
       if (i === 0) roles.add(role);

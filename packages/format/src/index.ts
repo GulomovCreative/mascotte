@@ -14,6 +14,7 @@ export {
   DocumentError,
   FORMAT,
   type Issue,
+  isColorRef,
   type LayerDocument,
   type LibraryMotionRef,
   type MachineDocument,
