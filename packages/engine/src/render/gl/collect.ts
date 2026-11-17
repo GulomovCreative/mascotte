@@ -37,20 +37,20 @@ import { triangulate } from './triangulate.ts';
  * it (the base color where the style has none).
  */
 export const STRIDE = {
-  /** ax ay az, bx by bz, radius, shadow, highlight, color */
-  capsule: 19,
-  /** cx cy cz, radius, shadow, highlight, color */
-  sphere: 16,
-  /** cx cy cz, radius, axis x y z (unit, toward the dome), color */
-  hemisphere: 11,
-  /** ax ay az, bx by bz, radius, color */
-  cylinder: 11,
-  /** base center x y z, apex x y z, base radius, color */
-  cone: 11,
-  /** triangle vertex: x y z, color */
-  fill: 7,
-  /** an outline: ax ay az, bx by bz, inner and outer radius, push back, color */
-  ring: 13,
+  /** ax ay az, bx by bz, radius, shadow, highlight, color, shape */
+  capsule: 20,
+  /** cx cy cz, radius, shadow, highlight, color, shape */
+  sphere: 17,
+  /** cx cy cz, radius, axis x y z (unit, toward the dome), color, shape */
+  hemisphere: 12,
+  /** ax ay az, bx by bz, radius, color, shape */
+  cylinder: 12,
+  /** base center x y z, apex x y z, base radius, color, shape */
+  cone: 12,
+  /** triangle vertex: x y z, color, shape */
+  fill: 8,
+  /** an outline: ax ay az, bx by bz, inner and outer radius, push back, color, shape */
+  ring: 14,
 } as const;
 
 export type PrimitiveKind = keyof typeof STRIDE;
@@ -110,6 +110,8 @@ export interface GLFrame {
   readonly zMax: number;
   /** The camera's light direction (normalized, in camera space, as screen 3D). */
   readonly light: Readonly<Vec3>;
+  /** Whether any shape has an outline (a ring). */
+  readonly rings: boolean;
 }
 
 /** How many decal anchors fit in one layer: the anchor number takes 7 stencil bits. */
@@ -217,11 +219,18 @@ export class GLCollector {
   #zMin = 0;
   #zMax = 0;
   #warnedAnchors = false;
-  readonly #frame: { layers: readonly Layer[]; zMin: number; zMax: number; light: Vec3 } = {
+  readonly #frame: {
+    layers: readonly Layer[];
+    zMin: number;
+    zMax: number;
+    light: Vec3;
+    rings: boolean;
+  } = {
     layers: this.#layers.items,
     zMin: 0,
     zMax: 0,
     light: { x: 0, y: 0, z: 1 },
+    rings: false,
   };
   // Polyline of the current contour in screen 3D and the indices of its triangles.
   readonly #line = new Polyline();
@@ -237,11 +246,18 @@ export class GLCollector {
   #outlineCss = '';
   #ringInner = 0;
   #ringBack = 0;
+  // The current shape's number: its place in the frame's sort order from 1 (0 when emitted for
+  // hit-testing), which every primitive of it ends with; and the number of the last shape.
+  #id = 0;
+  #shapes = 0;
+  #rings = false;
   readonly #triangles = new IndexBuffer();
 
   collect(scene: Scene, camera: Camera): GLFrame {
     this.#used = 0;
     this.#layers.begin();
+    this.#shapes = 0;
+    this.#rings = false;
     this.#anchorFrame++;
     if (scene !== this.#anchorScene || scene.structureVersion !== this.#anchorStructure) {
       this.#anchors.clear();
@@ -287,8 +303,10 @@ export class GLCollector {
           this.#anchorId(drawable) || (drawable.owner ? this.#anchorId(drawable.owner) : 0);
         bucket = this.#opaque(layer, own);
       }
+      this.#id = ++this.#shapes;
       this.#emit(drawable, camera, bucket, opacity);
     }
+    this.#id = 0;
     if (this.#zMin > this.#zMax) {
       this.#zMin = -1;
       this.#zMax = 1;
@@ -302,6 +320,7 @@ export class GLCollector {
     frame.light.x = camera.light.x;
     frame.light.y = camera.light.y;
     frame.light.z = camera.light.z;
+    frame.rings = this.#rings;
     return frame;
   }
 
@@ -436,6 +455,7 @@ export class GLCollector {
     d[o + 2] = scratch.z;
     d[o + 3] = r;
     this.#writeTones(d, o + 4, tones, css);
+    d[o + 16] = this.#id;
     this.#extent(scratch.z, r);
     if (this.#outline > 0) {
       this.#ringInner = r;
@@ -467,6 +487,8 @@ export class GLCollector {
     r[o + 7] = this.#ringInner + this.#outline;
     r[o + 8] = this.#ringBack;
     this.#writeColor(r, o + 9, this.#outlineCss);
+    r[o + 13] = this.#id;
+    this.#rings = true;
     this.#extent(r[o + 2] as number, r[o + 7] as number);
     this.#extent(r[o + 5] as number, r[o + 7] as number);
   }
@@ -531,6 +553,7 @@ export class GLCollector {
         this.#pushRing(bucket, d, o, o + 3);
       }
     } else this.#writeColor(d, o + 7, css);
+    d[o + STRIDE[kind] - 1] = this.#id;
     this.#extent(az, r);
     this.#extent(bz, r);
   }
@@ -711,6 +734,7 @@ export class GLCollector {
         d[o + 5] = bz;
         d[o + 6] = radius;
         this.#writeTones(d, o + 7, tones, css);
+        d[o + 19] = this.#id;
         o += STRIDE.capsule;
         if (az - radius < this.#zMin) this.#zMin = az - radius;
         if (az + radius > this.#zMax) this.#zMax = az + radius;
@@ -822,6 +846,7 @@ export class GLCollector {
       d[o + 1] = line.ys[i] as number;
       d[o + 2] = z;
       this.#writeColor(d, o + 3, css);
+      d[o + 7] = this.#id;
       o += STRIDE.fill;
       if (z < this.#zMin) this.#zMin = z;
       if (z > this.#zMax) this.#zMax = z;
@@ -909,6 +934,7 @@ export class GLCollector {
     d[o + 5] = (m[7] as number) / axis;
     d[o + 6] = (m[8] as number) / axis;
     this.#writeColor(d, o + 7, dome.style.color);
+    d[o + 11] = this.#id;
     this.#extent(cz, r);
   }
 
@@ -938,6 +964,7 @@ export class GLCollector {
     d[o + 5] = apexZ;
     d[o + 6] = r;
     this.#writeColor(d, o + 7, surface.style.color);
+    d[o + 11] = this.#id;
     this.#extent(cz, r);
     this.#extent(apexZ, 0);
   }

@@ -75,7 +75,10 @@ export const PIXEL_BUDGET = 2 ** 23;
 const COVERED = 0x80;
 const ID_BITS = 0x7f;
 
-/** Internal frame buffers: a multisampled one for drawing and a regular one for downsampling. */
+/**
+ * Internal frame buffers: a multisampled one for drawing and a regular one for downsampling; and
+ * `owners`, the number of the shape seen at each pixel, for outlines (`#owners`).
+ */
 interface Targets {
   width: number;
   height: number;
@@ -83,6 +86,8 @@ interface Targets {
   msaa: WebGLFramebuffer;
   resolve: WebGLFramebuffer;
   color: WebGLTexture;
+  owners: WebGLFramebuffer;
+  ownerColor: WebGLTexture;
   renderbuffers: WebGLRenderbuffer[];
 }
 
@@ -142,6 +147,8 @@ export class WebGLRenderer {
   #backgroundParsed = false;
   readonly #backgroundRgba = new Float64Array(4);
   #supersample = 1;
+  // Whether outlines check the owners of their pixels in this frame (it has rings).
+  #owners = false;
 
   readonly #onLost = (event: Event) => {
     // Without preventDefault the browser will not restore the context.
@@ -241,6 +248,11 @@ export class WebGLRenderer {
     const factor = targets.factor;
     this.#supersample = factor;
     const px = ratio * factor;
+    this.#halfX = viewport.width / 2;
+    this.#halfY = viewport.height / 2;
+    this.#px = px;
+    this.#owners = frame.rings;
+    if (frame.rings) this.#drawOwners(res, targets, frame);
     gl.bindFramebuffer(gl.FRAMEBUFFER, targets.msaa);
     gl.viewport(0, 0, targets.width, targets.height);
     const bg = this.#background(viewport.background);
@@ -259,11 +271,6 @@ export class WebGLRenderer {
     gl.depthFunc(gl.LESS);
     // Translucent content is blended with the already premultiplied frame.
     gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    // Half of the frame and the pixel density are in fields, so as not to create an array per
-    // frame.
-    this.#halfX = viewport.width / 2;
-    this.#halfY = viewport.height / 2;
-    this.#px = px;
 
     let first = true;
     for (const layer of frame.layers) {
@@ -375,6 +382,53 @@ export class WebGLRenderer {
     // Only a drawn frame is remembered: after an error the next call draws again.
     this.#remember(scene, camera, viewport, ratio);
     return true;
+  }
+
+  /**
+   * The owners: the opaque shapes and decals drawn once more, each as its number (its place in
+   * sort order), whole pixels at the internal resolution, each layer over the one before as in
+   * the frame. An outline ring then leaves out the pixels whose owner was drawn after its shape,
+   * as Canvas 2D's draw order covers it: a drop on a body covers the body's outline, and of two
+   * overlapping spheres only the later one's outline shows where they overlap.
+   */
+  #drawOwners(res: Resources, targets: Targets, frame: GLFrame): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.FRAMEBUFFER, targets.owners);
+    gl.viewport(0, 0, targets.width, targets.height);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.SAMPLE_ALPHA_TO_COVERAGE);
+    gl.colorMask(true, true, true, true);
+    gl.depthMask(true);
+    gl.stencilMask(0xff);
+    gl.clearColor(0, 0, 0, 0);
+    gl.clearDepth(1);
+    gl.clearStencil(0);
+    gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+    gl.enable(gl.STENCIL_TEST);
+    gl.depthFunc(gl.LESS);
+    for (const layer of frame.layers) {
+      gl.enable(gl.DEPTH_TEST);
+      gl.depthMask(true);
+      gl.clear(gl.DEPTH_BUFFER_BIT | gl.STENCIL_BUFFER_BIT);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.REPLACE);
+      for (const bucket of layer.opaque) {
+        gl.stencilFunc(gl.ALWAYS, bucket.stencil, 0xff);
+        this.#draw(res, bucket, frame, false, true);
+      }
+      gl.disable(gl.DEPTH_TEST);
+      gl.stencilOp(gl.KEEP, gl.KEEP, gl.KEEP);
+      for (const bucket of layer.decals) {
+        if (bucket.blend) continue;
+        gl.stencilFunc(gl.EQUAL, bucket.stencil, 0xff);
+        this.#draw(res, bucket, frame, false, true);
+      }
+    }
+    gl.disable(gl.STENCIL_TEST);
+    gl.disable(gl.DEPTH_TEST);
+    // The rings of the frame read it from unit 1.
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, targets.ownerColor);
+    gl.activeTexture(gl.TEXTURE0);
   }
 
   /**
@@ -515,7 +569,19 @@ export class WebGLRenderer {
     const color = gl.createTexture();
     const colorBuffer = gl.createRenderbuffer();
     const depthBuffer = gl.createRenderbuffer();
-    if (!msaa || !resolve || !color || !colorBuffer || !depthBuffer) {
+    const owners = gl.createFramebuffer();
+    const ownerColor = gl.createTexture();
+    const ownerDepth = gl.createRenderbuffer();
+    if (
+      !msaa ||
+      !resolve ||
+      !color ||
+      !colorBuffer ||
+      !depthBuffer ||
+      !owners ||
+      !ownerColor ||
+      !ownerDepth
+    ) {
       throw new Error('Failed to create WebGL frame buffers.');
     }
     const targets: Targets = {
@@ -525,8 +591,25 @@ export class WebGLRenderer {
       msaa,
       resolve,
       color,
-      renderbuffers: [colorBuffer, depthBuffer],
+      owners,
+      ownerColor,
+      renderbuffers: [colorBuffer, depthBuffer, ownerDepth],
     };
+    gl.bindTexture(gl.TEXTURE_2D, ownerColor);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, w, h);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    gl.bindRenderbuffer(gl.RENDERBUFFER, ownerDepth);
+    gl.renderbufferStorage(gl.RENDERBUFFER, gl.DEPTH24_STENCIL8, w, h);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, owners);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, ownerColor, 0);
+    gl.framebufferRenderbuffer(
+      gl.FRAMEBUFFER,
+      gl.DEPTH_STENCIL_ATTACHMENT,
+      gl.RENDERBUFFER,
+      ownerDepth,
+    );
+    const ownersStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     gl.bindRenderbuffer(gl.RENDERBUFFER, colorBuffer);
     gl.renderbufferStorageMultisample(gl.RENDERBUFFER, samples, gl.RGBA8, w, h);
     gl.bindRenderbuffer(gl.RENDERBUFFER, depthBuffer);
@@ -548,21 +631,29 @@ export class WebGLRenderer {
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, color, 0);
     const resolveStatus = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    if (msaaStatus !== gl.FRAMEBUFFER_COMPLETE || resolveStatus !== gl.FRAMEBUFFER_COMPLETE) {
+    if (
+      msaaStatus !== gl.FRAMEBUFFER_COMPLETE ||
+      resolveStatus !== gl.FRAMEBUFFER_COMPLETE ||
+      ownersStatus !== gl.FRAMEBUFFER_COMPLETE
+    ) {
       deleteTargets(gl, targets);
       throw new Error(
-        `Frame buffer ${w}×${h} (${samples} samples) was not created: status ${msaaStatus}, ${resolveStatus}.`,
+        `Frame buffer ${w}×${h} (${samples} samples) was not created: status ${msaaStatus}, ${resolveStatus}, ${ownersStatus}.`,
       );
     }
     res.targets = targets;
     return targets;
   }
 
-  /** `solid` is the first pass of a translucent shape: only fully covered pixels. */
-  #draw(res: Resources, bucket: Bucket, frame: GLFrame, solid: boolean): void {
+  /**
+   * `solid` is the first pass of a translucent shape: only fully covered pixels. `owners` draws
+   * shape numbers, without rings (`#drawOwners`).
+   */
+  #draw(res: Resources, bucket: Bucket, frame: GLFrame, solid: boolean, owners = false): void {
     const gl = this.gl;
     for (let k = 0; k < ORDER.length; k++) {
       const kind = ORDER[k] as PrimitiveKind;
+      if (owners && kind === 'ring') continue;
       const count = bucket.count(kind);
       if (count === 0) continue;
       const program = res.programs[kind];
@@ -574,6 +665,9 @@ export class WebGLRenderer {
       gl.uniform1f(u.uRayZ ?? null, frame.zMax + 10);
       gl.uniform1f(u.uSolid ?? null, solid ? 1 : 0);
       gl.uniform3f(u.uLight ?? null, frame.light.x, frame.light.y, frame.light.z);
+      gl.uniform1f(u.uIdPass ?? null, owners ? 1 : 0);
+      gl.uniform1f(u.uOwners ?? null, this.#owners ? 1 : 0);
+      gl.uniform1i(u.uOwner ?? null, 1);
       gl.bindVertexArray(program.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
       const data = bucket.data[kind];
@@ -607,7 +701,11 @@ export class WebGLRenderer {
     gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
     const stride = STRIDE[kind] * 4;
     let offset = 0;
-    for (const [name, size] of [...source.attributes, ['aColor', 4] as const]) {
+    for (const [name, size] of [
+      ...source.attributes,
+      ['aColor', 4] as const,
+      ['aId', 1] as const,
+    ]) {
       const location = gl.getAttribLocation(program, name);
       if (location >= 0) {
         gl.enableVertexAttribArray(location);
@@ -619,7 +717,17 @@ export class WebGLRenderer {
     gl.bindVertexArray(null);
     // The compiler drops a variable unused in the shader; its location is null.
     const uniforms: Record<string, WebGLUniformLocation | null> = {};
-    for (const name of ['uHalf', 'uDepth', 'uPx', 'uRayZ', 'uSolid', 'uLight']) {
+    for (const name of [
+      'uHalf',
+      'uDepth',
+      'uPx',
+      'uRayZ',
+      'uSolid',
+      'uLight',
+      'uIdPass',
+      'uOwners',
+      'uOwner',
+    ]) {
       uniforms[name] = gl.getUniformLocation(program, name);
     }
     if (!uniforms.uHalf) throw new Error(`Program ${kind} has no uHalf.`);
@@ -656,6 +764,8 @@ function deleteTargets(gl: WebGL2RenderingContext, targets: Targets): void {
   gl.deleteFramebuffer(targets.msaa);
   gl.deleteFramebuffer(targets.resolve);
   gl.deleteTexture(targets.color);
+  gl.deleteFramebuffer(targets.owners);
+  gl.deleteTexture(targets.ownerColor);
   for (const buffer of targets.renderbuffers) gl.deleteRenderbuffer(buffer);
 }
 
