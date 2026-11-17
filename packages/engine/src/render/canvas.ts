@@ -338,8 +338,8 @@ function clipSphereCut(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOu
 const FAR = 1e6;
 
 /**
- * Keeps the item's outline where WebGL's depth keeps its ring: the ring stands a pixel behind the
- * item's front (depth `zb`), so over `other` it shows only where `other`'s surface is deeper,
+ * Keeps a cut item's outline over `other` (a sphere drawn before it that it reaches into) only
+ * where `other`'s surface lies deeper than a pixel behind the item's front (depth `zb`),
  * outside a circle around `other`'s center (all of `other`'s disk if `zb` is not in front of its
  * center). The clip is everything but that circle, the item's own disk given back (nonzero
  * winding: the frame and the item's disk turn one way, the circle the other way).

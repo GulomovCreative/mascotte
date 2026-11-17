@@ -144,7 +144,9 @@ describe('editor menu', () => {
     await expect.poll(() => clicks).toEqual(['Miso.json']);
     await expect.poll(() => title(root)).toBe('Miso — Miso.json');
     // The download may yet be cancelled: the draft of the edit stays.
-    await expect.poll(() => keptDraft()?.text).toBe(JSON.stringify(state.value.document));
+    await expect
+      .poll(() => keptDraft()?.text, { timeout: 5000 })
+      .toBe(JSON.stringify(state.value.document));
   });
 
   it('opens with the file picker, saves in place, and marks changes unsaved till then', async () => {

@@ -61,7 +61,7 @@ describe('Canvas 2D and WebGL', () => {
   });
 
   // Spheres in spheres, with outlines, from the front and turned aside: the Canvas 2D cut and
-  // its outline against WebGL's depth and rings.
+  // its outline against WebGL's.
   it.each([
     ['', 0],
     ['-1', Math.PI / 2],

@@ -67,7 +67,7 @@ export class SurfaceOutline {
   /**
    * The outline (see `ShapeStyle.outline`): its width in pixels beyond the item's edge, 0 for
    * none, and color. Canvas 2D strokes the item's path wider in this color just before it
-   * (WebGL draws its own rings).
+   * (WebGL draws outlines on screen from object numbers).
    */
   outlineWidth = 0;
   outlineColor = '';

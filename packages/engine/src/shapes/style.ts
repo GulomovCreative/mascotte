@@ -22,7 +22,8 @@ export interface ShapeStyleValues {
   highlightColor: string | null;
   /**
    * Width of the outline around the shape's silhouette, in scene units like the stroke; 0 means
-   * none. Drawn just behind the shape, so it also edges the shape where it lies over others.
+   * none. It edges the shape over whatever is drawn before it (an eye on a head too), and what
+   * is drawn after it covers it.
    */
   outline: number;
   /** The outline's color. */

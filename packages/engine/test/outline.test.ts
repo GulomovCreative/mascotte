@@ -31,12 +31,22 @@ function sceneWith(...nodes: Node[]): Scene {
 const camera = new Camera();
 const ink = { outline: 2, outlineColor: '#000000' } as const;
 
-/** The objects of a frame (without object 0): [width, stencil, decal, layer] and color each. */
+/** The objects of a frame (without object 0): outline width and color. */
 function objects(frame: GLFrame): { width: number; color: number[] }[] {
   const out: { width: number; color: number[] }[] = [];
   const data = frame.objects.data;
   for (let o = OBJECT_STRIDE; o < frame.objects.length; o += OBJECT_STRIDE) {
     out.push({ width: data[o + 4] as number, color: Array.from(data.subarray(o, o + 4)) });
+  }
+  return out;
+}
+
+/** [stencil, decal, layer] of each object of a frame (without object 0). */
+function places(frame: GLFrame): number[][] {
+  const out: number[][] = [];
+  const data = frame.objects.data;
+  for (let o = OBJECT_STRIDE; o < frame.objects.length; o += OBJECT_STRIDE) {
+    out.push(Array.from(data.subarray(o + 5, o + 8)));
   }
   return out;
 }
@@ -107,6 +117,22 @@ describe('outlines', () => {
     expect(objects(frame).map((object) => object.width)).toEqual([2, 2]);
     // Every primitive of the tube and the sphere carries its object's number.
     expect(new Set(objectNumbers(frame))).toEqual(new Set([1, 2]));
+    // A decal knows its anchor's stencil number; a translucent shape has no outline.
+    const head = new Sphere({ diameter: 40, style: ink });
+    head.add(
+      new Sphere({
+        diameter: 8,
+        position: { x: 0, y: 0, z: 20 },
+        sortMode: 'attached',
+        style: ink,
+      }),
+    );
+    expect(places(collect(head))).toEqual([
+      [1, 0, 0],
+      [1, 1, 0],
+    ]);
+    const ghost = new Sphere({ diameter: 10, opacity: 0.5, style: ink });
+    expect(objects(collect(ghost)).map((object) => object.width)).toEqual([0]);
     // Emitted for hit-testing, a shape is no object.
     const bucket = new Bucket();
     new GLCollector().emitDrawable(sphere, camera, bucket);

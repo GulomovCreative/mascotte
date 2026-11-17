@@ -5,16 +5,13 @@ import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from '../tone.ts';
  * y down, z toward the viewer). The view ray at pixel p goes from (p.x, p.y, uRayZ) along −z.
  */
 
-/**
- * The object number as a color (24 bits in RGB) with the decal order in alpha, for the outline
- * pass (`outlineProgram`).
- */
+/** The object number as a color (24 bits in RGB), for the outline pass (`WebGLRenderer`). */
 const ID_COLOR = /* glsl */ `vec4 idColor() {
   return vec4(
     mod(vId, 256.0) / 255.0,
     mod(floor(vId / 256.0), 256.0) / 255.0,
     floor(vId / 65536.0) / 255.0,
-    uOrder / 255.0
+    1.0
   );
 }`;
 
@@ -26,15 +23,13 @@ uniform float uPx;     // internal frame pixels per CSS pixel
 uniform float uRayZ;
 uniform float uSolid;  // 1 means draw only fully covered pixels (see shade)
 uniform vec3 uLight;   // toward the light, normalized
-uniform vec2 uRange;   // the part of the depth range drawn into: start, size
 uniform float uIdPass; // 1 when drawing object numbers for the outline pass
-uniform float uOrder;  // that pass's decal order (0 for a shape that is not a decal)
 in vec2 vPos;
 flat in float vId;
 out vec4 outColor;
 
 float depthOf(float z) {
-  return uRange.x + uRange.y * clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
+  return clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
 }
 
 ${ID_COLOR}
@@ -343,15 +338,13 @@ export const fillProgram = {
 precision highp float;
 uniform vec2 uHalf;
 uniform vec2 uDepth;
-uniform vec2 uRange;
 in vec3 aPosition;
 in vec4 aColor;
 in float aId;
 flat out vec4 vColor;
 flat out float vId;
 void main() {
-  float depth =
-    uRange.x + uRange.y * clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
+  float depth = clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
   vColor = aColor;
   vId = aId;
   gl_Position = vec4(aPosition.x / uHalf.x, -aPosition.y / uHalf.y, depth * 2.0 - 1.0, 1.0);
@@ -360,7 +353,6 @@ void main() {
   fragment: /* glsl */ `#version 300 es
 precision highp float;
 uniform float uIdPass;
-uniform float uOrder;
 flat in vec4 vColor;
 flat in float vId;
 out vec4 outColor;

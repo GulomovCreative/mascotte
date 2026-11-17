@@ -125,6 +125,24 @@ describe('WebGL snapshots of Pip', () => {
 });
 
 describe('WebGL pixels', () => {
+  it('give an edge the outline of the shape drawn later: a drop covers the body outline', () => {
+    const ink = { outline: 3, outlineColor: '#000', stroke: 0 };
+    const canvas = draw(
+      sceneWith(
+        new Sphere({ diameter: 60, style: { ...ink, color: '#f00' } }),
+        // On top of the body, in front of its center: drawn after it, no outline of its own.
+        new Sphere({ diameter: 20, position: { x: 0, y: -30, z: 5 }, style: { color: '#00f' } }),
+      ),
+      camera,
+      { width: 100, height: 100, background: '#fff' },
+    );
+    // The body's outline below it, and where the drop covers the body's edge, the drop.
+    expect(pixel(canvas, 50, 81).slice(0, 3)).toEqual([0, 0, 0]);
+    expect(pixel(canvas, 50, 19).slice(0, 3)).toEqual([0, 0, 255]);
+    // Nothing of the outline on the body by the drop: red under it.
+    expect(pixel(canvas, 50, 32).slice(0, 3)).toEqual([255, 0, 0]);
+  });
+
   it('without a background alpha equals coverage: opaque 255, translucent ~128, empty 0', () => {
     const canvas = draw(
       sceneWith(

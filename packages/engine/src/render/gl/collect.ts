@@ -247,7 +247,7 @@ export class GLCollector {
   #opacity = 1;
   #axis = 1;
   // The current shape's object number (0 when emitted for hit-testing) and outline width in
-  // screen pixels (0 for none).
+  // CSS pixels on screen (0 for none).
   #id = 0;
   #outline = 0;
   #run = 0;
@@ -259,7 +259,8 @@ export class GLCollector {
     const objects = this.#objects;
     objects.reset();
     // Object 0: none.
-    objects.data.fill(0, objects.reserve(OBJECT_STRIDE), OBJECT_STRIDE);
+    const none = objects.reserve(OBJECT_STRIDE);
+    objects.data.fill(0, none, none + OBJECT_STRIDE);
     this.#anchorFrame++;
     if (scene !== this.#anchorScene || scene.structureVersion !== this.#anchorStructure) {
       this.#anchors.clear();
@@ -428,7 +429,8 @@ export class GLCollector {
     if (!listed) return;
     const o = objects.reserve(OBJECT_STRIDE);
     this.#writeColor(objects.data, o, drawable.style.outlineColor);
-    objects.data[o + 4] = this.#outline;
+    // A translucent shape gets no number in the outline pass: no outline either.
+    objects.data[o + 4] = bucket.blend ? 0 : this.#outline;
     objects.data[o + 5] = bucket.stencil;
     objects.data[o + 6] = bucket.decal ? 1 : 0;
     objects.data[o + 7] = this.#run;
