@@ -1,5 +1,6 @@
 import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
+import { DraftBanner, MenuBar } from './menu.tsx';
 import { Viewport } from './viewport.tsx';
 
 /** The tabs of the bottom panel. */
@@ -88,9 +89,8 @@ function BottomPanel() {
 export function App() {
   return (
     <div class="editor">
-      <header class="menubar">
-        <h1>Mascotte Editor</h1>
-      </header>
+      <MenuBar />
+      <DraftBanner />
       <Panel title="Scene" area="tree">
         <p class="empty">No document open.</p>
       </Panel>

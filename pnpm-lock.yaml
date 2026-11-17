@@ -193,9 +193,15 @@ importers:
       '@mascotte/format':
         specifier: workspace:*
         version: link:../../packages/format
+      '@mascotte/library':
+        specifier: workspace:*
+        version: link:../../packages/library
       '@mascotte/player':
         specifier: workspace:*
         version: link:../../packages/player
+      '@mascotte/reference':
+        specifier: workspace:*
+        version: link:../../reference
       '@preact/signals':
         specifier: 2.11.4
         version: 2.11.4(preact@11.1.1)
@@ -203,9 +209,6 @@ importers:
         specifier: 11.1.1
         version: 11.1.1
     devDependencies:
-      '@mascotte/reference':
-        specifier: workspace:*
-        version: link:../../reference
       vite:
         specifier: 8.3.5
         version: 8.3.5(@types/node@26.6.6)

@@ -1,8 +1,20 @@
 import { Camera, CanvasRenderer, Scene, WebGLRenderer } from '@mascotte/engine';
+import { effect } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
+import { state } from './store.ts';
 
 /** Draws `scene` from `camera` on a canvas of `width` × `height` CSS pixels, anew. */
-type Draw = (scene: Scene, camera: Camera, width: number, height: number) => void;
+type Draw = (
+  scene: Scene,
+  camera: Camera,
+  width: number,
+  height: number,
+  background: string | undefined,
+) => void;
+
+/** The frame options for a background, or none. */
+const backdrop = (background: string | undefined) =>
+  background === undefined ? {} : { background };
 
 /**
  * A renderer for the canvas: WebGL2, or Canvas 2D where the browser has no WebGL2. A canvas that
@@ -20,10 +32,15 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
       throw new Error('The viewport could not start WebGL2.', { cause: error });
     }
     return {
-      draw: (scene, camera, width, height) => {
+      draw: (scene, camera, width, height, background) => {
         // A canvas given its size again is cleared: the frame must be drawn anew.
         gl.invalidate();
-        gl.render(scene, camera, { width, height, pixelRatio: devicePixelRatio || 1 });
+        gl.render(scene, camera, {
+          width,
+          height,
+          pixelRatio: devicePixelRatio || 1,
+          ...backdrop(background),
+        });
       },
       destroy: () => gl.destroy(),
     };
@@ -32,15 +49,21 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
   if (!ctx) throw new Error('The viewport has neither WebGL2 nor a 2D context.');
   const canvas2d = new CanvasRenderer();
   return {
-    draw: (scene, camera, width, height) =>
-      canvas2d.render(ctx, scene, camera, { width, height, pixelRatio: devicePixelRatio || 1 }),
+    draw: (scene, camera, width, height, background) =>
+      canvas2d.render(ctx, scene, camera, {
+        width,
+        height,
+        pixelRatio: devicePixelRatio || 1,
+        ...backdrop(background),
+      }),
     destroy: () => {},
   };
 }
 
 /**
- * The viewport: the scene being edited, drawn by the engine and fitted to the panel. Empty
- * until a document is open.
+ * The viewport: the open document's scene (the last that built), drawn by the engine through
+ * the document's camera, centered in the panel and fitted to it; redrawn when the document
+ * changes. The orbit camera, picking and the debug view come with #88.
  */
 export function Viewport() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -48,8 +71,8 @@ export function Viewport() {
     const canvas = ref.current;
     if (!canvas) return;
     const renderer = rendererFor(canvas);
-    const scene = new Scene();
-    const camera = new Camera();
+    const empty = new Scene();
+    const fallback = new Camera();
     const fit = () => {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
@@ -58,8 +81,20 @@ export function Viewport() {
       const ratio = devicePixelRatio || 1;
       canvas.width = Math.max(1, Math.round(width * ratio));
       canvas.height = Math.max(1, Math.round(height * ratio));
-      renderer.draw(scene, camera, width, height);
+      const built = state.peek().scene;
+      renderer.draw(
+        built?.scene ?? empty,
+        built?.built.camera ?? fallback,
+        width,
+        height,
+        state.peek().document.view.background,
+      );
     };
+    // Redrawn whenever the state changes (a new scene, an edit).
+    const stop = effect(() => {
+      void state.value;
+      fit();
+    });
     // It also fires once on observing: the first fit.
     const observer = new ResizeObserver(fit);
     observer.observe(canvas);
@@ -76,6 +111,7 @@ export function Viewport() {
     };
     watchRatio();
     return () => {
+      stop();
       observer.disconnect();
       ratio?.removeEventListener('change', onRatio);
       renderer.destroy();
