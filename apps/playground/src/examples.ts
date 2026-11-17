@@ -669,13 +669,13 @@ const playedMascots: readonly PlayedMascot[] = [
     gaze: 'gaze',
   },
   {
-    id: 'mascot-gloop',
+    id: 'gloop',
     title: 'Gloop: a slime (blob) that hops on a click',
     document: () => gloopDocument,
     pointer: { click: 'poke' },
   },
   {
-    id: 'mascot-miso',
+    id: 'miso',
     title: 'Miso: a cat (quadruped) that follows the pointer and hops on a click',
     document: () => misoDocument,
     pointer: { click: 'poke' },
@@ -686,7 +686,8 @@ const playedMascots: readonly PlayedMascot[] = [
 /**
  * A mascot played the way a page embeds one: its JSON document in a `Player`, which fits it to
  * the canvas, drives the pointer inputs and the gaze and turns it while dragged. The example's
- * animation switch plays and pauses it; buttons under the canvas switch its palettes.
+ * animation switch plays and pauses it; buttons under the canvas switch its palettes, if it has
+ * several.
  */
 function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example {
   return {
@@ -694,9 +695,9 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
     title: mascot.title,
     group: backend === 'gl' ? 'WebGL2' : 'Canvas 2D',
     mount(container, controls) {
-      const json = JSON.stringify(mascot.document());
-      const { width, height } = (JSON.parse(json) as { view: { width: number; height: number } })
-        .view;
+      const value = mascot.document();
+      // The player checks the document; the frame size only sizes the canvas before it does.
+      const { width, height } = (value as { view: { width: number; height: number } }).view;
       const canvas = document.createElement('canvas');
       canvas.style.width = `${width * displayScale}px`;
       canvas.style.maxWidth = '100%';
@@ -706,7 +707,7 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
       let stopped = false;
       let player: Player;
       try {
-        player = new Player(canvas, json, {
+        player = new Player(canvas, JSON.stringify(value), {
           renderer: backend === 'gl' ? 'webgl' : 'canvas',
           pointer: mascot.pointer,
           ...(mascot.gaze === undefined ? {} : { gaze: mascot.gaze }),
@@ -726,7 +727,21 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
           const button = document.createElement('button');
           button.type = 'button';
           button.textContent = name;
-          button.addEventListener('click', () => player.setPalette(name));
+          button.setAttribute('aria-pressed', String(name === player.palette));
+          button.addEventListener('click', () => {
+            if (stopped) return;
+            try {
+              player.setPalette(name);
+            } catch (error) {
+              stopped = true;
+              player.pause();
+              controls.error(error);
+              return;
+            }
+            for (const other of palettes.children) {
+              other.setAttribute('aria-pressed', String(other === button));
+            }
+          });
           palettes.append(button);
         }
         container.append(palettes);
@@ -751,7 +766,7 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
   };
 }
 
-/** The reference mascots come first, Pip, the showcase, at the top: the page opens on it. */
+/** The reference mascots open the WebGL2 group, Pip, the showcase, at the top: the page opens on it. */
 export const examples: Example[] = [
   ...playedMascots.map((mascot) => playerExample(mascot, 'gl')),
   ...referenceScenes.map(fromReferenceSceneGL),

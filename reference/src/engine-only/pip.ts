@@ -440,7 +440,7 @@ const animation: AnimationDocument = {
     surprised: surprisedClip,
     idle,
     tilt,
-    // The library's, which the other reference mascots share.
+    // From the library; `blink` is shared with the other reference mascots.
     chirp: { library: 'chirp' },
     blink: { library: 'blink' },
   },

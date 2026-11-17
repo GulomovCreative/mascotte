@@ -252,10 +252,10 @@ This is the main requirement, and the architecture is built around it.
   - every library motion's slots are bound, and it plays on its kind of layer;
   - a motion that moves positions has an archetype to measure the size by.
 - **The reference mascots**, one per archetype of three, all from documents and sharing library motions (`@mascotte/reference`):
-  - **Pip** is a `bird`. Its tree is built in code and written as a document (`pipDocument`); its emotions are its own clips, its `blink` and `chirp` the library's.
+  - **Pip** is a `bird`. Its tree is built in code and written as a document (`pipDocument`); its emotions are its own clips, its `blink` and `chirp` the library's (the blink with the library's seed).
   - **Gloop** is a `blob`, a slime written as JSON by hand (`gloopDocument`): the library's `eye` and `mouth` prefabs, an `eyeSize` parameter, `mint` and `berry` palettes; it breathes, bobs, blinks and hops on a `poke`.
   - **Miso** is a `quadruped`, a cat written as JSON by hand (`misoDocument`): its own `catEar` prefab with an `earLength` parameter, the library's `eye`, `mouth` and `paw`, `ginger` and `smoke` palettes; it breathes, sways, tilts its head, wags, blinks, hops on a `poke` and has a `gaze`.
-  - A test reads all three, checks their archetypes differ and that they share library motions, and plays each.
+  - A test reads all three, checks their archetypes differ and that they share the library's `blink`, and plays each: it blinks, answers a poke (a hop, or Pip's startle) and switches its palettes; Gloop's eyes and Miso's ears follow their parameters.
 - **Still missing.** The library does not cover constraints and springs yet; they are short and already written for slots in documents.
 
 **Shape parameters and prefabs** (`@mascotte/format`, with the standard prefabs in `@mascotte/library`):
@@ -335,7 +335,7 @@ Requirement check: by the end of stage 4 at least three mascots of different arc
   A click while paused does not fire.
 - **Hot swap.** `load(json)` swaps the document in place: the canvas, renderer, loop and pointer stay, and so does whether it plays. A bad document, or one that does not fit the options, throws and the running one stays. `inputs`, `machines` and `constraints` belong to the running document, so the page reads them again after a swap.
 - **Cleanup.** `destroy()` removes its loop subscription, unbinds the pointer and frees the renderer; the canvas stays the page's. A constructor that fails leaves nothing bound.
-- The playground shows the three reference mascots through the player, from their JSON documents, with a button per palette.
+- The playground shows the three reference mascots through the player, from their JSON documents, with a button per palette for those that have several.
 
 ## 8. Editor requirements for the engine
 
