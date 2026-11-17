@@ -334,10 +334,9 @@ export const coneProgram = {
 };
 
 const RING_PASS = 'vec3 vA; vec3 vB; float vInner; float vOuter; float vBack;';
-/** The shape number seen at each pixel (the owners pass), and whether there is one. */
+/** The shape number seen at each pixel (the owners pass, drawn whenever there are rings). */
 const RING_OWNERS = /* glsl */ `
-uniform highp sampler2D uOwner;
-uniform float uOwners;`;
+uniform highp sampler2D uOwner;`;
 /**
  * An outline: the band from `inner` to `outer` around a segment (a point for a sphere) on screen,
  * at the depth of the segment's point nearest the pixel on screen, pushed back by `back` (forward
@@ -360,10 +359,8 @@ export const ringProgram = {
   // Inside the shape, past the pixel of its antialiased edge, there is nothing to draw.
   if (cover <= 0.0 || d < vInner - 1.0 / uPx) discard;
   // A shape drawn after this one (in sort order) covers its outline, as in Canvas 2D.
-  if (uOwners > 0.5) {
-    vec3 owner = texelFetch(uOwner, ivec2(gl_FragCoord.xy), 0).rgb * 255.0 + 0.5;
-    if (floor(owner.r) + floor(owner.g) * 256.0 + floor(owner.b) * 65536.0 > vId + 0.5) discard;
-  }
+  vec3 owner = texelFetch(uOwner, ivec2(gl_FragCoord.xy), 0).rgb * 255.0 + 0.5;
+  if (floor(owner.r) + floor(owner.g) * 256.0 + floor(owner.b) * 65536.0 > vId + 0.5) discard;
   gl_FragDepth = depthOf(mix(vA.z, vB.z, t) - vBack);
   outColor = shade(cover);`,
     RING_OWNERS,

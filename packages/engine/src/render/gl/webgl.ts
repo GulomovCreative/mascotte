@@ -147,8 +147,6 @@ export class WebGLRenderer {
   #backgroundParsed = false;
   readonly #backgroundRgba = new Float64Array(4);
   #supersample = 1;
-  // Whether outlines check the owners of their pixels in this frame (it has rings).
-  #owners = false;
 
   readonly #onLost = (event: Event) => {
     // Without preventDefault the browser will not restore the context.
@@ -251,7 +249,6 @@ export class WebGLRenderer {
     this.#halfX = viewport.width / 2;
     this.#halfY = viewport.height / 2;
     this.#px = px;
-    this.#owners = frame.rings;
     if (frame.rings) this.#drawOwners(res, targets, frame);
     gl.bindFramebuffer(gl.FRAMEBUFFER, targets.msaa);
     gl.viewport(0, 0, targets.width, targets.height);
@@ -666,7 +663,6 @@ export class WebGLRenderer {
       gl.uniform1f(u.uSolid ?? null, solid ? 1 : 0);
       gl.uniform3f(u.uLight ?? null, frame.light.x, frame.light.y, frame.light.z);
       gl.uniform1f(u.uIdPass ?? null, owners ? 1 : 0);
-      gl.uniform1f(u.uOwners ?? null, this.#owners ? 1 : 0);
       gl.uniform1i(u.uOwner ?? null, 1);
       gl.bindVertexArray(program.vao);
       gl.bindBuffer(gl.ARRAY_BUFFER, program.buffer);
@@ -725,7 +721,6 @@ export class WebGLRenderer {
       'uSolid',
       'uLight',
       'uIdPass',
-      'uOwners',
       'uOwner',
     ]) {
       uniforms[name] = gl.getUniformLocation(program, name);
