@@ -120,6 +120,14 @@ describe('property registry', () => {
           for (const axis of ['x', 'y', 'z', 'w'] as const) {
             expect(q[axis], label).toBeCloseTo(expected[axis], 12);
           }
+        } else if (property.name === 'light') {
+          // A light is a direction: it is stored normalized.
+          const v = value as { x: number; y: number; z: number };
+          const length = Math.hypot(v.x, v.y, v.z);
+          const light = read(property, node) as typeof v;
+          for (const axis of ['x', 'y', 'z'] as const) {
+            expect(light[axis], label).toBeCloseTo(v[axis] / length, 12);
+          }
         } else {
           expect(read(property, node), label).toEqual(value);
         }

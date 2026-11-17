@@ -11,13 +11,20 @@ export interface ShapeStyleValues {
   backfaceVisible: boolean;
   /** Back face color; `null` means the same as the front. */
   backfaceColor: string | null;
+  /**
+   * Color of the part turned away from the light (toon shading, see `tone.ts`); `null` means no
+   * shadow. Spheres and capsules shade per point, flat faces by their normal.
+   */
+  shadowColor: string | null;
+  /** Color of the part facing the light most (a toon highlight); `null` means no highlight. */
+  highlightColor: string | null;
 }
 
 /**
- * Shape style as a single object: this makes it easier to save into a document and later
- * to replace color with a material. Every change bumps the shape's `appearanceVersion`.
- * Back face fields only make sense for shapes with a path; screen surfaces
- * do not use them (the style split comes together with materials).
+ * Shape style as a single object, the shape's material: base color, shadow and highlight colors
+ * (toon shading by the camera's light) and the back face color. Every change bumps the shape's
+ * `appearanceVersion`. Back face fields only make sense for shapes with a path; screen surfaces
+ * do not use them.
  */
 export class ShapeStyle implements ShapeStyleValues {
   static readonly params = {
@@ -26,6 +33,8 @@ export class ShapeStyle implements ShapeStyleValues {
     color: { kind: 'color', default: '#333' },
     backfaceVisible: { kind: 'boolean', default: true },
     backfaceColor: { kind: 'optionalColor', default: null },
+    shadowColor: { kind: 'optionalColor', default: null },
+    highlightColor: { kind: 'optionalColor', default: null },
   } as const satisfies Record<keyof ShapeStyleValues, StyleParamSpec>;
 
   #stroke: number;
@@ -33,6 +42,8 @@ export class ShapeStyle implements ShapeStyleValues {
   #color: string;
   #backfaceVisible: boolean;
   #backfaceColor: string | null;
+  #shadowColor: string | null;
+  #highlightColor: string | null;
   readonly #onChange: () => void;
 
   constructor(onChange: () => void, values: Partial<ShapeStyleValues> = {}) {
@@ -43,6 +54,13 @@ export class ShapeStyle implements ShapeStyleValues {
     this.#color = values.color ?? p.color.default;
     this.#backfaceVisible = values.backfaceVisible ?? p.backfaceVisible.default;
     this.#backfaceColor = values.backfaceColor ?? p.backfaceColor.default;
+    this.#shadowColor = values.shadowColor ?? p.shadowColor.default;
+    this.#highlightColor = values.highlightColor ?? p.highlightColor.default;
+  }
+
+  /** Whether the style shades: it has a shadow or a highlight color. */
+  get toned(): boolean {
+    return this.#shadowColor !== null || this.#highlightColor !== null;
   }
 
   get stroke(): number {
@@ -91,6 +109,26 @@ export class ShapeStyle implements ShapeStyleValues {
   set backfaceColor(value: string | null) {
     if (value !== this.#backfaceColor) {
       this.#backfaceColor = value;
+      this.#onChange();
+    }
+  }
+
+  get shadowColor(): string | null {
+    return this.#shadowColor;
+  }
+  set shadowColor(value: string | null) {
+    if (value !== this.#shadowColor) {
+      this.#shadowColor = value;
+      this.#onChange();
+    }
+  }
+
+  get highlightColor(): string | null {
+    return this.#highlightColor;
+  }
+  set highlightColor(value: string | null) {
+    if (value !== this.#highlightColor) {
+      this.#highlightColor = value;
       this.#onChange();
     }
   }

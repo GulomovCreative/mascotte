@@ -178,6 +178,16 @@ Without shading mascots look flat; with shading they gain volume. Shading stays 
 - An outline around the silhouette as a style option.
 - A simple shadow under the mascot (blob shadow) as a separate layer.
 
+**Toon shading** (#32):
+- **Material.** A shape's style is its material: `color`, `shadowColor`, `highlightColor` and `backfaceColor`. Shadow and highlight are `null` by default, and such a shape is drawn flat, as before; in a document they take palette roles like any color (`"style.shadowColor": { "color": "shade" }`).
+- **Light.** The camera's `light` is the direction toward the light in camera space (x right, y down, z toward the viewer), normalized, from the upper left in front by default. It stays with the view, so a mascot that turns shows its shadow side; it is a camera property, saved in the document and animatable.
+- **Tones.** A point takes one of three colors by n·l, the cosine between its normal and the light (`render/tone.ts`): the shadow where n·l < 0, the highlight where n·l > 0.9 (a spot about 26° across), the base between. Both backends use these thresholds.
+- **WebGL** shades spheres, points, capsules and lone strokes (tubes) per pixel, from the exact normal; the steps are smoothed over about a pixel.
+- **Canvas 2D** outlines the tones: on a sphere exactly (the terminator is a great circle seen as an ellipse, the highlight a small circle seen as one); on a capsule, and a lone stroke of one segment, as bands along the axis, a band reaching a side drawn as the whole capsule shifted across the axis and clipped to it. Approximations: the tilt of a capsule's axis toward the viewer and light along the axis are ignored, and strokes along several segments or curves are not shaded.
+- **Flat faces** (a filled path, box faces, caps) take one tone by their normal, their edge stroke too; a face seen from the back keeps its back color.
+- **Not shaded yet:** the hemisphere dome and the cylinder and cone sides.
+- **The reference mascots** have shadow colors from a `shade` role (Gloop, Miso) or their own (Pip's body, belly and wings), and the `engine-toon` scene checks the tones in both backends.
+
 ### 5.9. Animation
 
 **Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry. `propertiesOf(node or class)` lists inherited properties first; `findProperty` looks one up by name (`position`, `style.color`, `width`). Numeric shape parameters come from the schema the node actually uses (its class's `params`) and style fields from `ShapeStyle.params`, with defaults taken from the class (`defaultStyle`, `defaultClosed`). Values are read and written without allocations (vectors and quaternions are read into an `out` object), and writes go through the node's own setters, so they are validated and mark the scene as changed. Structural settings (`sortMode`, `layer`, camera `projection`) are listed but not animatable. Custom node types add theirs with `registerProperties`; a subclass registering an inherited name replaces it in place. Enum values come from `SORT_MODES` and `PROJECTIONS`, and the setters reject unknown values. Per-face settings of a box (`setFace`) are not in the registry yet.
@@ -421,7 +431,7 @@ Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/mile
 
 ### Stage 4. Format and player
 
-Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
+Status: **done** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/5)
 
 - [x] Document schema, validation, versions and migrations ([#26](https://github.com/GulomovCreative/mascotte/issues/26))
 - [x] Player package ([#27](https://github.com/GulomovCreative/mascotte/issues/27))
@@ -434,9 +444,9 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 
 ### Stage 5. Visual style
 
-Status: **not started** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
+Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascotte/milestone/6)
 
-- [ ] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
+- [x] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
 - [ ] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
 - [ ] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 

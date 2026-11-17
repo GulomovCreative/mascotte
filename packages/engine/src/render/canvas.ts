@@ -1,7 +1,10 @@
+import type { Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
 import type { Scene } from '../scene/scene.ts';
+import type { SurfaceOutline } from '../shapes/surface.ts';
 import { DisplayList, type DisplayListOptions } from './display-list.ts';
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
+import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from './tone.ts';
 
 /**
  * 2D context methods used by drawing. The browser
@@ -14,6 +17,7 @@ export type CanvasTarget = Pick<
   | 'lineTo'
   | 'bezierCurveTo'
   | 'arc'
+  | 'ellipse'
   | 'closePath'
   | 'stroke'
   | 'fill'
@@ -90,6 +94,20 @@ export class CanvasRenderer {
         alpha = item.opacity;
         ctx.globalAlpha = alpha;
       }
+      if (item.shade !== 'none' && (item.shadowColor !== null || item.highlightColor !== null)) {
+        // Shaded: the brush changes several times, the state cache starts over.
+        if (item.shade === 'sphere') shadeSphere(ctx, item, camera.light);
+        else shadeCapsule(ctx, item, camera.light);
+        lineCap = '';
+        lineWidth = Number.NaN;
+        strokeStyle = '';
+        fillStyle = '';
+        if (clipped) {
+          ctx.restore();
+          alpha = Number.NaN;
+        }
+        continue;
+      }
       trace(ctx, item.path);
       if (item.hasStroke) {
         if (item.lineCap !== lineCap) {
@@ -141,36 +159,177 @@ function checkViewport(viewport: Viewport): number {
   return ratio;
 }
 
-/** Replays a screen path in the context. */
-function trace(ctx: CanvasTarget, path: ScreenPath): void {
+/** Draws the item's own brush: its stroke, then its fill, in `color`. */
+function paint(ctx: CanvasTarget, item: SurfaceOutline, color: string): void {
+  trace(ctx, item.path);
+  if (item.hasStroke) {
+    ctx.lineCap = item.lineCap;
+    ctx.lineWidth = item.lineWidth;
+    ctx.strokeStyle = color;
+    ctx.stroke();
+  }
+  if (item.hasFill) {
+    ctx.fillStyle = color;
+    ctx.fill();
+  }
+}
+
+/**
+ * A shaded sphere: the item in its color, then the shadow and the highlight over its circle,
+ * outlined exactly. The terminator (n·l = 0, `SHADOW_BELOW`) is a great circle, seen as an
+ * ellipse through the ends of the circle's diameter across the light: the shadow is the dark
+ * half of the circle without the ellipse (light in front) or with it (light behind). The
+ * highlight is the spot n·l > `HIGHLIGHT_ABOVE`, a small circle on the sphere seen as an ellipse.
+ * упрощение: блик считается целиком видимым; при свете почти сбоку (light.z мал) его задняя часть
+ * рисуется зря; вернуться, если такой свет понадобится.
+ */
+function shadeSphere(ctx: CanvasTarget, item: SurfaceOutline, light: Readonly<Vec3>): void {
+  paint(ctx, item, item.color);
+  const x = item.shadeX;
+  const y = item.shadeY;
+  const r = item.shadeRadius;
+  const across = Math.hypot(light.x, light.y);
+  // The light's direction on screen (any, if it shines along the view).
+  const theta = across > 1e-9 ? Math.atan2(light.y, light.x) : 0;
+  if (item.shadowColor !== null && SHADOW_BELOW === 0) {
+    ctx.beginPath();
+    if (across > 1e-9) {
+      ctx.arc(x, y, r, theta + Math.PI / 2, theta + (3 * Math.PI) / 2);
+      const minor = r * Math.abs(light.z);
+      if (light.z >= 0) ctx.ellipse(x, y, minor, r, theta, (3 * Math.PI) / 2, Math.PI / 2, true);
+      else ctx.ellipse(x, y, minor, r, theta, -Math.PI / 2, Math.PI / 2);
+    } else if (light.z < 0) ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = item.shadowColor;
+    ctx.fill();
+  }
+  if (item.highlightColor !== null && light.z > 0) {
+    const h = HIGHLIGHT_ABOVE;
+    const spot = r * Math.sqrt(1 - h * h);
+    ctx.beginPath();
+    ctx.ellipse(
+      x + r * h * light.x,
+      y + r * h * light.y,
+      spot * light.z,
+      spot,
+      theta,
+      0,
+      Math.PI * 2,
+    );
+    ctx.fillStyle = item.highlightColor;
+    ctx.fill();
+  }
+}
+
+/**
+ * A shaded capsule (or a part of a cut one): its stroke in the shadow color, then the lit part
+ * and the highlight over it. Across a tube the normal turns by an angle α from the view,
+ * n·l = k·cos(α − β), so each tone is a band of α, between two lines along the axis. A band
+ * that reaches the capsule's side is drawn as the whole capsule shifted across the axis and
+ * clipped to it, so its ends round off like a lit sphere's; a band inside is a narrower stroke.
+ * упрощение: полосы считаются как у трубки в плоскости экрана: наклон оси к зрителю и свет вдоль
+ * оси (на торцах) не учитываются; WebGL считает точно.
+ */
+function shadeCapsule(ctx: CanvasTarget, item: SurfaceOutline, light: Readonly<Vec3>): void {
+  paint(ctx, item, item.shadowColor ?? item.color);
+  const ax = item.shadeX2 - item.shadeX;
+  const ay = item.shadeY2 - item.shadeY;
+  const length = Math.hypot(ax, ay);
+  if (!(length > 0)) return;
+  // Across the axis on screen, and the light's part in the plane across the axis.
+  const wx = -ay / length;
+  const wy = ax / length;
+  const lw = light.x * wx + light.y * wy;
+  const k = Math.hypot(lw, light.z);
+  const beta = Math.atan2(lw, light.z);
+  const r = item.shadeRadius;
+  const data = item.path.data;
+  const x0 = data[0] ?? 0;
+  const y0 = data[1] ?? 0;
+  const x1 = data[2] ?? 0;
+  const y1 = data[3] ?? 0;
+  const angle = Math.atan2(y1 - y0, x1 - x0);
+  ctx.save();
+  // The item's own capsule: the whole one, or its part between the cuts.
+  ctx.beginPath();
+  ctx.arc(x1, y1, r, angle - Math.PI / 2, angle + Math.PI / 2);
+  ctx.arc(x0, y0, r, angle + Math.PI / 2, angle + (3 * Math.PI) / 2);
+  ctx.closePath();
+  ctx.clip();
+  ctx.lineCap = item.lineCap;
+  if (item.shadowColor !== null && k > SHADOW_BELOW) {
+    const half = Math.acos(Math.min(1, SHADOW_BELOW / k));
+    band(ctx, item, wx, wy, beta, half, item.color);
+  }
+  if (item.highlightColor !== null && k > HIGHLIGHT_ABOVE) {
+    band(ctx, item, wx, wy, beta, Math.acos(HIGHLIGHT_ABOVE / k), item.highlightColor);
+  }
+  ctx.restore();
+}
+
+/**
+ * One tone of a shaded capsule: the band of normals within `half` of `beta` (see `shadeCapsule`),
+ * across the axis `(wx, wy)`.
+ */
+function band(
+  ctx: CanvasTarget,
+  item: SurfaceOutline,
+  wx: number,
+  wy: number,
+  beta: number,
+  half: number,
+  color: string,
+): void {
+  const r = item.shadeRadius;
+  const lo = Math.sin(Math.max(-Math.PI / 2, beta - half));
+  const hi = Math.sin(Math.min(Math.PI / 2, beta + half));
+  if (!(hi > lo)) return;
+  let shift: number;
+  let width: number;
+  if (hi >= 1 - 1e-9 || lo <= -1 + 1e-9) {
+    // Reaching a side: the whole capsule, shifted so its other side is at the band's edge.
+    width = 2 * r;
+    shift = hi >= 1 - 1e-9 ? r * (lo + 1) : r * (hi - 1);
+  } else {
+    width = r * (hi - lo);
+    shift = (r * (lo + hi)) / 2;
+  }
+  trace(ctx, item.path, wx * shift, wy * shift);
+  ctx.lineWidth = width;
+  ctx.strokeStyle = color;
+  ctx.stroke();
+}
+
+/** Replays a screen path in the context, shifted by (`dx`, `dy`). */
+function trace(ctx: CanvasTarget, path: ScreenPath, dx = 0, dy = 0): void {
   const { ops, data, opCount } = path;
   ctx.beginPath();
   let i = 0;
   for (let op = 0; op < opCount; op++) {
     switch (ops[op]) {
       case ScreenOp.move:
-        ctx.moveTo(data[i] ?? 0, data[i + 1] ?? 0);
+        ctx.moveTo((data[i] ?? 0) + dx, (data[i + 1] ?? 0) + dy);
         i += 2;
         break;
       case ScreenOp.line:
-        ctx.lineTo(data[i] ?? 0, data[i + 1] ?? 0);
+        ctx.lineTo((data[i] ?? 0) + dx, (data[i + 1] ?? 0) + dy);
         i += 2;
         break;
       case ScreenOp.cubic:
         ctx.bezierCurveTo(
-          data[i] ?? 0,
-          data[i + 1] ?? 0,
-          data[i + 2] ?? 0,
-          data[i + 3] ?? 0,
-          data[i + 4] ?? 0,
-          data[i + 5] ?? 0,
+          (data[i] ?? 0) + dx,
+          (data[i + 1] ?? 0) + dy,
+          (data[i + 2] ?? 0) + dx,
+          (data[i + 3] ?? 0) + dy,
+          (data[i + 4] ?? 0) + dx,
+          (data[i + 5] ?? 0) + dy,
         );
         i += 6;
         break;
       case ScreenOp.arc:
         ctx.arc(
-          data[i] ?? 0,
-          data[i + 1] ?? 0,
+          (data[i] ?? 0) + dx,
+          (data[i + 1] ?? 0) + dy,
           data[i + 2] ?? 0,
           data[i + 3] ?? 0,
           data[i + 4] ?? 0,

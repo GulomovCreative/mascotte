@@ -48,11 +48,29 @@ export class SurfaceOutline {
   clipY = 0;
   clipRadius = 0;
 
-  /** Resets occlusion and clipping data before collection. */
+  /**
+   * Toon shading (see `render/tone.ts`) of a `sphere`, the circle (`shadeX`, `shadeY`) of radius
+   * `shadeRadius`, or a `capsule`, the segment (`shadeX`, `shadeY`)–(`shadeX2`, `shadeY2`) of
+   * that radius, in screen space: the backend draws the shadow and highlight over the item with
+   * `shadowColor` and `highlightColor` (`null` for none). Kept on the parts of a cut capsule.
+   */
+  shade: 'none' | 'sphere' | 'capsule' = 'none';
+  shadeX = 0;
+  shadeY = 0;
+  shadeX2 = 0;
+  shadeY2 = 0;
+  shadeRadius = 0;
+  shadowColor: string | null = null;
+  highlightColor: string | null = null;
+
+  /** Resets occlusion, clipping and shading data before collection. */
   resetOcclusion(): void {
     this.splittable = false;
     this.occluder = 'none';
     this.clip = 'none';
+    this.shade = 'none';
+    this.shadowColor = null;
+    this.highlightColor = null;
   }
 
   /** Records a sphere occluder: center and radius in pixels, center depth, scale. */
@@ -116,6 +134,8 @@ export abstract class Surface<S extends ParamSchema = ParamSchema> extends Style
     out.color = style.color;
     out.lineWidth = lineWidth;
     out.lineCap = 'round';
+    out.shadowColor = style.shadowColor;
+    out.highlightColor = style.highlightColor;
   }
 }
 

@@ -112,6 +112,7 @@ export {
 export { type Hit, HitTester, type HitViewport } from './render/hit-test.ts';
 export { type Cutter, cutValue, type SplitTarget, splitPath } from './render/occlusion.ts';
 export { ScreenOp, ScreenPath } from './render/screen-path.ts';
+export { faceColor, HIGHLIGHT_ABOVE, SHADOW_BELOW } from './render/tone.ts';
 export {
   type AimConstraint,
   type AimSpec,
@@ -134,6 +135,7 @@ export {
   Camera,
   type CameraOptions,
   createProjectedPoint,
+  DEFAULT_LIGHT,
   PROJECTIONS,
   type ProjectedPoint,
   type Projection,

@@ -72,6 +72,9 @@ describe('hit test matches the WebGL frame', () => {
         const css = `rgb(${r}, ${g}, ${b})`;
         drawable.style.color = css;
         drawable.style.backfaceColor = null;
+        // One color per shape: no toon tones.
+        drawable.style.shadowColor = null;
+        drawable.style.highlightColor = null;
         colors.set(drawable, [r, g, b]);
       }
 

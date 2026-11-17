@@ -56,6 +56,10 @@ const radius = 52;
 const yellow = '#ffd54a';
 const belly = '#fff0b3';
 const wingColor = '#f7c232';
+// The toon shadow of each (the side turned from the camera's light).
+const yellowShade = '#f2b833';
+const bellyShade = '#f5dc8c';
+const wingShade = '#e0a823';
 const orange = '#ff9a1f';
 const dark = '#3a2410';
 // The wings face out to the sides and half forward.
@@ -107,7 +111,7 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
   const head = new Node({ id: 'head', bone: true, position: { x: 0, y: -radius, z: 0 } });
   const sphere = new Sphere({
     diameter: radius * 2,
-    style: { color: yellow, stroke: 0 },
+    style: { color: yellow, shadowColor: yellowShade, stroke: 0 },
   });
   /*
    * The belly: a smaller sphere set forward and down inside the body, so only a shallow cap of
@@ -122,7 +126,7 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
       id: 'belly',
       diameter: bellyRadius * 2,
       position: bellyCenter,
-      style: { color: belly, stroke: 0 },
+      style: { color: belly, shadowColor: bellyShade, stroke: 0 },
     }),
   );
   for (const side of [-1, 1]) {
@@ -139,7 +143,13 @@ function build(): { root: Node; camera: Camera; rig: Rig } {
         height: 28,
         position: { x: side * 2, y: 15, z: 0 },
         rotation: euler.create(0, side * wingYaw, 0),
-        style: { color: wingColor, stroke: 10, fill: true, backfaceVisible: true },
+        style: {
+          color: wingColor,
+          shadowColor: wingShade,
+          stroke: 10,
+          fill: true,
+          backfaceVisible: true,
+        },
       }),
     );
     body.add(wing);
