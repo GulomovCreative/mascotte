@@ -1,0 +1,176 @@
+{
+  "format": "mascotte",
+  "version": 1,
+  "meta": {
+    "name": "Gloop",
+    "description": "A round slime: a blob that breathes, bobs and hops when poked."
+  },
+  "archetype": "blob",
+  "params": {
+    "eyeSize": { "default": 18, "min": 10, "max": 28, "description": "The eyes' diameter." }
+  },
+  "palettes": {
+    "mint": { "body": "#7fe0b4", "shine": "#f4fffa", "cheek": "#ff9fb1", "ink": "#1d3a30" },
+    "berry": { "body": "#c3a2ff", "shine": "#faf6ff", "cheek": "#ff8fc2", "ink": "#2c1b4a" }
+  },
+  "view": { "width": 240, "height": 240, "background": "#fff4e6" },
+  "camera": { "props": { "zoom": 1.4 } },
+  "root": {
+    "type": "Node",
+    "id": "gloop",
+    "props": {
+      "position": { "x": 0, "y": 46, "z": 0 },
+      "rotation": { "x": -0.049418, "y": 0.149251, "z": -0.007469, "w": 0.987535 }
+    },
+    "children": [
+      {
+        "type": "Node",
+        "id": "body",
+        "children": [
+          {
+            "type": "Sphere",
+            "id": "blob",
+            "props": {
+              "diameter": 84,
+              "position": { "x": 0, "y": -42, "z": 0 },
+              "style.color": { "color": "body" },
+              "style.stroke": 0
+            }
+          },
+          {
+            "type": "Sphere",
+            "id": "drop",
+            "props": {
+              "diameter": 16,
+              "position": { "x": 3, "y": -86, "z": -2 },
+              "style.color": { "color": "body" },
+              "style.stroke": 0
+            }
+          },
+          {
+            "type": "Sphere",
+            "id": "shine",
+            "props": {
+              "diameter": 13,
+              "position": { "x": -20, "y": -66, "z": 27 },
+              "style.color": { "color": "shine" },
+              "style.stroke": 0
+            }
+          },
+          {
+            "type": "Node",
+            "id": "cheeks",
+            "children": [
+              {
+                "type": "Sphere",
+                "props": {
+                  "diameter": 11,
+                  "position": { "x": -27, "y": -36, "z": 31 },
+                  "style.color": { "color": "cheek" },
+                  "style.stroke": 0
+                }
+              },
+              {
+                "type": "Sphere",
+                "props": {
+                  "diameter": 11,
+                  "position": { "x": 27, "y": -36, "z": 31 },
+                  "style.color": { "color": "cheek" },
+                  "style.stroke": 0
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "eyes",
+            "props": { "position": { "x": 0, "y": -48, "z": 0 } },
+            "children": [
+              {
+                "prefab": "eye",
+                "id": "eye-left",
+                "params": { "size": { "param": "eyeSize" } },
+                "props": { "position": { "x": -14, "y": 0, "z": 36 } }
+              },
+              {
+                "prefab": "eye",
+                "id": "eye-right",
+                "params": { "size": { "param": "eyeSize" } },
+                "props": { "position": { "x": 14, "y": 0, "z": 36 } }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "lids",
+            "props": { "position": { "x": 0, "y": -48, "z": 0 }, "visible": false },
+            "children": [
+              {
+                "type": "PathShape",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 3,
+                  "style.color": { "color": "ink" }
+                },
+                "path": [
+                  { "type": "move", "point": { "x": -22, "y": 0, "z": 36 } },
+                  { "type": "line", "point": { "x": -14, "y": 2, "z": 40 } },
+                  { "type": "line", "point": { "x": -6, "y": 0, "z": 40 } }
+                ]
+              },
+              {
+                "type": "PathShape",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 3,
+                  "style.color": { "color": "ink" }
+                },
+                "path": [
+                  { "type": "move", "point": { "x": 6, "y": 0, "z": 40 } },
+                  { "type": "line", "point": { "x": 14, "y": 2, "z": 40 } },
+                  { "type": "line", "point": { "x": 22, "y": 0, "z": 36 } }
+                ]
+              }
+            ]
+          },
+          {
+            "prefab": "mouth",
+            "id": "mouth",
+            "params": { "width": 12, "depth": 4, "stroke": 3 },
+            "props": {
+              "position": { "x": 0, "y": -30, "z": 41 },
+              "style.color": { "color": "ink" }
+            }
+          }
+        ]
+      }
+    ]
+  },
+  "rig": {
+    "slots": { "root": "gloop", "body": "body", "eyes": "eyes", "lids": "lids", "mouth": "mouth" }
+  },
+  "motions": {
+    "breathe": { "library": "breathe" },
+    "bob": { "library": "bob" },
+    "hop": { "library": "hop" },
+    "blink": { "library": "blink" }
+  },
+  "layers": [
+    { "name": "breathe", "mode": "additive", "play": "breathe" },
+    { "name": "bob", "mode": "additive", "play": "bob" },
+    { "name": "react", "mode": "additive" },
+    { "name": "blink", "play": "blink" }
+  ],
+  "machines": [
+    {
+      "name": "react",
+      "layer": "react",
+      "inputs": [{ "name": "poke", "type": "trigger" }],
+      "states": [{ "name": "rest" }, { "name": "hop", "motion": "hop" }],
+      "transitions": [
+        { "from": "rest", "to": "hop", "conditions": [{ "input": "poke" }], "duration": 0.05 },
+        { "from": "hop", "to": "rest", "exitTime": 1, "duration": 0.05 }
+      ]
+    }
+  ]
+}

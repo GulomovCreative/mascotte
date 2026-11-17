@@ -13,14 +13,16 @@ import {
   Ticker,
   WebGLRenderer,
 } from '@mascotte/engine';
-import { bindPointer, Player, pauseWhenOffscreen } from '@mascotte/player';
+import { bindPointer, Player, type PlayerOptions, pauseWhenOffscreen } from '@mascotte/player';
 import {
   type AnimatedScene,
   animatedMascot,
   buildBenchmark,
   type EngineScene,
   engineScenes,
+  gloopDocument,
   lookAroundClip,
+  misoDocument,
   pip,
   pipDocument,
   type ReferenceScene,
@@ -644,30 +646,70 @@ function mascotExample(
   };
 }
 
+/** A mascot a `Player` plays from its JSON document, with the pointer options it reads. */
+interface PlayedMascot {
+  readonly id: string;
+  readonly title: string;
+  readonly document: () => unknown;
+  readonly pointer: NonNullable<PlayerOptions['pointer']>;
+  readonly gaze?: string;
+}
+
 /**
- * Pip played the way a page embeds a mascot: its JSON document in a `Player`, which fits it to
- * the canvas, follows the pointer with its gaze, cheers up on hover, startles on a click and
- * turns while dragged. The example's animation switch plays and pauses it.
+ * The reference mascots, each of another archetype, sharing the library's motions. Pip cheers
+ * up on hover and startles on a click; Gloop and Miso hop on a click. Pip and Miso follow the
+ * pointer with their gaze; every one turns while dragged.
  */
-function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
-  return {
-    id: `${backend === 'gl' ? 'webgl' : 'engine'}/${pip.id}`,
+const playedMascots: readonly PlayedMascot[] = [
+  {
+    id: pip.id,
     title: `${pip.title} (from its JSON document)`,
+    document: pipDocument,
+    pointer: { hover: 'hover', click: 'poke' },
+    gaze: 'gaze',
+  },
+  {
+    id: 'mascot-gloop',
+    title: 'Gloop: a slime (blob) that hops on a click',
+    document: () => gloopDocument,
+    pointer: { click: 'poke' },
+  },
+  {
+    id: 'mascot-miso',
+    title: 'Miso: a cat (quadruped) that follows the pointer and hops on a click',
+    document: () => misoDocument,
+    pointer: { click: 'poke' },
+    gaze: 'gaze',
+  },
+];
+
+/**
+ * A mascot played the way a page embeds one: its JSON document in a `Player`, which fits it to
+ * the canvas, drives the pointer inputs and the gaze and turns it while dragged. The example's
+ * animation switch plays and pauses it; buttons under the canvas switch its palettes.
+ */
+function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example {
+  return {
+    id: `${backend === 'gl' ? 'webgl' : 'engine'}/${mascot.id}`,
+    title: mascot.title,
     group: backend === 'gl' ? 'WebGL2' : 'Canvas 2D',
     mount(container, controls) {
+      const json = JSON.stringify(mascot.document());
+      const { width, height } = (JSON.parse(json) as { view: { width: number; height: number } })
+        .view;
       const canvas = document.createElement('canvas');
-      canvas.style.width = `${pip.width * displayScale}px`;
+      canvas.style.width = `${width * displayScale}px`;
       canvas.style.maxWidth = '100%';
-      canvas.style.aspectRatio = `${pip.width} / ${pip.height}`;
+      canvas.style.aspectRatio = `${width} / ${height}`;
       container.append(canvas);
       // An error pauses the player; the example stops with it rather than restarting it.
       let stopped = false;
       let player: Player;
       try {
-        player = new Player(canvas, JSON.stringify(pipDocument()), {
+        player = new Player(canvas, json, {
           renderer: backend === 'gl' ? 'webgl' : 'canvas',
-          pointer: { hover: 'hover', click: 'poke' },
-          gaze: 'gaze',
+          pointer: mascot.pointer,
+          ...(mascot.gaze === undefined ? {} : { gaze: mascot.gaze }),
           turn: { settle: 0.5 },
           onError: (error) => {
             stopped = true;
@@ -677,6 +719,17 @@ function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
       } catch (error) {
         canvas.remove();
         throw error;
+      }
+      const palettes = document.createElement('p');
+      if (player.palettes.length > 1) {
+        for (const name of player.palettes) {
+          const button = document.createElement('button');
+          button.type = 'button';
+          button.textContent = name;
+          button.addEventListener('click', () => player.setPalette(name));
+          palettes.append(button);
+        }
+        container.append(palettes);
       }
       const sync = Ticker.shared.add(() => {
         if (stopped) return;
@@ -692,14 +745,15 @@ function pipPlayerExample(backend: 'gl' | 'canvas'): Example {
         sync.remove();
         player.destroy();
         canvas.remove();
+        palettes.remove();
       };
     },
   };
 }
 
-/** Pip, the showcase mascot, comes first: the page opens on it. */
+/** The reference mascots come first, Pip, the showcase, at the top: the page opens on it. */
 export const examples: Example[] = [
-  pipPlayerExample('gl'),
+  ...playedMascots.map((mascot) => playerExample(mascot, 'gl')),
   ...referenceScenes.map(fromReferenceSceneGL),
   ...engineScenes.map(fromEngineOnlySceneGL),
   clipExampleGL(),
@@ -707,7 +761,7 @@ export const examples: Example[] = [
   benchmarkGL(),
   ...referenceScenes.map(fromEngineScene),
   ...engineScenes.map(fromEngineOnlyScene),
-  pipPlayerExample('canvas'),
+  ...playedMascots.map((mascot) => playerExample(mascot, 'canvas')),
   mascotExample(animatedMascot, 'canvas', moodFollowsHover),
   benchmarkCanvas(),
 ];
