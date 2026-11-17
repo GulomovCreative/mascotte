@@ -123,7 +123,11 @@ export class Camera extends Node {
     const { x, y, z } = light;
     // In place: an animated light allocates nothing.
     normalized(value, light);
-    if (light.x !== x || light.y !== y || light.z !== z) this.markChanged();
+    if (light.x === x && light.y === y && light.z === z) return;
+    // Like the projection, the light reaches the frame from the camera, which may stand outside
+    // the scene: its counter tells renderers the frame changed.
+    this.#projectionVersion++;
+    this.markChanged();
   }
 
   get projection(): Projection {
@@ -159,7 +163,7 @@ export class Camera extends Node {
     }
   }
 
-  /** Projection change counter (`projection`, `zoom`, `distance`). */
+  /** Change counter of what the camera gives the frame: `projection`, `zoom`, `distance`, `light`. */
   get projectionVersion(): number {
     return this.#projectionVersion;
   }

@@ -465,7 +465,10 @@ registerProperties(Camera, [
       return out;
     },
     set(node, value) {
-      node.light = value;
+      // Keys blend coordinate by coordinate, so a light turning to the opposite side passes
+      // through zero, which is no direction: the light stays where it was for that frame.
+      const length = Math.hypot(value.x, value.y, value.z);
+      if (length > 0 && Number.isFinite(length)) node.light = value;
     },
   },
 ]);

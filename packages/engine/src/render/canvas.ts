@@ -94,8 +94,12 @@ export class CanvasRenderer {
         alpha = item.opacity;
         ctx.globalAlpha = alpha;
       }
-      if (item.shade !== 'none' && (item.shadowColor !== null || item.highlightColor !== null)) {
+      if (item.shade !== 'none') {
         // Shaded: the brush changes several times, the state cache starts over.
+        // упрощение: тона рисуются слоями поверх основы, поэтому у полупрозрачной фигуры они
+        // просвечивают друг через друга (WebGL даёт один цвет на пиксель); вернуться, если
+        // тонированные фигуры станут полупрозрачными (затухание маскота целиком).
+
         if (item.shade === 'sphere') shadeSphere(ctx, item, camera.light);
         else shadeCapsule(ctx, item, camera.light);
         lineCap = '';
@@ -191,7 +195,8 @@ function shadeSphere(ctx: CanvasTarget, item: SurfaceOutline, light: Readonly<Ve
   const across = Math.hypot(light.x, light.y);
   // The light's direction on screen (any, if it shines along the view).
   const theta = across > 1e-9 ? Math.atan2(light.y, light.x) : 0;
-  if (item.shadowColor !== null && SHADOW_BELOW === 0) {
+  // The outline assumes the terminator at n·l = 0 (`SHADOW_BELOW`; a test pins it).
+  if (item.shadowColor !== null) {
     ctx.beginPath();
     if (across > 1e-9) {
       ctx.arc(x, y, r, theta + Math.PI / 2, theta + (3 * Math.PI) / 2);

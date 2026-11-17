@@ -213,16 +213,16 @@ describe('palettes', () => {
       camera: { props: { light: { x: 0, y: 0, z: 1 } } },
     });
     const root = shaded.root as { children: { props: Record<string, unknown> }[] };
-    (root.children[0] as { props: Record<string, unknown> }).props['style.shadowColor'] = {
-      color: 'trim',
-    };
+    const props = (root.children[0] as { props: Record<string, unknown> }).props;
+    props['style.shadowColor'] = { color: 'body' };
+    props['style.highlightColor'] = { color: 'trim' };
     const built = buildDocument(readDocument(JSON.stringify(shaded)));
     const ball = new Scene(built.root).getById('ball') as Sphere;
-    expect(ball.style.shadowColor).toBe('#ff9a1f');
+    expect([ball.style.shadowColor, ball.style.highlightColor]).toEqual(['#ffd54a', '#ff9a1f']);
     expect(built.camera.light).toEqual({ x: 0, y: 0, z: 1 });
     built.palette('dark');
-    // Dark names no trim: the base's.
-    expect(ball.style.shadowColor).toBe('#ff9a1f');
+    // Dark names a body and no trim: the base's trim stays.
+    expect([ball.style.shadowColor, ball.style.highlightColor]).toEqual(['#6b5a1e', '#ff9a1f']);
     expect(issues(doc({ camera: { props: { light: { x: 0, y: 0 } } } }))).toHaveLength(1);
   });
 });

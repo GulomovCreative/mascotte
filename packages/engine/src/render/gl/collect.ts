@@ -225,10 +225,6 @@ export class GLCollector {
   #radius = 0;
   #opacity = 1;
   #axis = 1;
-  // The current shape's shadow and highlight colors for spheres and capsules (its base color
-  // where it has none).
-  #shadow = '';
-  #highlight = '';
   readonly #triangles = new IndexBuffer();
 
   collect(scene: Scene, camera: Camera): GLFrame {
@@ -404,20 +400,17 @@ export class GLCollector {
     d[o + 3] = color[3] * this.#opacity;
   }
 
-  /** The current shape's shadow and highlight colors (`#shadow`, `#highlight`) at index `o`. */
-  #writeTones(d: Float32Array, o: number): void {
-    this.#writeColor(d, o, this.#shadow);
-    this.#writeColor(d, o + 4, this.#highlight);
+  /**
+   * The shadow and highlight colors of `tones` at index `o`: the base `css` where it has none, or
+   * for `null` (one flat color).
+   */
+  #writeTones(d: Float32Array, o: number, tones: ShapeStyle | null, css: string): void {
+    this.#writeColor(d, o, tones?.shadowColor ?? css);
+    this.#writeColor(d, o + 4, tones?.highlightColor ?? css);
   }
 
-  /** Sets `#shadow` and `#highlight` from `style`, or both to `css` for one flat tone. */
-  #tones(style: ShapeStyle | null, css: string): void {
-    this.#shadow = style?.shadowColor ?? css;
-    this.#highlight = style?.highlightColor ?? css;
-  }
-
-  /** A sphere centered at `scratch` with radius `#radius`, shaded by `#shadow`, `#highlight`. */
-  #pushSphere(bucket: Bucket, css: string): void {
+  /** A sphere centered at `scratch` with radius `#radius`, shaded by `tones`. */
+  #pushSphere(bucket: Bucket, css: string, tones: ShapeStyle | null): void {
     const out = bucket.data.sphere;
     const o = out.reserve(STRIDE.sphere);
     const d = out.data;
@@ -426,20 +419,28 @@ export class GLCollector {
     d[o + 1] = scratch.y;
     d[o + 2] = scratch.z;
     d[o + 3] = r;
-    this.#writeTones(d, o + 4);
+    this.#writeTones(d, o + 4, tones, css);
     this.#writeColor(d, o + 12, css);
     this.#extent(scratch.z, r);
   }
 
   /**
    * A segment along the node's local z axis: from `from` to `to` (in node units), radius
-   * `#radius`. For capsules (`toned`: with `#shadow` and `#highlight`) and cylinder sides.
+   * `#radius`. A capsule shaded by `tones`, or a cylinder side.
    */
-  #pushAxisSegment(out: FloatBuffer, from: number, to: number, css: string, toned: boolean): void {
+  #pushAxisSegment(
+    bucket: Bucket,
+    kind: 'capsule' | 'cylinder',
+    from: number,
+    to: number,
+    css: string,
+    tones: ShapeStyle | null,
+  ): void {
+    const out = bucket.data[kind];
     const m = nodeView;
     const s = this.#s;
     const r = this.#radius;
-    const o = out.reserve(toned ? STRIDE.capsule : STRIDE.cylinder);
+    const o = out.reserve(STRIDE[kind]);
     const d = out.data;
     const tx = m[9] as number;
     const ty = m[10] as number;
@@ -456,8 +457,8 @@ export class GLCollector {
     d[o + 4] = (ty + zy * to) * s;
     d[o + 5] = bz;
     d[o + 6] = r;
-    if (toned) {
-      this.#writeTones(d, o + 7);
+    if (kind === 'capsule') {
+      this.#writeTones(d, o + 7, tones, css);
       this.#writeColor(d, o + 15, css);
     } else this.#writeColor(d, o + 7, css);
     this.#extent(az, r);
@@ -477,7 +478,8 @@ export class GLCollector {
     const facingBack = frontZ < originZ;
     if (facingBack && !style.backfaceVisible) return;
     let css = facingBack ? (style.backfaceColor ?? style.color) : style.color;
-    if (style.toned && style.fill && !facingBack) {
+    const point = shape.geometry.opCount === 1;
+    if (style.toned && style.fill && !facingBack && !point) {
       // A filled face takes one tone by its normal (`front` turned into camera space), its edge
       // stroke too.
       css = faceColor(
@@ -489,9 +491,9 @@ export class GLCollector {
         (this.#camera as Camera).light,
       );
     }
-    // A stroke alone is a tube, shaded per pixel; a face, its back side and a point on it are
-    // one color.
-    this.#tones(style.fill || facingBack ? null : style, css);
+    // A point is a sphere and a stroke alone a tube, shaded per pixel from either side (a back
+    // color only changes their base); a filled face and its edge are one color.
+    const tones = style.fill && !point ? null : style;
 
     // Caps and faces of filled solids are full-size solid planes
     // including the stroke. A stroke tube along the edge would almost coincide in depth with the
@@ -530,9 +532,7 @@ export class GLCollector {
     if (opCount === 1) {
       if (this.#radius <= 0) return;
       project(points, 0);
-      // A point is a sphere: shaded as one unless it faces back.
-      this.#tones(facingBack ? null : style, css);
-      this.#pushSphere(bucket, css);
+      this.#pushSphere(bucket, css, tones);
       return;
     }
 
@@ -588,7 +588,7 @@ export class GLCollector {
         index += 3;
       } else {
         if (code === PathOp.move && line.length > 0) {
-          this.#contour(bucket, css, closed, style.fill && !fillDone);
+          this.#contour(bucket, css, tones, closed, style.fill && !fillDone);
           fillDone ||= style.fill;
         }
         const p = project(points, index);
@@ -600,7 +600,7 @@ export class GLCollector {
       }
     }
     if (line.length > 0) {
-      this.#contour(bucket, css, closed, style.fill && !fillDone);
+      this.#contour(bucket, css, tones, closed, style.fill && !fillDone);
     }
   }
 
@@ -609,7 +609,13 @@ export class GLCollector {
    * Only the first contour is filled, as in Canvas with one contour. The polyline is empty
    * after the call.
    */
-  #contour(bucket: Bucket, css: string, closed: boolean, fill: boolean): void {
+  #contour(
+    bucket: Bucket,
+    css: string,
+    tones: ShapeStyle | null,
+    closed: boolean,
+    fill: boolean,
+  ): void {
     const line = this.#line;
     const radius = this.#radius;
     if (closed && line.length > 2) {
@@ -633,7 +639,7 @@ export class GLCollector {
         d[o + 4] = ys[i] as number;
         d[o + 5] = bz;
         d[o + 6] = radius;
-        this.#writeTones(d, o + 7);
+        this.#writeTones(d, o + 7, tones, css);
         this.#writeColor(d, o + 15, css);
         o += STRIDE.capsule;
         if (az - radius < this.#zMin) this.#zMin = az - radius;
@@ -752,16 +758,14 @@ export class GLCollector {
     scratch.x = (m[9] as number) * s;
     scratch.y = (m[10] as number) * s;
     scratch.z = (m[11] as number) * s;
-    this.#tones(sphere.style, sphere.style.color);
-    this.#pushSphere(bucket, sphere.style.color);
+    this.#pushSphere(bucket, sphere.style.color, sphere.style);
   }
 
   #capsule(capsule: Capsule, bucket: Bucket): void {
     this.#axisLength(0);
     const half = capsule.length / 2;
     this.#radius = ((capsule.diameter + capsule.style.stroke) / 2) * this.#axis * this.#s;
-    this.#tones(capsule.style, capsule.style.color);
-    this.#pushAxisSegment(bucket.data.capsule, -half, half, capsule.style.color, true);
+    this.#pushAxisSegment(bucket, 'capsule', -half, half, capsule.style.color, capsule.style);
   }
 
   // упрощение: купол полусферы, бок цилиндра и бок конуса не тонируются (тон по нормали есть
@@ -792,7 +796,7 @@ export class GLCollector {
     this.#axisLength(6);
     const half = body.length / 2;
     this.#radius = ((body.diameter + body.style.stroke) / 2) * this.#axis * this.#s;
-    this.#pushAxisSegment(bucket.data.cylinder, half, -half, body.style.color, false);
+    this.#pushAxisSegment(bucket, 'cylinder', half, -half, body.style.color, null);
   }
 
   #coneSurface(surface: ConeSurface, bucket: Bucket): void {

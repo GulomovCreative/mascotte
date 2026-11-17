@@ -2,6 +2,7 @@ import type { Vec3 } from '@mascotte/math';
 import { ScreenPath } from '../render/screen-path.ts';
 import type { Camera } from '../scene/camera.ts';
 import type { ParamSchema } from './params.ts';
+import type { ShapeStyleValues } from './style.ts';
 import { Styled, type StyledOptions } from './styled.ts';
 
 /**
@@ -49,10 +50,11 @@ export class SurfaceOutline {
   clipRadius = 0;
 
   /**
-   * Toon shading (see `render/tone.ts`) of a `sphere`, the circle (`shadeX`, `shadeY`) of radius
-   * `shadeRadius`, or a `capsule`, the segment (`shadeX`, `shadeY`)–(`shadeX2`, `shadeY2`) of
-   * that radius, in screen space: the backend draws the shadow and highlight over the item with
-   * `shadowColor` and `highlightColor` (`null` for none). Kept on the parts of a cut capsule.
+   * Toon shading (see `render/tone.ts`), set only for a toned style: a `sphere`, the circle
+   * (`shadeX`, `shadeY`) of radius `shadeRadius`, or a `capsule`, the segment (`shadeX`,
+   * `shadeY`)–(`shadeX2`, `shadeY2`) of that radius, in screen space. The backend draws the
+   * item's tones with `shadowColor` and `highlightColor` (`null` for none) besides its color.
+   * Kept on the parts of a cut capsule.
    */
   shade: 'none' | 'sphere' | 'capsule' = 'none';
   shadeX = 0;
@@ -71,6 +73,33 @@ export class SurfaceOutline {
     this.shade = 'none';
     this.shadowColor = null;
     this.highlightColor = null;
+  }
+
+  /** Records the shading of a sphere (center and radius in pixels) if `style` is toned. */
+  setSphereShade(style: Readonly<ShapeStyleValues>, x: number, y: number, radius: number): void {
+    if (style.shadowColor === null && style.highlightColor === null) return;
+    this.shade = 'sphere';
+    this.shadeX = x;
+    this.shadeY = y;
+    this.shadeRadius = radius;
+    this.shadowColor = style.shadowColor;
+    this.highlightColor = style.highlightColor;
+  }
+
+  /** Records the shading of a capsule (axis ends and radius in pixels) if `style` is toned. */
+  setCapsuleShade(
+    style: Readonly<ShapeStyleValues>,
+    x: number,
+    y: number,
+    x2: number,
+    y2: number,
+    radius: number,
+  ): void {
+    if (style.shadowColor === null && style.highlightColor === null) return;
+    this.setSphereShade(style, x, y, radius);
+    this.shade = 'capsule';
+    this.shadeX2 = x2;
+    this.shadeY2 = y2;
   }
 
   /** Records a sphere occluder: center and radius in pixels, center depth, scale. */
@@ -134,8 +163,6 @@ export abstract class Surface<S extends ParamSchema = ParamSchema> extends Style
     out.color = style.color;
     out.lineWidth = lineWidth;
     out.lineCap = 'round';
-    out.shadowColor = style.shadowColor;
-    out.highlightColor = style.highlightColor;
   }
 }
 

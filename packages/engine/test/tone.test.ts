@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  Animator,
   Box,
   Camera,
   CanvasRenderer,
@@ -8,15 +9,25 @@ import {
   DEFAULT_LIGHT,
   DisplayList,
   faceColor,
+  findProperty,
   GLCollector,
   type Node,
   PathShape,
   Rect,
   Scene,
+  SHADOW_BELOW,
   ShapeStyle,
   Sphere,
   STRIDE,
 } from '../src/index.ts';
+import {
+  capsuleProgram,
+  coneProgram,
+  cylinderProgram,
+  fillProgram,
+  hemisphereProgram,
+  sphereProgram,
+} from '../src/render/gl/shaders.ts';
 
 function sceneWith(...nodes: Node[]): Scene {
   const scene = new Scene();
@@ -154,7 +165,7 @@ describe('toon shading', () => {
       'fillStyle=#000000',
       'fillStyle=#ffffff',
     ]);
-    // The terminator: an ellipse 10 × 0.8 = 8 across the light, 10 along it.
+    // The terminator: an ellipse 10 × 0.8 = 8 along the light, 10 across it.
     expect(calls).toContain('ellipse 0.00 0.00 8.00 10.00 3.14 4.71 1.57 true');
     calls.length = 0;
     const capsule = new Capsule({ length: 20, diameter: 6, style: { ...toned, stroke: 0 } });
@@ -169,5 +180,205 @@ describe('toon shading', () => {
       'strokeStyle=#ffffff',
     ]);
     expect(calls).toContain('clip');
+  });
+
+  it('ties each GL instance layout to its program attributes', () => {
+    const programs = {
+      sphere: sphereProgram,
+      capsule: capsuleProgram,
+      cylinder: cylinderProgram,
+      hemisphere: hemisphereProgram,
+      cone: coneProgram,
+      fill: fillProgram,
+    } as const;
+    for (const [kind, program] of Object.entries(programs)) {
+      const sizes = program.attributes.reduce((sum, [, size]) => sum + size, 0);
+      // The color, four numbers, comes last in every layout.
+      expect(sizes + 4, kind).toBe(STRIDE[kind as keyof typeof programs]);
+    }
+    // Canvas 2D's sphere outline draws the terminator at n·l = 0.
+    expect(SHADOW_BELOW).toBe(0);
+  });
+
+  it('redraws for a new light even with the camera outside the scene', () => {
+    const camera = new Camera();
+    const version = camera.projectionVersion;
+    camera.light = { x: 1, y: 0, z: 1 };
+    expect(camera.projectionVersion).toBeGreaterThan(version);
+    const same = camera.projectionVersion;
+    camera.light = { x: 2, y: 0, z: 2 };
+    expect(camera.projectionVersion).toBe(same);
+  });
+
+  it('keeps the last light when an animation passes through zero', () => {
+    const camera = new Camera({ id: 'eye' });
+    const scene = sceneWith(camera);
+    const animator = new Animator(scene);
+    animator.addLayer({ name: 'light' }).play({
+      duration: 1,
+      loop: 'once',
+      tracks: [
+        {
+          target: 'eye',
+          property: 'light',
+          keys: [
+            { time: 0, value: { x: 1, y: 0, z: 0 } },
+            { time: 1, value: { x: -1, y: 0, z: 0 } },
+          ],
+        },
+      ],
+    });
+    animator.update(0.25);
+    expect(camera.light.x).toBeCloseTo(1, 12);
+    expect(() => animator.update(0.25)).not.toThrow();
+    expect(camera.light.x).toBeCloseTo(1, 12);
+    animator.update(0.25);
+    expect(camera.light.x).toBeCloseTo(-1, 12);
+    const property = findProperty(camera, 'light');
+    expect(() => property?.set(camera, { x: 0, y: 0, z: 0 } as never)).not.toThrow();
+  });
+
+  it('shades points and lone strokes from either side, and stops when the tones go', () => {
+    // A stroke whose front side turns away: a tube looks the same from behind.
+    const camera = new Camera({ light: { x: 0, y: -0.6, z: 0.8 } });
+    const line = new PathShape({
+      path: [
+        { type: 'move', point: { x: -10, y: 0, z: 0 } },
+        { type: 'line', point: { x: 10, y: 0, z: 0 } },
+      ],
+      style: { ...toned, stroke: 4 },
+    });
+    line.setRotationFromEuler({ x: 0, y: Math.PI, z: 0, order: 'XYZ' } as never);
+    expect(tones(sceneWith(line), camera, 'capsule')).toEqual([[black, white, grey]]);
+    const scene = sceneWith(line);
+    const list = new DisplayList();
+    expect(list.build(scene, camera).item(0).shade).toBe('capsule');
+    line.style.shadowColor = null;
+    line.style.highlightColor = null;
+    expect(list.build(scene, camera).item(0).shade).toBe('none');
+    // A stroke seen end-on, and a capsule too, are spheres.
+    const endOn = new PathShape({
+      path: [
+        { type: 'move', point: { x: 0, y: 0, z: -10 } },
+        { type: 'line', point: { x: 0, y: 0, z: 10 } },
+      ],
+      style: { ...toned, stroke: 4 },
+    });
+    const capsule = new Capsule({ length: 10, diameter: 4, style: toned });
+    const ends = new DisplayList().build(sceneWith(endOn, capsule), camera);
+    expect([ends.item(0).shade, ends.item(1).shade]).toEqual(['sphere', 'sphere']);
+  });
+
+  it('keeps the shading on the parts of a cut capsule', () => {
+    const camera = new Camera();
+    const head = new Sphere({ diameter: 40, style: { color: '#808080', stroke: 0 } });
+    // The arm crosses the head's central plane: part of it goes behind the head.
+    const arm = new Capsule({
+      length: 60,
+      diameter: 8,
+      position: { x: 25, y: 0, z: 0 },
+      style: toned,
+    });
+    arm.setRotationFromEuler({ x: 0, y: 1, z: 0, order: 'XYZ' } as never);
+    const list = new DisplayList().build(sceneWith(head, arm), camera);
+    const parts: { shade: string; shadeX: number; x0: number }[] = [];
+    for (let i = 0; i < list.count; i++) {
+      const item = list.item(i);
+      if (item.node === arm) {
+        parts.push({ shade: item.shade, shadeX: item.shadeX, x0: item.path.data[0] ?? 0 });
+      }
+    }
+    expect(parts.length).toBe(2);
+    for (const part of parts) expect(part.shade).toBe('capsule');
+    // Both parts shade by the whole axis, from their own ends.
+    expect(parts[0]?.shadeX).toBe(parts[1]?.shadeX);
+    expect(parts[0]?.x0).not.toBe(parts[1]?.x0);
+  });
+
+  it('balances save and restore around a shaded decal and draws its tones inside the clip', () => {
+    const calls: string[] = [];
+    const ctx = new Proxy(
+      {},
+      {
+        get: (_, key: string) => () => calls.push(key),
+        set: () => true,
+      },
+    ) as CanvasTarget;
+    const head = new Sphere({ diameter: 40, style: { color: '#808080', stroke: 0 } });
+    head.add(
+      new Sphere({
+        diameter: 10,
+        position: { x: 0, y: 0, z: 20 },
+        sortMode: 'attached',
+        style: { ...toned, stroke: 0 },
+      }),
+    );
+    head.add(
+      new Capsule({
+        length: 10,
+        diameter: 4,
+        position: { x: 10, y: 0, z: 20 },
+        rotation: { x: 0, y: 1.2, z: 0, order: 'XYZ' } as never,
+        sortMode: 'attached',
+        style: { ...toned, stroke: 0 },
+      }),
+    );
+    new CanvasRenderer().render(ctx, sceneWith(head), new Camera(), { width: 80, height: 80 });
+    const saves = calls.filter((c) => c === 'save').length;
+    expect(saves).toBeGreaterThan(0);
+    expect(calls.filter((c) => c === 'restore').length).toBe(saves);
+  });
+
+  it('shades a sphere lit along the view: no shadow in front, all shadow from behind', () => {
+    const calls: string[] = [];
+    const ctx = new Proxy(
+      {},
+      {
+        get:
+          (_, key: string) =>
+          (...args: unknown[]) =>
+            calls.push(
+              `${key} ${args.map((a) => (typeof a === 'number' ? a.toFixed(2) : a)).join(' ')}`.trim(),
+            ),
+        set: (_, key: string, value) => {
+          calls.push(`${key}=${value}`);
+          return true;
+        },
+      },
+    ) as CanvasTarget;
+    const sphere = new Sphere({ diameter: 20, style: { ...toned, stroke: 0 } });
+    const render = (z: number) => {
+      calls.length = 0;
+      new CanvasRenderer().render(
+        ctx,
+        sceneWith(sphere),
+        new Camera({ light: { x: 0, y: 0, z } }),
+        {
+          width: 40,
+          height: 40,
+        },
+      );
+      // After the base circle's fill, without the frame's closing reset.
+      return calls.slice(calls.indexOf('fillStyle=#808080') + 2, -1);
+    };
+    // In front: an empty shadow, the spot in the middle (0.9 of the radius toward the viewer).
+    expect(render(1)).toEqual([
+      'beginPath',
+      'closePath',
+      'fillStyle=#000000',
+      'fill',
+      'beginPath',
+      `ellipse 0.00 0.00 ${(10 * Math.sqrt(1 - 0.81)).toFixed(2)} ${(10 * Math.sqrt(1 - 0.81)).toFixed(2)} 0.00 0.00 6.28`,
+      'fillStyle=#ffffff',
+      'fill',
+    ]);
+    // From behind: the whole circle in shadow, no spot.
+    expect(render(-1)).toEqual([
+      'beginPath',
+      'arc 0.00 0.00 10.00 0.00 6.28',
+      'closePath',
+      'fillStyle=#000000',
+      'fill',
+    ]);
   });
 });
