@@ -452,4 +452,51 @@ describe('Player on WebGL2', () => {
       canvas.remove();
     }
   });
+
+  it('exports the frame as PNG drawn by WebGL, as a renderer draws it', async () => {
+    const { Player } = await import('@mascotte/player');
+    const { pipDocument } = await import('../src/index.ts');
+    const { buildDocument, readDocument } = await import('@mascotte/format');
+    const json = JSON.stringify(pipDocument());
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '240px';
+    canvas.style.height = '240px';
+    document.body.append(canvas);
+    const player = new Player(canvas, json, { renderer: 'webgl', autoplay: false });
+    try {
+      const blob = await player.exportFrame({ pixelRatio: 2 });
+      expect(blob.type).toBe('image/png');
+      const image = await createImageBitmap(blob);
+      expect([image.width, image.height]).toEqual([480, 480]);
+      const exported = document.createElement('canvas');
+      exported.width = 480;
+      exported.height = 480;
+      exported.getContext('2d')?.drawImage(image, 0, 0);
+      // The same pose drawn straight by a WebGLRenderer.
+      const doc = readDocument(json);
+      const built = buildDocument(doc);
+      const { Animator } = await import('@mascotte/engine');
+      const scene = new Scene(built.root);
+      const animator = new Animator(scene, { rig: built.rig });
+      built.animate(animator);
+      animator.evaluate();
+      const direct = draw(scene, built.camera, {
+        width: doc.view.width,
+        height: doc.view.height,
+        pixelRatio: 2,
+        ...(doc.view.background ? { background: doc.view.background } : {}),
+      });
+      for (const [x, y] of [
+        [20, 20],
+        [240, 200],
+        [240, 420],
+        [300, 250],
+      ] as const) {
+        expect(pixel(exported, x, y), `${x}, ${y}`).toEqual(pixel(direct, x, y));
+      }
+    } finally {
+      player.destroy();
+      canvas.remove();
+    }
+  });
 });

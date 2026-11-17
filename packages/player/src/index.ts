@@ -1,5 +1,6 @@
 // Embedding the player in a page. See docs/PLAN.md, sections 5.9, 5.11, 7 and stage 4.
 
+export type { FrameOptions, FramesOptions } from './export.ts';
 export {
   bindTickerToPage,
   type IntersectionObserverFactory,

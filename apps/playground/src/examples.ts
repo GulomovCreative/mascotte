@@ -684,7 +684,7 @@ const playedMascots: readonly PlayedMascot[] = [
  * A mascot played the way a page embeds one: its JSON document in a `Player`, which fits it to
  * the canvas, drives the pointer inputs and the gaze and turns it while dragged. The example's
  * animation switch plays and pauses it; buttons under the canvas switch its palettes, if it has
- * several.
+ * several, and download the frame as PNG or SVG.
  */
 function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example {
   return {
@@ -742,6 +742,27 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
         }
         container.append(palettes);
       }
+      // Export: the frame as it stands, at twice the frame size, downloaded.
+      const exports = document.createElement('p');
+      for (const format of ['png', 'svg'] as const) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.textContent = format.toUpperCase();
+        button.addEventListener('click', () => {
+          player
+            .exportFrame({ format, pixelRatio: 2 })
+            .then((blob) => {
+              const link = document.createElement('a');
+              link.href = URL.createObjectURL(blob);
+              link.download = `${mascot.id}.${format}`;
+              link.click();
+              setTimeout(() => URL.revokeObjectURL(link.href), 0);
+            })
+            .catch(controls.error);
+        });
+        exports.append(button);
+      }
+      container.append(exports);
       const sync = Ticker.shared.add(() => {
         if (stopped) return;
         if (controls.animate !== player.playing) {
@@ -757,6 +778,7 @@ function playerExample(mascot: PlayedMascot, backend: 'gl' | 'canvas'): Example 
         player.destroy();
         canvas.remove();
         palettes.remove();
+        exports.remove();
       };
     },
   };

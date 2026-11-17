@@ -197,6 +197,12 @@ Without shading mascots look flat; with shading they gain volume. Shading stays 
 - **Blob shadow.** `BlobShadow`: a flat ellipse `width` across and `width × squash` high (a third by default), always facing the camera, since seen nearly level a shadow on the ground plane would be a line. It lies in layer −1, below the rest, black at opacity 0.2 unless told otherwise (`BLOB_SHADOW_DEFAULTS`, which the registry reports as its defaults). Of its style only the color is used. A document makes it a sibling of the mascot's root, in a stage node, so it stays on the ground while the mascot hops or turns: the player turns the rig's `root` slot. Hit testing passes through it.
 - **The reference mascots** stand on blob shadows; Gloop and Miso have outlines in their `ink` role. The `engine-outline` scene checks outlines and the shadow in both backends.
 
+**Frame export** (#34):
+- **SVG.** `SvgRenderer` (in the engine, works without a browser) lets the Canvas 2D renderer draw into a target that writes SVG: every fill and stroke a `<path>`, arcs and ellipses as SVG arcs, a clip a `<clipPath>` with a group. So the SVG is the Canvas 2D frame as vectors, tones, outlines, decal clips and shadows included; drawn on a canvas it matches the Canvas 2D frame pixel for pixel (tested on the engine scenes and the reference mascots).
+- **PNG.** `player.exportFrame({ format, pixelRatio })` draws the frame as it stands with the player's own renderer kind on a canvas of the document's frame size times `pixelRatio`, so the PNG is what the page shows (a WebGL frame matches a `WebGLRenderer`'s, tested in the browser). PNG needs a browser canvas; SVG does not.
+- **A frame sequence.** `player.exportFrames({ duration, fps, format })` plays a copy of the running document from its start (with the player's parameters and palette) at a fixed step and exports each frame, for a video; the page's mascot does not change, inputs stay at their defaults.
+- The playground has PNG and SVG buttons under each mascot.
+
 ### 5.9. Animation
 
 **Properties.** Each node type publishes a registry of animatable properties with a type (`number`, `vec3`, `quat`, `color`, `bool`, `enum`), a range and a default value. The editor builds its inspector from the same registry. `propertiesOf(node or class)` lists inherited properties first; `findProperty` looks one up by name (`position`, `style.color`, `width`). Numeric shape parameters come from the schema the node actually uses (its class's `params`) and style fields from `ShapeStyle.params`, with defaults taken from the class (`defaultStyle`, `defaultClosed`). Values are read and written without allocations (vectors and quaternions are read into an `out` object), and writes go through the node's own setters, so they are validated and mark the scene as changed. Structural settings (`sortMode`, `layer`, camera `projection`) are listed but not animatable. Custom node types add theirs with `registerProperties`; a subclass registering an inherited name replaces it in place. Enum values come from `SORT_MODES` and `PROJECTIONS`, and the setters reject unknown values. Per-face settings of a box (`setFace`) are not in the registry yet.
@@ -457,7 +463,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 
 - [x] Materials and toon shading ([#32](https://github.com/GulomovCreative/mascotte/issues/32))
 - [x] Outline and shadow under the mascot ([#33](https://github.com/GulomovCreative/mascotte/issues/33))
-- [ ] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
+- [x] Frame export ([#34](https://github.com/GulomovCreative/mascotte/issues/34))
 
 **Done when** the reference mascots look three-dimensional and the export matches the in-browser render.
 

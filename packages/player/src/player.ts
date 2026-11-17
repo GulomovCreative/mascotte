@@ -22,6 +22,7 @@ import {
   WebGLRenderer,
 } from '@mascotte/engine';
 import { buildDocument, type MascotDocument, readDocument } from '@mascotte/format';
+import { exportFrame, exportFrames, type FrameOptions, type FramesOptions } from './export.ts';
 import { type IntersectionObserverFactory, pauseWhenOffscreen } from './page.ts';
 import { bindPointer, type PointerElement } from './pointer.ts';
 
@@ -305,6 +306,29 @@ export class Player {
     this.#running = next;
     this.#invalidate();
     this.render();
+  }
+
+  /**
+   * The frame as it stands, at the document's frame size times `pixelRatio` (1 by default):
+   * PNG drawn by the player's own renderer kind, so it matches what the page shows, or SVG,
+   * which draws what Canvas 2D does, as vectors. PNG needs a browser canvas.
+   */
+  exportFrame(options: FrameOptions = {}): Promise<Blob> {
+    const { document, scene, camera } = this.#running;
+    return exportFrame(document, scene, camera, this.renderer, options);
+  }
+
+  /**
+   * A sequence of frames of the running document from its start, `fps` a second (30 by default)
+   * for `duration` seconds, for a video: PNG or SVG as `exportFrame` makes them. It plays a copy
+   * built with the player's parameters and palette, so the page's mascot does not change; inputs
+   * stay at their defaults.
+   */
+  exportFrames(options: FramesOptions): Promise<Blob[]> {
+    const palette = this.palette;
+    const build =
+      palette === undefined ? { params: this.#params } : { params: this.#params, palette };
+    return exportFrames(this.#running.document, build, this.renderer, options);
   }
 
   /**

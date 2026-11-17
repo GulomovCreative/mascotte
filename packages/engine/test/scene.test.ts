@@ -85,6 +85,7 @@ describe('internal access is closed', () => {
         'Styled',
         'Surface',
         'SurfaceOutline',
+        'SvgRenderer',
         'Ticker',
         'WebGLRenderer',
         'bindClip',
