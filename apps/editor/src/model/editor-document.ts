@@ -93,10 +93,6 @@ interface Step {
  * node without a rebuild comes with the viewport's gizmos and the inspector.
  */
 export class EditorDocument {
-  #document: MascotDocument;
-  #selection: DocPath | null = null;
-  #issues: readonly Issue[];
-  #scene: BuiltScene | null = null;
   readonly #undo: Step[] = [];
   readonly #redo: Step[] = [];
   #open: string | undefined;
@@ -104,11 +100,8 @@ export class EditorDocument {
   readonly #listeners = new Set<() => void>();
 
   constructor(document: MascotDocument) {
-    this.#document = document;
     const checked = check(document);
-    this.#issues = checked.issues;
-    this.#scene = checked.scene;
-    this.#state = this.#snapshot();
+    this.#state = this.#snapshot(document, null, checked.issues, checked.scene);
   }
 
   /** The editor's state as it stands. */
@@ -116,40 +109,12 @@ export class EditorDocument {
     return this.#state;
   }
 
-  get document(): MascotDocument {
-    return this.#document;
-  }
-
-  get selection(): DocPath | null {
-    return this.#selection;
-  }
-
-  get issues(): readonly Issue[] {
-    return this.#issues;
-  }
-
-  get scene(): BuiltScene | null {
-    return this.#scene;
-  }
-
-  get stale(): boolean {
-    return this.#state.stale;
-  }
-
-  get canUndo(): boolean {
-    return this.#undo.length > 0;
-  }
-
-  get canRedo(): boolean {
-    return this.#redo.length > 0;
-  }
-
   /** Selects the node at `path`, or nothing (also for a path with no node). */
   select(path: DocPath | null): void {
-    const next = path !== null && nodeAt(this.#document, path) ? path : null;
-    if (samePath(next, this.#selection)) return;
-    this.#selection = next;
-    this.#changed();
+    const { document, selection, issues, scene } = this.#state;
+    const next = path !== null && nodeAt(document, path) ? path : null;
+    if (samePath(next, selection)) return;
+    this.#changed(document, next, issues, scene);
   }
 
   /**
@@ -157,25 +122,22 @@ export class EditorDocument {
    * one). A command that leaves the document as it is only moves the selection, if it does.
    */
   execute(command: Command): void {
-    const result = command.run(this.#document, this.#selection);
-    if (result.document === this.#document) {
+    const { document, selection } = this.#state;
+    const result = command.run(document, selection);
+    if (result.document === document) {
       if (result.selection !== undefined) this.select(result.selection);
       return;
     }
     // Checked before anything changes: a bug thrown here leaves the editor as it was.
     const checked = check(result.document);
-    if (!(command.merge !== undefined && command.merge === this.#open)) {
-      this.#undo.push({
-        document: this.#document,
-        selection: this.#selection,
-        label: command.label,
-      });
+    if (command.merge === undefined || command.merge !== this.#open) {
+      this.#undo.push({ document, selection, label: command.label });
     }
     this.#redo.length = 0;
     this.#open = command.merge;
     this.#apply(
       result.document,
-      result.selection === undefined ? this.#selection : result.selection,
+      result.selection === undefined ? selection : result.selection,
       checked,
     );
   }
@@ -187,24 +149,12 @@ export class EditorDocument {
 
   /** Takes back the last step. */
   undo(): void {
-    const step = this.#undo.at(-1);
-    if (!step) return;
-    const checked = check(step.document);
-    this.#undo.pop();
-    this.#redo.push({ ...step, document: this.#document, selection: this.#selection });
-    this.#open = undefined;
-    this.#apply(step.document, step.selection, checked);
+    this.#travel(this.#undo, this.#redo);
   }
 
   /** Does again the step `undo` took back. */
   redo(): void {
-    const step = this.#redo.at(-1);
-    if (!step) return;
-    const checked = check(step.document);
-    this.#redo.pop();
-    this.#undo.push({ ...step, document: this.#document, selection: this.#selection });
-    this.#open = undefined;
-    this.#apply(step.document, step.selection, checked);
+    this.#travel(this.#redo, this.#undo);
   }
 
   /**
@@ -216,32 +166,51 @@ export class EditorDocument {
     return () => this.#listeners.delete(listener);
   }
 
-  #apply(document: MascotDocument, selection: DocPath | null, checked: Checked): void {
-    this.#document = document;
-    this.#selection = selection;
-    this.#issues = checked.issues;
-    if (checked.scene) {
-      this.#scene?.scene.destroy();
-      this.#scene = checked.scene;
-    }
-    this.#changed();
+  /** Restores the last step of `from`, keeping the current document as a step of `to`. */
+  #travel(from: Step[], to: Step[]): void {
+    const step = from.at(-1);
+    if (!step) return;
+    const checked = check(step.document);
+    from.pop();
+    to.push({ ...step, document: this.#state.document, selection: this.#state.selection });
+    this.#open = undefined;
+    this.#apply(step.document, step.selection, checked);
   }
 
-  #snapshot(): EditorState {
+  #apply(document: MascotDocument, selection: DocPath | null, checked: Checked): void {
+    let scene = this.#state.scene;
+    if (checked.scene) {
+      scene?.scene.destroy();
+      scene = checked.scene;
+    }
+    this.#changed(document, selection, checked.issues, scene);
+  }
+
+  #snapshot(
+    document: MascotDocument,
+    selection: DocPath | null,
+    issues: readonly Issue[],
+    scene: BuiltScene | null,
+  ): EditorState {
     return {
-      document: this.#document,
-      selection: this.#selection,
-      issues: this.#issues,
-      scene: this.#scene,
-      stale: this.#scene !== null && this.#scene.document !== this.#document,
+      document,
+      selection,
+      issues,
+      scene,
+      stale: scene !== null && scene.document !== document,
       canUndo: this.#undo.length > 0,
       canRedo: this.#redo.length > 0,
       undoLabel: this.#undo.at(-1)?.label ?? null,
     };
   }
 
-  #changed(): void {
-    this.#state = this.#snapshot();
+  #changed(
+    document: MascotDocument,
+    selection: DocPath | null,
+    issues: readonly Issue[],
+    scene: BuiltScene | null,
+  ): void {
+    this.#state = this.#snapshot(document, selection, issues, scene);
     let failure: unknown = null;
     for (const listener of this.#listeners) {
       try {
