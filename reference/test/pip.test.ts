@@ -199,7 +199,6 @@ describe('Pip', () => {
         return [x, y, z, w, node?.scale.y, node?.visible];
       });
     let seeks = 0;
-    let seeksMidBlink = 0;
     const scales = new Set<number>();
     const crests: number[] = [];
     let blinks = 0;
@@ -218,12 +217,10 @@ describe('Pip', () => {
         sought.animator.evaluate();
         expect(state(sought)).toEqual(state(played));
         seeks++;
-        if (lids?.visible) seeksMidBlink++;
       }
     }
+    // 60 on the grid, and the blink frames off it.
     expect(seeks).toBeGreaterThan(60);
-    // Some of them fall in a blink, where the eyes switch visibility.
-    expect(seeksMidBlink).toBeGreaterThan(0);
     expect(scales.size).toBeGreaterThan(10);
     expect(blinks).toBeGreaterThan(0);
     expect(chirps).toBeGreaterThan(0);

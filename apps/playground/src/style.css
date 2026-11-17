@@ -134,3 +134,7 @@ nav a[aria-current="page"] {
   color: #991b1b;
   white-space: pre-wrap;
 }
+
+button[aria-pressed="true"] {
+  font-weight: 600;
+}
