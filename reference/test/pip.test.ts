@@ -210,8 +210,9 @@ describe('Pip', () => {
       crests.push(crest?.rotation.z ?? 0);
       if (lids?.visible && !eyes?.visible) blinks++;
       if ((beak?.rotation.x ?? 0) < -0.05) chirps++;
-      // Every 10 frames, seeking another Pip to the same time gives the same pose.
-      if (frame % 10 === 0) {
+      // Every 10 frames and every frame of a blink, seeking another Pip to the same time gives
+      // the same pose.
+      if (frame % 10 === 0 || lids?.visible) {
         const at = played.animator.layers[0]?.time ?? 0;
         for (const layer of sought.animator.layers) layer.time = at;
         sought.animator.evaluate();
@@ -220,7 +221,7 @@ describe('Pip', () => {
         if (lids?.visible) seeksMidBlink++;
       }
     }
-    expect(seeks).toBe(60);
+    expect(seeks).toBeGreaterThan(60);
     // Some of them fall in a blink, where the eyes switch visibility.
     expect(seeksMidBlink).toBeGreaterThan(0);
     expect(scales.size).toBeGreaterThan(10);

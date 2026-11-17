@@ -1,0 +1,859 @@
+{
+  "format": "mascotte",
+  "version": 1,
+  "meta": {
+    "name": "Miso",
+    "description": "A cat on four legs: it breathes, looks around, wags its tail and hops when poked."
+  },
+  "archetype": "quadruped",
+  "params": {
+    "earLength": {
+      "default": 14,
+      "min": 8,
+      "max": 22,
+      "description": "How tall the ears stand."
+    }
+  },
+  "palettes": {
+    "ginger": {
+      "fur": "#f4a259",
+      "tip": "#d37a2c",
+      "cream": "#fff3e0",
+      "inner": "#ffb3a7",
+      "nose": "#ff7f91",
+      "ink": "#3b2414"
+    },
+    "smoke": {
+      "fur": "#9aa1b1",
+      "tip": "#6e7486",
+      "cream": "#eceff5",
+      "inner": "#f3b8c0",
+      "nose": "#e88a9a",
+      "ink": "#2a2d36"
+    }
+  },
+  "prefabs": {
+    "catEar": {
+      "description": "A pointed ear: a triangle `length` tall with a pink inside.",
+      "params": {
+        "length": {
+          "default": 14,
+          "min": 4
+        }
+      },
+      "root": {
+        "type": "PathShape",
+        "props": {
+          "style.stroke": 4,
+          "style.fill": true,
+          "style.color": {
+            "color": "fur"
+          }
+        },
+        "path": [
+          {
+            "type": "move",
+            "point": {
+              "x": -7,
+              "y": 0,
+              "z": 0
+            }
+          },
+          {
+            "type": "line",
+            "point": {
+              "x": 7,
+              "y": 0,
+              "z": 0
+            }
+          },
+          {
+            "type": "line",
+            "point": {
+              "param": "length",
+              "times": {
+                "x": 0,
+                "y": -1,
+                "z": 0
+              }
+            }
+          }
+        ],
+        "children": [
+          {
+            "type": "PathShape",
+            "id": "inner",
+            "props": {
+              "style.stroke": 2,
+              "style.fill": true,
+              "style.color": {
+                "color": "inner"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": -3.5,
+                  "y": -1.5,
+                  "z": 1.5
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 3.5,
+                  "y": -1.5,
+                  "z": 1.5
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "param": "length",
+                  "times": {
+                    "x": 0,
+                    "y": -0.65,
+                    "z": 0
+                  },
+                  "plus": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 1.5
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "view": {
+    "width": 240,
+    "height": 240,
+    "background": "#eaf6ec"
+  },
+  "camera": {
+    "props": {
+      "zoom": 1.7
+    }
+  },
+  "root": {
+    "type": "Node",
+    "id": "miso",
+    "props": {
+      "position": {
+        "x": 4,
+        "y": 44,
+        "z": 0
+      },
+      "rotation": {
+        "x": -0.051888,
+        "y": 0.500311,
+        "z": -0.030055,
+        "w": 0.863767
+      }
+    },
+    "children": [
+      {
+        "type": "Node",
+        "id": "leg-fl",
+        "props": {
+          "position": {
+            "x": -9,
+            "y": -16,
+            "z": 10
+          }
+        },
+        "children": [
+          {
+            "type": "PathShape",
+            "props": {
+              "closed": false,
+              "style.stroke": 9,
+              "style.color": {
+                "color": "fur"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 0,
+                  "y": 11,
+                  "z": 0
+                }
+              }
+            ]
+          },
+          {
+            "prefab": "paw",
+            "id": "leg-fl-paw",
+            "params": {
+              "size": 10
+            },
+            "props": {
+              "position": {
+                "x": 0,
+                "y": 12,
+                "z": 2
+              },
+              "style.color": {
+                "color": "cream"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "Node",
+        "id": "leg-fr",
+        "props": {
+          "position": {
+            "x": 9,
+            "y": -16,
+            "z": 10
+          }
+        },
+        "children": [
+          {
+            "type": "PathShape",
+            "props": {
+              "closed": false,
+              "style.stroke": 9,
+              "style.color": {
+                "color": "fur"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 0,
+                  "y": 11,
+                  "z": 0
+                }
+              }
+            ]
+          },
+          {
+            "prefab": "paw",
+            "id": "leg-fr-paw",
+            "params": {
+              "size": 10
+            },
+            "props": {
+              "position": {
+                "x": 0,
+                "y": 12,
+                "z": 2
+              },
+              "style.color": {
+                "color": "cream"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "Node",
+        "id": "leg-bl",
+        "props": {
+          "position": {
+            "x": -9,
+            "y": -16,
+            "z": -16
+          }
+        },
+        "children": [
+          {
+            "type": "PathShape",
+            "props": {
+              "closed": false,
+              "style.stroke": 9,
+              "style.color": {
+                "color": "fur"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 0,
+                  "y": 11,
+                  "z": 0
+                }
+              }
+            ]
+          },
+          {
+            "prefab": "paw",
+            "id": "leg-bl-paw",
+            "params": {
+              "size": 10
+            },
+            "props": {
+              "position": {
+                "x": 0,
+                "y": 12,
+                "z": 2
+              },
+              "style.color": {
+                "color": "cream"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "Node",
+        "id": "leg-br",
+        "props": {
+          "position": {
+            "x": 9,
+            "y": -16,
+            "z": -16
+          }
+        },
+        "children": [
+          {
+            "type": "PathShape",
+            "props": {
+              "closed": false,
+              "style.stroke": 9,
+              "style.color": {
+                "color": "fur"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": 0,
+                  "y": 0,
+                  "z": 0
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 0,
+                  "y": 11,
+                  "z": 0
+                }
+              }
+            ]
+          },
+          {
+            "prefab": "paw",
+            "id": "leg-br-paw",
+            "params": {
+              "size": 10
+            },
+            "props": {
+              "position": {
+                "x": 0,
+                "y": 12,
+                "z": 2
+              },
+              "style.color": {
+                "color": "cream"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "type": "Node",
+        "id": "body",
+        "props": {
+          "position": {
+            "x": 0,
+            "y": -16,
+            "z": 0
+          }
+        },
+        "children": [
+          {
+            "type": "PathShape",
+            "id": "torso",
+            "props": {
+              "closed": false,
+              "style.stroke": 30,
+              "style.color": {
+                "color": "fur"
+              }
+            },
+            "path": [
+              {
+                "type": "move",
+                "point": {
+                  "x": 0,
+                  "y": -12,
+                  "z": 10
+                }
+              },
+              {
+                "type": "line",
+                "point": {
+                  "x": 0,
+                  "y": -12,
+                  "z": -16
+                }
+              }
+            ]
+          },
+          {
+            "type": "Sphere",
+            "id": "chest",
+            "props": {
+              "diameter": 12,
+              "position": {
+                "x": 0,
+                "y": -10,
+                "z": 21
+              },
+              "style.color": {
+                "color": "cream"
+              },
+              "style.stroke": 0
+            }
+          },
+          {
+            "type": "Node",
+            "id": "tail",
+            "props": {
+              "position": {
+                "x": 0,
+                "y": -16,
+                "z": -28
+              }
+            },
+            "children": [
+              {
+                "type": "PathShape",
+                "props": {
+                  "closed": false,
+                  "style.stroke": 7,
+                  "style.color": {
+                    "color": "fur"
+                  }
+                },
+                "path": [
+                  {
+                    "type": "move",
+                    "point": {
+                      "x": 0,
+                      "y": 0,
+                      "z": 0
+                    }
+                  },
+                  {
+                    "type": "bezier",
+                    "control1": {
+                      "x": 0,
+                      "y": -6,
+                      "z": -12
+                    },
+                    "control2": {
+                      "x": 0,
+                      "y": -24,
+                      "z": -12
+                    },
+                    "point": {
+                      "x": 4,
+                      "y": -32,
+                      "z": -5
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Sphere",
+                "props": {
+                  "diameter": 9,
+                  "position": {
+                    "x": 4,
+                    "y": -32,
+                    "z": -5
+                  },
+                  "style.color": {
+                    "color": "tip"
+                  },
+                  "style.stroke": 0
+                }
+              }
+            ]
+          },
+          {
+            "type": "Node",
+            "id": "head",
+            "props": {
+              "position": {
+                "x": 0,
+                "y": -30,
+                "z": 16
+              },
+              "rotation": {
+                "x": 0.02326,
+                "y": -0.366158,
+                "z": -0.009156,
+                "w": 0.930217
+              }
+            },
+            "children": [
+              {
+                "type": "Sphere",
+                "id": "skull",
+                "props": {
+                  "diameter": 36,
+                  "position": {
+                    "x": 0,
+                    "y": -12,
+                    "z": 4
+                  },
+                  "style.color": {
+                    "color": "fur"
+                  },
+                  "style.stroke": 0
+                }
+              },
+              {
+                "prefab": "catEar",
+                "id": "ear-left",
+                "params": {
+                  "length": {
+                    "param": "earLength"
+                  }
+                },
+                "props": {
+                  "position": {
+                    "x": -9,
+                    "y": -25,
+                    "z": 4
+                  },
+                  "rotation": {
+                    "x": 0,
+                    "y": 0,
+                    "z": -0.149438,
+                    "w": 0.988771
+                  }
+                }
+              },
+              {
+                "prefab": "catEar",
+                "id": "ear-right",
+                "params": {
+                  "length": {
+                    "param": "earLength"
+                  }
+                },
+                "props": {
+                  "position": {
+                    "x": 9,
+                    "y": -25,
+                    "z": 4
+                  },
+                  "rotation": {
+                    "x": 0,
+                    "y": 0,
+                    "z": 0.149438,
+                    "w": 0.988771
+                  }
+                }
+              },
+              {
+                "type": "Node",
+                "id": "eyes",
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -14,
+                    "z": 4
+                  }
+                },
+                "children": [
+                  {
+                    "prefab": "eye",
+                    "id": "eye-left",
+                    "params": {
+                      "size": 9
+                    },
+                    "props": {
+                      "position": {
+                        "x": -7,
+                        "y": 0,
+                        "z": 15
+                      }
+                    }
+                  },
+                  {
+                    "prefab": "eye",
+                    "id": "eye-right",
+                    "params": {
+                      "size": 9
+                    },
+                    "props": {
+                      "position": {
+                        "x": 7,
+                        "y": 0,
+                        "z": 15
+                      }
+                    }
+                  }
+                ]
+              },
+              {
+                "type": "Node",
+                "id": "lids",
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -14,
+                    "z": 4
+                  },
+                  "visible": false
+                },
+                "children": [
+                  {
+                    "type": "PathShape",
+                    "props": {
+                      "closed": false,
+                      "style.stroke": 2.5,
+                      "style.color": {
+                        "color": "ink"
+                      }
+                    },
+                    "path": [
+                      {
+                        "type": "move",
+                        "point": {
+                          "x": -11,
+                          "y": 0,
+                          "z": 17.5
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": -3,
+                          "y": 0,
+                          "z": 17.5
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "type": "PathShape",
+                    "props": {
+                      "closed": false,
+                      "style.stroke": 2.5,
+                      "style.color": {
+                        "color": "ink"
+                      }
+                    },
+                    "path": [
+                      {
+                        "type": "move",
+                        "point": {
+                          "x": 3,
+                          "y": 0,
+                          "z": 17.5
+                        }
+                      },
+                      {
+                        "type": "line",
+                        "point": {
+                          "x": 11,
+                          "y": 0,
+                          "z": 17.5
+                        }
+                      }
+                    ]
+                  }
+                ]
+              },
+              {
+                "type": "Sphere",
+                "id": "nose",
+                "props": {
+                  "diameter": 5,
+                  "position": {
+                    "x": 0,
+                    "y": -7,
+                    "z": 21.5
+                  },
+                  "style.color": {
+                    "color": "nose"
+                  },
+                  "style.stroke": 0
+                }
+              },
+              {
+                "prefab": "mouth",
+                "id": "mouth",
+                "params": {
+                  "width": 7,
+                  "depth": 2,
+                  "stroke": 2
+                },
+                "props": {
+                  "position": {
+                    "x": 0,
+                    "y": -4,
+                    "z": 20.5
+                  },
+                  "style.color": {
+                    "color": "ink"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  },
+  "rig": {
+    "slots": {
+      "root": "miso",
+      "body": "body",
+      "head": "head",
+      "eyes": "eyes",
+      "lids": "lids",
+      "tail": "tail",
+      "mouth": "mouth",
+      "ear.L": "ear-left",
+      "ear.R": "ear-right",
+      "leg.FL": "leg-fl",
+      "leg.FR": "leg-fr",
+      "leg.BL": "leg-bl",
+      "leg.BR": "leg-br"
+    }
+  },
+  "motions": {
+    "breathe": {
+      "library": "breathe"
+    },
+    "sway": {
+      "library": "sway"
+    },
+    "tilt": {
+      "library": "tilt"
+    },
+    "wag": {
+      "library": "wag"
+    },
+    "hop": {
+      "library": "hop"
+    },
+    "blink": {
+      "library": "blink"
+    }
+  },
+  "layers": [
+    {
+      "name": "breathe",
+      "mode": "additive",
+      "play": "breathe"
+    },
+    {
+      "name": "sway",
+      "mode": "additive",
+      "play": "sway"
+    },
+    {
+      "name": "tilt",
+      "mode": "additive",
+      "play": "tilt"
+    },
+    {
+      "name": "wag",
+      "mode": "additive",
+      "play": "wag"
+    },
+    {
+      "name": "react",
+      "mode": "additive"
+    },
+    {
+      "name": "blink",
+      "play": "blink"
+    }
+  ],
+  "machines": [
+    {
+      "name": "react",
+      "layer": "react",
+      "inputs": [
+        {
+          "name": "poke",
+          "type": "trigger"
+        }
+      ],
+      "states": [
+        {
+          "name": "rest"
+        },
+        {
+          "name": "hop",
+          "motion": "hop"
+        }
+      ],
+      "transitions": [
+        {
+          "from": "rest",
+          "to": "hop",
+          "conditions": [
+            {
+              "input": "poke"
+            }
+          ],
+          "duration": 0.05
+        },
+        {
+          "from": "hop",
+          "to": "rest",
+          "exitTime": 1,
+          "duration": 0.05
+        }
+      ]
+    }
+  ],
+  "constraints": [
+    {
+      "name": "gaze",
+      "kind": "aim",
+      "target": {
+        "slot": "head"
+      },
+      "maxAngle": 0.5,
+      "weight": 0
+    }
+  ]
+}

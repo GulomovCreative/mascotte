@@ -429,51 +429,6 @@ const tilt: BehaviorSet = {
   ],
 };
 
-/** Now and then a chirp: the beak opens for a moment. */
-const chirp: BehaviorSet = {
-  behaviors: [
-    {
-      kind: 'blink',
-      target: { slot: 'beak.lower' },
-      property: 'rotation',
-      from: rotation(0, 0, 0),
-      to: beak(0.45),
-      duration: 0.3,
-      minInterval: 3,
-      maxInterval: 6,
-      seed: 13,
-    },
-  ],
-};
-
-/** Blinking: the eyes hide and the closed lids show for a moment. */
-const blink: BehaviorSet = {
-  behaviors: [
-    {
-      kind: 'blink',
-      target: { slot: 'eyes' },
-      property: 'visible',
-      from: true,
-      to: false,
-      duration: 0.16,
-      minInterval: 1.8,
-      maxInterval: 4.5,
-      seed: 9,
-    },
-    {
-      kind: 'blink',
-      target: { slot: 'lids' },
-      property: 'visible',
-      from: false,
-      to: true,
-      duration: 0.16,
-      minInterval: 1.8,
-      maxInterval: 4.5,
-      seed: 9,
-    },
-  ],
-};
-
 /**
  * Pip's motions, layers, emotion machine, gaze and springs as document data: the gaze is the
  * constraint named `gaze`.
@@ -485,8 +440,9 @@ const animation: AnimationDocument = {
     surprised: surprisedClip,
     idle,
     tilt,
-    chirp,
-    blink,
+    // The library's, which the other reference mascots share.
+    chirp: { library: 'chirp' },
+    blink: { library: 'blink' },
   },
   layers: [
     { name: 'emotion' },
