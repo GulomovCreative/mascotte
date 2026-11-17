@@ -3,7 +3,9 @@ import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { page } from 'vitest/browser';
 import { App } from '../src/app.tsx';
 import { newDocument } from '../src/files/documents.ts';
-import { offeredDraft, openDocument, state } from '../src/store.ts';
+import { keptDraft } from '../src/files/drafts.ts';
+import { setProp } from '../src/model/commands.ts';
+import { editor, offeredDraft, openDocument, state } from '../src/store.ts';
 
 let host: HTMLDivElement | null = null;
 
@@ -34,6 +36,7 @@ afterEach(() => {
     host.remove();
     host = null;
   }
+  offeredDraft.value = null;
   openDocument(newDocument('blob'), null);
   vi.restoreAllMocks();
   vi.unstubAllGlobals();
@@ -45,6 +48,36 @@ function choose(root: HTMLElement, label: string, value: string): void {
   select.value = value;
   select.dispatchEvent(new Event('change', { bubbles: true }));
 }
+
+const button = (root: HTMLElement, text: string) => {
+  const found = [...root.querySelectorAll('button')].find((each) => each.textContent === text);
+  if (!found) throw new Error(`no ${text} button`);
+  return found;
+};
+
+/** A file handle in memory, as the File System Access API gives, recording what is written. */
+function memoryHandle(name: string, text = '') {
+  const written: string[] = [];
+  const handle = {
+    name,
+    getFile: async () => new File([text], name),
+    createWritable: async () => {
+      let data = '';
+      return {
+        write: async (chunk: string) => {
+          data += chunk;
+        },
+        close: async () => {
+          written.push(data);
+        },
+      };
+    },
+  };
+  return { handle, written };
+}
+
+/** Makes an edit, as the inspector will. */
+const edit = () => editor.value.execute(setProp([0], 'visible', false));
 
 const title = (root: HTMLElement) => root.querySelector('.document-title')?.textContent ?? '';
 
@@ -94,10 +127,11 @@ describe('editor menu', () => {
     expect(title(root)).toBe('Untitled');
   });
 
-  it('saves as a download where the browser has no file pickers, and marks the document saved', async () => {
+  it('saves as a download where the browser has no file pickers, and keeps the draft', async () => {
     const root = mount();
     choose(root, 'Reference', 'Miso');
     await expect.poll(() => title(root)).toBe('Miso');
+    edit();
     // As in a browser without the File System Access API.
     vi.stubGlobal('showSaveFilePicker', undefined);
     const clicks: string[] = [];
@@ -106,28 +140,78 @@ describe('editor menu', () => {
     ) {
       clicks.push(this.download);
     });
-    const save = [...root.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Save',
-    );
-    save?.click();
+    button(root, 'Save').click();
     await expect.poll(() => clicks).toEqual(['Miso.json']);
     await expect.poll(() => title(root)).toBe('Miso — Miso.json');
+    // The download may yet be cancelled: the draft of the edit stays.
+    await expect.poll(() => keptDraft()?.text).toBe(JSON.stringify(state.value.document));
   });
 
-  it('offers a kept draft back, and restores it', async () => {
-    const draft = newDocument('bird');
-    offeredDraft.value = {
-      text: JSON.stringify({ ...draft, meta: { name: 'Draft' } }),
-      savedAt: 0,
-      fileName: 'bird.json',
-    };
+  it('opens with the file picker, saves in place, and marks changes unsaved till then', async () => {
     const root = mount();
-    const restore = [...root.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Restore',
+    const file = memoryHandle('gloop.json', JSON.stringify(newDocument('bird')));
+    const pick = vi.fn(async () => [file.handle]);
+    vi.stubGlobal('showOpenFilePicker', pick);
+    const save = vi.fn();
+    vi.stubGlobal('showSaveFilePicker', save);
+    button(root, 'Open…').click();
+    await expect.poll(() => title(root)).toBe('Untitled — gloop.json');
+    edit();
+    await expect.poll(() => title(root)).toBe('Untitled — gloop.json •');
+    button(root, 'Save').click();
+    await expect.poll(() => file.written.length).toBe(1);
+    expect(JSON.parse(file.written[0] ?? '')).toEqual(state.value.document);
+    expect(save).not.toHaveBeenCalled();
+    await expect.poll(() => title(root)).toBe('Untitled — gloop.json');
+    expect(keptDraft()).toBeNull();
+  });
+
+  it('does nothing when a picker is cancelled, and says what failed otherwise', async () => {
+    const root = mount();
+    vi.stubGlobal('showOpenFilePicker', async () => {
+      throw new DOMException('cancelled', 'AbortError');
+    });
+    button(root, 'Open…').click();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(root.querySelector('[role=alert]')).toBeNull();
+    vi.spyOn(console, 'error').mockImplementation(() => undefined);
+    vi.stubGlobal('showOpenFilePicker', async () => [memoryHandle('bad.json', '{').handle]);
+    button(root, 'Open…').click();
+    await expect
+      .poll(() => root.querySelector('[role=alert]')?.textContent ?? '')
+      .toMatch(/^Could not open the file: [\s\S]*not JSON/);
+    expect(title(root)).toBe('Untitled');
+  });
+
+  it('asks before an unsaved document is replaced', async () => {
+    const root = mount();
+    edit();
+    const ask = vi.fn(() => false);
+    vi.stubGlobal('confirm', ask);
+    choose(root, 'Reference', 'Pip');
+    expect(ask).toHaveBeenCalledOnce();
+    await expect.poll(() => title(root)).toBe('Untitled •');
+    ask.mockReturnValue(true);
+    choose(root, 'Reference', 'Pip');
+    await expect.poll(() => title(root)).toBe('Pip');
+  });
+
+  it('offers a kept draft back, restores it unsaved, and keeps it', async () => {
+    const draft = { ...newDocument('bird'), meta: { name: 'Draft' } };
+    offeredDraft.value = { text: JSON.stringify(draft), savedAt: 0, fileName: 'bird.json' };
+    localStorage.setItem(
+      'mascotte-editor-draft',
+      JSON.stringify({ text: JSON.stringify(draft), savedAt: 0, fileName: 'bird.json' }),
     );
-    if (!restore) throw new Error('no draft offered');
-    restore.click();
-    await expect.poll(() => title(root)).toBe('Draft — bird.json');
+    const root = mount();
+    // While it is on offer, changes keep no draft over it.
+    edit();
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(keptDraft()?.text).toBe(JSON.stringify(draft));
+    vi.stubGlobal('confirm', () => true);
+    button(root, 'Restore').click();
+    await expect.poll(() => title(root)).toBe('Draft — bird.json •');
     expect(root.querySelector('[aria-label=Draft]')).toBeNull();
+    expect(keptDraft()?.text).toBe(JSON.stringify(draft));
   });
 });

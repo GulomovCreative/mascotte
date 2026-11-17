@@ -79,15 +79,18 @@ export function Viewport() {
       // Not laid out (or gone): nothing to draw on.
       if (!(width > 0 && height > 0)) return;
       const ratio = devicePixelRatio || 1;
-      canvas.width = Math.max(1, Math.round(width * ratio));
-      canvas.height = Math.max(1, Math.round(height * ratio));
+      const pixelWidth = Math.max(1, Math.round(width * ratio));
+      const pixelHeight = Math.max(1, Math.round(height * ratio));
+      // Sized only when the size changes: sizing clears and reallocates the canvas.
+      if (canvas.width !== pixelWidth) canvas.width = pixelWidth;
+      if (canvas.height !== pixelHeight) canvas.height = pixelHeight;
       const built = state.peek().scene;
       renderer.draw(
         built?.scene ?? empty,
         built?.built.camera ?? fallback,
         width,
         height,
-        state.peek().document.view.background,
+        state.peek().document.view?.background,
       );
     };
     // Redrawn whenever the state changes (a new scene, an edit).

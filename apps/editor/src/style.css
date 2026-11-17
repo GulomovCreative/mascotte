@@ -75,6 +75,10 @@ body {
 
 .problem {
   color: #c0392b;
+  /* A document's issues come one to a line. */
+  white-space: pre-line;
+  max-height: 6em;
+  overflow: auto;
 }
 
 .problem button {
