@@ -76,52 +76,52 @@ describe('editor document', () => {
       removeNode([1]),
     ];
     for (const command of commands) {
-      const before = editor.document;
+      const before = editor.state.document;
       editor.execute(command);
       editor.commit();
-      const after = editor.document;
+      const after = editor.state.document;
       expect(after).not.toBe(before);
       editor.undo();
-      expect(editor.document).toEqual(before);
+      expect(editor.state.document).toEqual(before);
       editor.redo();
-      expect(editor.document).toEqual(after);
+      expect(editor.state.document).toEqual(after);
     }
     // All the way back.
-    while (editor.canUndo) editor.undo();
-    expect(editor.document).toEqual(make());
+    while (editor.state.canUndo) editor.undo();
+    expect(editor.state.document).toEqual(make());
   });
 
   it('merges a drag into one step until it is committed', () => {
     const editor = new EditorDocument(readDocument(gloopDocument));
-    const start = editor.document;
+    const start = editor.state.document;
     for (const x of [1, 2, 3]) editor.execute(setProp([0], 'position', { x, y: 0, z: 0 }));
     editor.commit();
     editor.execute(setProp([0], 'position', { x: 9, y: 0, z: 0 }));
     editor.undo();
-    expect(nodeAt(editor.document, [0])?.props?.position).toEqual({ x: 3, y: 0, z: 0 });
+    expect(nodeAt(editor.state.document, [0])?.props?.position).toEqual({ x: 3, y: 0, z: 0 });
     editor.undo();
-    expect(editor.document).toEqual(start);
-    expect(editor.canUndo).toBe(false);
+    expect(editor.state.document).toEqual(start);
+    expect(editor.state.canUndo).toBe(false);
   });
 
   it('makes ids unique against the expanded tree', () => {
     const editor = new EditorDocument(readDocument(gloopDocument));
-    const taken = expandedIds(editor.document);
+    const taken = expandedIds(editor.state.document);
     // A prefab instance's nodes are `eye-left-white`, `eye-left-pupil`, …: not to be met.
     expect(taken.has('eye-left-pupil')).toBe(true);
     editor.execute(addNode([], { type: 'Sphere', id: 'eye-left-pupil' }));
-    const added = nodeAt(editor.document, editor.selection ?? [])?.id;
+    const added = nodeAt(editor.state.document, editor.state.selection ?? [])?.id;
     expect(added).toBe('eye-left-pupil-2');
     editor.execute(addNode([], { type: 'Sphere' }));
-    expect(nodeAt(editor.document, editor.selection ?? [])?.id).toBe('sphere');
-    expect(editor.issues).toEqual([]);
+    expect(nodeAt(editor.state.document, editor.state.selection ?? [])?.id).toBe('sphere');
+    expect(editor.state.issues).toEqual([]);
   });
 
   it('renames every reference with the id, the ids a prefab instance makes too', () => {
     const pip = new EditorDocument(readDocument(pipDocument()));
-    pip.execute(renameNode(pathOf(pip.document, 'beak-lower'), 'jaw'));
-    expect(pip.document.rig?.slots?.['beak.lower']).toBe('jaw');
-    expect(pip.issues).toEqual([]);
+    pip.execute(renameNode(pathOf(pip.state.document, 'beak-lower'), 'jaw'));
+    expect(pip.state.document.rig?.slots?.['beak.lower']).toBe('jaw');
+    expect(pip.state.issues).toEqual([]);
     // A document naming nodes by id everywhere it can.
     const base = readDocument(gloopDocument);
     const named: MascotDocument = {
@@ -145,22 +145,22 @@ describe('editor document', () => {
       springs: [{ target: 'eye-left-pupil', tip: { x: 0, y: 0, z: 1 } }],
     };
     const editor = new EditorDocument(named);
-    expect(editor.issues).toEqual([]);
+    expect(editor.state.issues).toEqual([]);
     editor.execute(renameNode(pathOf(named, 'eye-left'), 'eye-l'));
-    const document = editor.document;
+    const document = editor.state.document;
     const look = document.motions?.look as unknown as { tracks: { target: unknown }[] } | undefined;
     const track = look?.tracks[0];
     expect(track?.target).toBe('eye-l-pupil');
     expect(document.layers?.at(-1)?.mask).toBe('eye-l');
     expect(document.constraints?.[0]?.target).toBe('eye-l');
     expect(document.springs?.[0]?.target).toBe('eye-l-pupil');
-    expect(editor.issues).toEqual([]);
+    expect(editor.state.issues).toEqual([]);
   });
 
   it('keeps the last scene that built while the document has issues', () => {
     const editor = new EditorDocument(readDocument(gloopDocument));
-    const good = editor.scene;
-    expect(editor.stale).toBe(false);
+    const good = editor.state.scene;
+    expect(editor.state.stale).toBe(false);
     // A track only the engine checks: the trial animation reports it.
     editor.execute({
       label: 'Break a motion',
@@ -178,12 +178,12 @@ describe('editor document', () => {
         },
       }),
     });
-    expect(editor.issues.length).toBeGreaterThan(0);
-    expect(editor.scene).toBe(good);
-    expect(editor.stale).toBe(true);
+    expect(editor.state.issues.length).toBeGreaterThan(0);
+    expect(editor.state.scene).toBe(good);
+    expect(editor.state.stale).toBe(true);
     editor.undo();
-    expect(editor.issues).toEqual([]);
-    expect(editor.stale).toBe(false);
+    expect(editor.state.issues).toEqual([]);
+    expect(editor.state.stale).toBe(false);
   });
 
   it('refuses to remove the root or move a node into itself, and follows the selection', () => {
@@ -192,9 +192,9 @@ describe('editor document', () => {
     expect(() => editor.execute(moveNode([1], [1, 0], 0))).toThrow(/into itself/);
     editor.select([1, 0, 0]);
     editor.execute(moveNode([1], [], 0));
-    expect(editor.selection).toEqual([0, 0, 0]);
+    expect(editor.state.selection).toEqual([0, 0, 0]);
     editor.execute(removeNode([0]));
-    expect(editor.selection).toBeNull();
+    expect(editor.state.selection).toBeNull();
   });
 
   /** A document whose root holds plain nodes with ids `ids`. */
@@ -218,17 +218,17 @@ describe('editor document', () => {
 
   it('moves among siblings forwards, backwards and to the end, the selection following', () => {
     const editor = new EditorDocument(flat('a', 'b', 'c', 'd'));
-    expect(editor.issues).toEqual([]);
+    expect(editor.state.issues).toEqual([]);
     editor.select([2]);
     editor.execute(moveNode([0], [], 3));
-    expect(ids(editor.document)).toEqual(['b', 'c', 'a', 'd']);
+    expect(ids(editor.state.document)).toEqual(['b', 'c', 'a', 'd']);
     // c moved from [2] to [1] as a went past it.
-    expect(editor.selection).toEqual([1]);
+    expect(editor.state.selection).toEqual([1]);
     editor.execute(moveNode([3], [], 0));
-    expect(ids(editor.document)).toEqual(['d', 'b', 'c', 'a']);
-    expect(editor.selection).toEqual([2]);
+    expect(ids(editor.state.document)).toEqual(['d', 'b', 'c', 'a']);
+    expect(editor.state.selection).toEqual([2]);
     editor.execute(moveNode([0], [], 99));
-    expect(ids(editor.document)).toEqual(['b', 'c', 'a', 'd']);
+    expect(ids(editor.state.document)).toEqual(['b', 'c', 'a', 'd']);
     expect(() => editor.execute(moveNode([0], [], 0.5))).toThrow(/integer/);
   });
 
@@ -236,18 +236,18 @@ describe('editor document', () => {
     const editor = new EditorDocument(flat('a', 'b', 'c'));
     editor.select([0]);
     editor.execute(moveNode([0], [2], 0));
-    expect(ids(editor.document)).toEqual(['b', 'c']);
-    expect(ids(editor.document, [1])).toEqual(['a']);
-    expect(editor.selection).toEqual([1, 0]);
+    expect(ids(editor.state.document)).toEqual(['b', 'c']);
+    expect(ids(editor.state.document, [1])).toEqual(['a']);
+    expect(editor.state.selection).toEqual([1, 0]);
     editor.execute(removeNode([1, 0]));
-    expect('children' in (nodeAt(editor.document, [1]) ?? {})).toBe(false);
-    expect(editor.selection).toBeNull();
+    expect('children' in (nodeAt(editor.state.document, [1]) ?? {})).toBe(false);
+    expect(editor.state.selection).toBeNull();
     editor.select([1]);
     editor.execute(removeNode([0]));
-    expect(editor.selection).toEqual([0]);
+    expect(editor.state.selection).toEqual([0]);
     editor.execute(setProp([0], 'visible', false));
     editor.execute(setProp([0], 'visible', undefined));
-    expect('props' in (nodeAt(editor.document, [0]) ?? {})).toBe(false);
+    expect('props' in (nodeAt(editor.state.document, [0]) ?? {})).toBe(false);
   });
 
   it('adds no step for a change that changes nothing', () => {
@@ -259,7 +259,7 @@ describe('editor document', () => {
     editor.execute(renameNode([0], 'a'));
     editor.execute(renameNode([0], ' a '));
     editor.undo();
-    expect(editor.canUndo).toBe(false);
+    expect(editor.state.canUndo).toBe(false);
   });
 
   it('starts a new step after an undo, clears redo with a new command, restores the selection', () => {
@@ -269,35 +269,35 @@ describe('editor document', () => {
     editor.undo();
     editor.execute(setProp([0], 'position', { x: 3, y: 0, z: 0 }));
     editor.undo();
-    expect(nodeAt(editor.document, [0])?.props).toBeUndefined();
-    expect(editor.canRedo).toBe(true);
+    expect(nodeAt(editor.state.document, [0])?.props).toBeUndefined();
+    expect(editor.state.canRedo).toBe(true);
     editor.execute(setName([0], 'A'));
-    expect(editor.canRedo).toBe(false);
+    expect(editor.state.canRedo).toBe(false);
     editor.select([1]);
     editor.execute(addNode([], { type: 'Node' }));
-    expect(editor.selection).toEqual([2]);
+    expect(editor.state.selection).toEqual([2]);
     editor.undo();
-    expect(editor.selection).toEqual([1]);
+    expect(editor.state.selection).toEqual([1]);
     // A path with no node selects nothing.
     editor.select([9]);
-    expect(editor.selection).toBeNull();
+    expect(editor.state.selection).toBeNull();
   });
 
   it('duplicates a subtree with fresh ids, and renames to a free id', () => {
     const editor = new EditorDocument(flat('a', 'b'));
     editor.execute(addNode([0], { type: 'Node', id: 'leaf' }));
     editor.execute(duplicateNode([0]));
-    expect(ids(editor.document)).toEqual(['a', 'a-2', 'b']);
-    expect(ids(editor.document, [1])).toEqual(['leaf-2']);
-    expect(editor.selection).toEqual([1]);
+    expect(ids(editor.state.document)).toEqual(['a', 'a-2', 'b']);
+    expect(ids(editor.state.document, [1])).toEqual(['leaf-2']);
+    expect(editor.state.selection).toEqual([1]);
     editor.execute(renameNode([2], 'a'));
-    expect(ids(editor.document)).toEqual(['a', 'a-2', 'a-3']);
+    expect(ids(editor.state.document)).toEqual(['a', 'a-2', 'a-3']);
     // Only what the format refuses is changed.
     editor.execute(renameNode([2], 'глаз левый'));
-    expect(ids(editor.document)[2]).toBe('глаз левый');
+    expect(ids(editor.state.document)[2]).toBe('глаз левый');
     editor.execute(renameNode([2], '~x/y'));
-    expect(ids(editor.document)[2]).toBe('x-y');
-    expect(editor.issues).toEqual([]);
+    expect(ids(editor.state.document)[2]).toBe('x-y');
+    expect(editor.state.issues).toEqual([]);
   });
 
   it('renames only the ids its own prefab instance makes', () => {
@@ -318,13 +318,13 @@ describe('editor document', () => {
       ],
     };
     const editor = new EditorDocument(document);
-    expect(editor.issues).toEqual([]);
+    expect(editor.state.issues).toEqual([]);
     editor.execute(renameNode([0], 'look'));
-    expect(editor.document.springs?.map((spring) => spring.target)).toEqual([
+    expect(editor.state.document.springs?.map((spring) => spring.target)).toEqual([
       'peep-left-pupil',
       'look-pupil',
     ]);
-    expect(editor.issues).toEqual([]);
+    expect(editor.state.issues).toEqual([]);
   });
 
   it('renames the targets of behaviors, blends, states, layers and every constraint field', () => {
@@ -364,9 +364,9 @@ describe('editor document', () => {
     } as unknown as MascotDocument;
     const editor = new EditorDocument(document);
     editor.execute(renameNode([0], 'z'));
-    const text = JSON.stringify({ ...editor.document, root: null });
+    const text = JSON.stringify({ ...editor.state.document, root: null });
     expect(text).not.toContain('"a"');
-    expect(editor.document.constraints?.[0]).toMatchObject({
+    expect(editor.state.document.constraints?.[0]).toMatchObject({
       target: 'z',
       mid: 'z',
       at: 'z',
@@ -402,19 +402,19 @@ describe('editor document', () => {
 
   it('builds a new scene after each valid change, and starts with none when broken', () => {
     const editor = new EditorDocument(readDocument(gloopDocument));
-    const good = editor.scene;
+    const good = editor.state.scene;
     editor.execute(renameNode([1], 'elsewhere'));
     editor.execute(setProp([1], 'visible', false));
     // Renamed with every reference, the document still builds: a new scene each time.
-    expect(editor.stale).toBe(false);
-    expect(editor.scene).not.toBe(good);
+    expect(editor.state.stale).toBe(false);
+    expect(editor.state.scene).not.toBe(good);
     const broken = new EditorDocument({
       ...readDocument(gloopDocument),
       layers: [{ name: 'x', play: 'none' }],
     });
-    expect(broken.scene).toBeNull();
-    expect(broken.stale).toBe(false);
-    expect(broken.issues.length).toBeGreaterThan(0);
+    expect(broken.state.scene).toBeNull();
+    expect(broken.state.stale).toBe(false);
+    expect(broken.state.issues.length).toBeGreaterThan(0);
   });
 
   it('runs every listener even when one throws, then throws its error', () => {
@@ -427,5 +427,71 @@ describe('editor document', () => {
     expect(() => editor.select([0])).toThrow('first');
     expect(heard).toEqual(['second']);
     expect(editor.state.selection).toEqual([0]);
+  });
+
+  it('picks an id under which the ids a prefab instance makes are free too', () => {
+    const base = flat();
+    const document: MascotDocument = {
+      ...base,
+      root: {
+        type: 'Node',
+        id: 'root',
+        children: [
+          { prefab: 'eye', id: 'eye' },
+          { type: 'Node', id: 'foo-pupil' },
+        ],
+      },
+    };
+    const editor = new EditorDocument(document);
+    expect(editor.state.issues).toEqual([]);
+    // `foo` is free, but the eye would make `foo-pupil`, which is taken.
+    editor.execute(renameNode([0], 'foo'));
+    expect(nodeAt(editor.state.document, [0])?.id).toBe('foo-2');
+    editor.execute(addNode([], { prefab: 'eye', id: 'foo' }));
+    expect(nodeAt(editor.state.document, [2])?.id).toBe('foo-3');
+    editor.execute(duplicateNode([2]));
+    expect(nodeAt(editor.state.document, [3])?.id).toBe('foo-3-2');
+    expect(editor.state.issues).toEqual([]);
+  });
+
+  it('destroys a scene once a newer one replaces it, and keeps it while the document is broken', () => {
+    const editor = new EditorDocument(flat('a'));
+    const first = editor.state.scene;
+    editor.execute(setName([0], 'A'));
+    expect(first?.scene.root.destroyed).toBe(true);
+    const second = editor.state.scene;
+    editor.execute(renameNode([0], 'b'));
+    editor.execute({
+      label: 'Break',
+      run: (document) => ({ document: { ...document, layers: [{ name: 'x', play: 'none' }] } }),
+    });
+    expect(editor.state.stale).toBe(true);
+    expect(editor.state.scene?.scene.root.destroyed).toBe(false);
+    expect(second?.scene.root.destroyed).toBe(true);
+  });
+
+  it('notifies only when something changes, and throws a bug rather than report it', () => {
+    const editor = new EditorDocument(flat('a'));
+    let heard = 0;
+    editor.subscribe(() => heard++);
+    editor.select([0]);
+    editor.select([0]);
+    editor.execute(setName([0], ''));
+    expect(heard).toBe(1);
+    const before = editor.state;
+    expect(() =>
+      editor.execute({
+        label: 'Bug',
+        run: (document) => ({
+          document: {
+            ...document,
+            get root(): never {
+              throw new TypeError('a bug');
+            },
+          },
+        }),
+      }),
+    ).toThrow(TypeError);
+    expect(editor.state).toBe(before);
   });
 });

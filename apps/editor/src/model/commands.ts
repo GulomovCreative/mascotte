@@ -1,5 +1,5 @@
 import type { MascotDocument, NodeDocument, PropertyValue } from '@mascotte/format';
-import { expandedIds, uniqueId, withUniqueIds } from './ids.ts';
+import { expandedIds, madeSuffixes, uniqueId, withUniqueIds } from './ids.ts';
 import { type DocPath, isWithin, nodeAt, pathString, updateNode } from './paths.ts';
 import { renameReferences } from './references.ts';
 
@@ -84,24 +84,21 @@ export function renameNode(path: DocPath, id: string): Command {
     run: (document) => {
       const node = existing(document, path);
       const old = node.id;
-      const before = expandedIds(document);
-      if (old !== undefined) before.delete(old);
-      const next = uniqueId(id, before);
+      // The ids its prefab makes go with its id: free them with it, and find a new id they are
+      // free under too (another instance's ids, `eye` and `eye-left`, stay taken).
+      const suffixes = madeSuffixes(document, node);
+      const taken = expandedIds(document);
+      if (old !== undefined) {
+        taken.delete(old);
+        for (const suffix of suffixes) taken.delete(`${old}-${suffix}`);
+      }
+      const next = uniqueId(id, taken, suffixes);
       if (old === next) return { document };
       const renamed = updateNode(document, path, (current) => ({ ...current, id: next }));
       const names = new Map<string, string>();
       if (old !== undefined) {
         names.set(old, next);
-        if (node.prefab !== undefined) {
-          // The ids this instance makes are those that go with its old id; another instance's
-          // that share its prefix (`eye` and `eye-left`) stay.
-          const after = expandedIds(renamed);
-          for (const made of expandedIds(document)) {
-            if (made.startsWith(`${old}-`) && !after.has(made)) {
-              names.set(made, `${next}-${made.slice(old.length + 1)}`);
-            }
-          }
-        }
+        for (const suffix of suffixes) names.set(`${old}-${suffix}`, `${next}-${suffix}`);
       }
       return { document: renameReferences(renamed, names) };
     },
@@ -119,18 +116,27 @@ export function addNode(parent: DocPath, node: NodeDocument, index?: number): Co
       if (index !== undefined) checkIndex(index);
       const taken = expandedIds(document);
       const base = node.id ?? (node.prefab ?? node.type ?? 'node').toLowerCase();
-      const made = withUniqueIds({ ...node, id: base }, taken);
+      const made = withUniqueIds({ ...node, id: base }, taken, document);
       const children = existing(document, parent).children ?? [];
       const at =
         index === undefined ? children.length : Math.max(0, Math.min(index, children.length));
-      const next = updateNode(document, parent, (current) => {
-        const list = [...(current.children ?? [])];
-        list.splice(at, 0, made);
-        return { ...current, children: list };
-      });
-      return { document: next, selection: [...parent, at] };
+      return { document: insertChild(document, parent, at, made), selection: [...parent, at] };
     },
   };
+}
+
+/** The document with `child` put among the children of the node at `parent`, at `index`. */
+function insertChild(
+  document: MascotDocument,
+  parent: DocPath,
+  index: number,
+  child: NodeDocument,
+): MascotDocument {
+  return updateNode(document, parent, (current) => {
+    const children = [...(current.children ?? [])];
+    children.splice(index, 0, child);
+    return { ...current, children };
+  });
 }
 
 function checkIndex(index: number): void {
@@ -211,11 +217,7 @@ export function moveNode(path: DocPath, parent: DocPath, index: number): Command
       const at = siblings && index > (path[path.length - 1] as number) ? index - 1 : index;
       const children = existing(removed, target).children ?? [];
       const slot = Math.max(0, Math.min(at, children.length));
-      const next = updateNode(removed, target, (current) => {
-        const list = [...(current.children ?? [])];
-        list.splice(slot, 0, node);
-        return { ...current, children: list };
-      });
+      const next = insertChild(removed, target, slot, node);
       const moved = [...target, slot];
       let followed: DocPath | null = selection;
       if (selection !== null) {
@@ -237,15 +239,10 @@ export function duplicateNode(path: DocPath): Command {
     run: (document) => {
       if (path.length === 0) throw new RangeError('The root cannot be duplicated.');
       const node = existing(document, path);
-      const copy = withUniqueIds(node, expandedIds(document));
+      const copy = withUniqueIds(node, expandedIds(document), document);
       const parent = path.slice(0, -1);
       const at = (path[path.length - 1] as number) + 1;
-      const next = updateNode(document, parent, (current) => {
-        const list = [...(current.children ?? [])];
-        list.splice(at, 0, copy);
-        return { ...current, children: list };
-      });
-      return { document: next, selection: [...parent, at] };
+      return { document: insertChild(document, parent, at, copy), selection: [...parent, at] };
     },
   };
 }
