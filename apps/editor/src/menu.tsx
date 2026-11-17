@@ -62,8 +62,9 @@ function Choice(props: {
       aria-label={props.label}
       value=""
       onChange={(event) => {
-        const value = (event.currentTarget as HTMLSelectElement).value;
-        (event.currentTarget as HTMLSelectElement).value = '';
+        const select = event.currentTarget as HTMLSelectElement;
+        const value = select.value;
+        select.value = '';
         if (value) props.choose(value);
       }}
     >

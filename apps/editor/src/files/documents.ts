@@ -106,15 +106,11 @@ export function newDocument(archetype: string): MascotDocument {
     const side = name.endsWith('.L') ? -1 : 1;
     extras.push(slot(id, { position: { x: side * 30, y: -20, z: 0 } }));
   }
-  const faceNodes = face(hasHead ? 18 : 30);
-  const head = hasHead
-    ? [{ ...sphere('head', 40, { x: 0, y: -50, z: 0 }), children: faceNodes }]
-    : [];
   if (hasHead) slots.head = 'head';
-  const body = {
-    ...sphere('body', 60, { x: 0, y: -30, z: 0 }),
-    children: [...(hasHead ? head : faceNodes), ...extras],
-  };
+  const front = hasHead
+    ? [{ ...sphere('head', 40, { x: 0, y: -50, z: 0 }), children: face(18) }]
+    : face(30);
+  const body = { ...sphere('body', 60, { x: 0, y: -30, z: 0 }), children: [...front, ...extras] };
   return {
     format: FORMAT,
     version: VERSION,
