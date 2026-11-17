@@ -33,9 +33,10 @@ body {
 .editor {
   display: grid;
   grid-template-columns: 240px 1fr 280px;
-  grid-template-rows: auto 1fr 220px;
+  grid-template-rows: auto auto 1fr 220px;
   grid-template-areas:
     "menubar menubar menubar"
+    "draft draft draft"
     "tree viewport inspector"
     "bottom bottom bottom";
   height: 100vh;
@@ -46,7 +47,50 @@ body {
   display: flex;
   align-items: center;
   padding: 0 12px;
-  height: 36px;
+  gap: 12px;
+  min-height: 36px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--border);
+}
+
+.menu {
+  display: flex;
+  gap: 4px;
+}
+
+.menu button,
+.menu select,
+.draft button {
+  font: inherit;
+  padding: 2px 8px;
+}
+
+.document-title {
+  color: var(--muted);
+}
+
+.issues {
+  color: var(--accent);
+}
+
+.problem {
+  color: #c0392b;
+}
+
+.problem button {
+  margin-left: 4px;
+  border: 0;
+  background: none;
+  color: inherit;
+  cursor: pointer;
+}
+
+.draft {
+  grid-area: draft;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
   background: var(--panel);
   border-bottom: 1px solid var(--border);
 }
