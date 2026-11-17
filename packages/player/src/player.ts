@@ -310,10 +310,12 @@ export class Player {
 
   /**
    * The frame as it stands, at the document's frame size times `pixelRatio` (1 by default):
-   * PNG drawn by the player's own renderer kind, so it matches what the page shows, or SVG,
-   * which draws what Canvas 2D does, as vectors. PNG needs a browser canvas.
+   * PNG drawn by the player's own renderer kind, the document's frame as the page draws it (the
+   * same renderer and pose, without the margins a canvas of another shape adds), or SVG, which
+   * draws what Canvas 2D does, as vectors. PNG needs a browser canvas. Throws after `destroy`.
    */
   exportFrame(options: FrameOptions = {}): Promise<Blob> {
+    this.#check();
     const { document, scene, camera } = this.#running;
     return exportFrame(document, scene, camera, this.renderer, options);
   }
@@ -325,6 +327,7 @@ export class Player {
    * stay at their defaults.
    */
   exportFrames(options: FramesOptions): Promise<Blob[]> {
+    this.#check();
     const palette = this.palette;
     const build =
       palette === undefined ? { params: this.#params } : { params: this.#params, palette };

@@ -499,4 +499,76 @@ describe('Player on WebGL2', () => {
       canvas.remove();
     }
   });
+
+  it('exports a PNG drawn by Canvas 2D, and a WebGL sequence of frames all drawn', async () => {
+    const { Player } = await import('@mascotte/player');
+    const { pipDocument } = await import('../src/index.ts');
+    const { buildDocument, readDocument } = await import('@mascotte/format');
+    const { Animator, CanvasRenderer } = await import('@mascotte/engine');
+    const json = JSON.stringify(pipDocument());
+    const bitmap = async (blob: Blob) => {
+      const image = await createImageBitmap(blob);
+      const out = document.createElement('canvas');
+      out.width = image.width;
+      out.height = image.height;
+      out.getContext('2d')?.drawImage(image, 0, 0);
+      return out;
+    };
+    const canvas = document.createElement('canvas');
+    canvas.style.width = '240px';
+    canvas.style.height = '240px';
+    document.body.append(canvas);
+    const flat = new Player(canvas, json, { renderer: 'canvas', autoplay: false });
+    try {
+      const exported = await bitmap(await flat.exportFrame());
+      const doc = readDocument(json);
+      const built = buildDocument(doc);
+      const scene = new Scene(built.root);
+      const animator = new Animator(scene, { rig: built.rig });
+      built.animate(animator);
+      animator.evaluate();
+      const direct = document.createElement('canvas');
+      direct.width = doc.view.width;
+      direct.height = doc.view.height;
+      const ctx = direct.getContext('2d');
+      if (!ctx) throw new Error('No 2D context.');
+      new CanvasRenderer().render(ctx, scene, built.camera, {
+        width: doc.view.width,
+        height: doc.view.height,
+        ...(doc.view.background ? { background: doc.view.background } : {}),
+      });
+      expect([exported.width, exported.height]).toEqual([direct.width, direct.height]);
+      for (let y = 10; y < direct.height; y += 23) {
+        for (let x = 10; x < direct.width; x += 23) {
+          expect(pixel(exported, x, y), `${x}, ${y}`).toEqual(pixel(direct, x, y));
+        }
+      }
+    } finally {
+      flat.destroy();
+      canvas.remove();
+    }
+    // A canvas of its own: the first has a 2D context now.
+    const glCanvas = document.createElement('canvas');
+    glCanvas.style.width = '240px';
+    glCanvas.style.height = '240px';
+    document.body.append(glCanvas);
+    const player = new Player(glCanvas, json, { renderer: 'webgl', autoplay: false });
+    try {
+      // Pip breathes: no two frames alike, and none blank (the sky is drawn in each).
+      const frames = await Promise.all(
+        (await player.exportFrames({ duration: 0.3, fps: 10 })).map(bitmap),
+      );
+      expect(frames).toHaveLength(3);
+      for (const frame of frames) expect(pixel(frame, 5, 5)).toEqual([0xe6, 0xf0, 0xff, 255]);
+      const data = frames.map((frame) =>
+        Array.from(
+          frame.getContext('2d')?.getImageData(0, 0, frame.width, frame.height).data ?? [],
+        ).join(),
+      );
+      expect(new Set(data).size).toBe(3);
+    } finally {
+      player.destroy();
+      glCanvas.remove();
+    }
+  });
 });

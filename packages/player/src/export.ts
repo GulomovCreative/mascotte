@@ -18,7 +18,7 @@ export interface FrameOptions {
 
 /** How to export a sequence of frames, for a video. */
 export interface FramesOptions extends FrameOptions {
-  /** How long the sequence plays, in seconds, from the document's start. */
+  /** How long the sequence plays, in seconds, from the document's start (one frame at least). */
   readonly duration: number;
   /** Frames per second; 30 by default. */
   readonly fps?: number;
@@ -44,6 +44,9 @@ function check(name: string, value: number): number {
 
 /** A canvas element of `width` × `height` pixels (a browser's: PNG export needs one). */
 function canvasOf(width: number, height: number): HTMLCanvasElement {
+  if (typeof globalThis.document === 'undefined') {
+    throw new Error('Frame export: PNG needs a browser canvas; use the "svg" format elsewhere.');
+  }
   const canvas = document.createElement('canvas');
   canvas.width = Math.max(1, Math.round(width));
   canvas.height = Math.max(1, Math.round(height));
@@ -54,7 +57,13 @@ function png(canvas: HTMLCanvasElement): Promise<Blob> {
   return new Promise((resolve, reject) => {
     canvas.toBlob((blob) => {
       if (blob) resolve(blob);
-      else reject(new Error('The frame could not be encoded as PNG.'));
+      else {
+        reject(
+          new Error(
+            `Frame export: the ${canvas.width}×${canvas.height} frame could not be encoded as PNG.`,
+          ),
+        );
+      }
     }, 'image/png');
   });
 }
@@ -79,7 +88,7 @@ function frameMaker(document: MascotDocument, kind: ExportRenderer, options: Fra
   }
   const out = canvasOf(width, height);
   const ctx = out.getContext('2d');
-  if (!ctx) throw new Error('Frame export: no 2D context for the PNG.');
+  if (!ctx) throw new Error(`Frame export: no 2D context for a ${out.width}×${out.height} PNG.`);
   if (kind === 'canvas') {
     const renderer = new CanvasRenderer();
     return {
@@ -92,9 +101,21 @@ function frameMaker(document: MascotDocument, kind: ExportRenderer, options: Fra
   }
   const gl = canvasOf(width, height);
   const renderer = new WebGLRenderer(gl);
+  const buffer = renderer.gl;
+  if (buffer.drawingBufferWidth !== gl.width || buffer.drawingBufferHeight !== gl.height) {
+    renderer.destroy();
+    throw new Error(
+      `Frame export: WebGL draws at most ${buffer.drawingBufferWidth}×${buffer.drawingBufferHeight} here, not ${gl.width}×${gl.height}; use a smaller pixelRatio.`,
+    );
+  }
   return {
     make: (scene: Scene, camera: Camera) => {
-      renderer.render(scene, camera, view);
+      // A frame like the last is skipped by the renderer, but the buffer is not kept between
+      // frames: draw every one. A lost context draws nothing.
+      renderer.invalidate();
+      if (!renderer.render(scene, camera, view)) {
+        throw new Error('Frame export: the WebGL context is lost, the frame was not drawn.');
+      }
       ctx.clearRect(0, 0, out.width, out.height);
       ctx.drawImage(gl, 0, 0);
       return png(out);
@@ -122,7 +143,7 @@ export async function exportFrame(
 /**
  * A sequence of frames of `document` from its start, `fps` a second for `duration` seconds, on a
  * mascot built apart (with `params` and `palette`), so nothing the page shows changes. Inputs
- * stay at their defaults: the sequence shows the idle animation.
+ * stay at their defaults: the sequence shows what the document plays with them.
  */
 export async function exportFrames(
   document: MascotDocument,

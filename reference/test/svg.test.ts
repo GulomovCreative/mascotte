@@ -1,4 +1,13 @@
-import { type Camera, CanvasRenderer, Scene, SvgRenderer, type Viewport } from '@mascotte/engine';
+import {
+  Camera,
+  CanvasRenderer,
+  Capsule,
+  Node,
+  Scene,
+  Sphere,
+  SvgRenderer,
+  type Viewport,
+} from '@mascotte/engine';
 import { buildDocument, readDocument } from '@mascotte/format';
 import { createCanvas, loadImage } from '@napi-rs/canvas';
 import pixelmatch from 'pixelmatch';
@@ -56,4 +65,48 @@ describe('SVG export', () => {
       expect(await differing(new Scene(built.root), built.camera, viewport)).toBe(0);
     },
   );
+
+  it.each([
+    ['in front', { x: 0, y: 0, z: 1 }],
+    ['from the side', { x: -1, y: 0, z: 0.05 }],
+    ['behind and aside', { x: 0.3, y: 0.4, z: -0.8 }],
+    ['straight behind', { x: 0, y: 0, z: -1 }],
+  ] as const)('the tones lit %s draw as the Canvas 2D frame', async (_, light) => {
+    const scene = engineScenes.find((item) => item.id === 'engine-toon');
+    if (!scene) throw new Error('no toon scene');
+    const { root, camera } = scene.build();
+    scene.pose(root, camera, 0.7);
+    camera.light = light;
+    const viewport = { width: scene.width, height: scene.height, pixelRatio: 2 };
+    // A handful of edge pixels may differ: the SVG's arcs and Canvas's ellipses round their
+    // antialiased edges a little differently (out of 307 200 pixels).
+    expect(
+      await differing(new Scene(root), camera, viewport),
+      JSON.stringify(light),
+    ).toBeLessThanOrEqual(4);
+  });
+
+  it('nests the clip of a shaded capsule in the clip of its decal', async () => {
+    const head = new Sphere({ diameter: 60, style: { color: '#808080', stroke: 0 } });
+    head.add(
+      new Capsule({
+        length: 20,
+        diameter: 8,
+        position: { x: 10, y: 0, z: 30 },
+        rotation: { x: 0, y: 1.2, z: 0, order: 'XYZ' } as never,
+        sortMode: 'attached',
+        style: { color: '#7fc8f8', shadowColor: '#4c8fc0', highlightColor: '#ffffff', stroke: 0 },
+      }),
+    );
+    const root = new Node();
+    root.add(head);
+    const scene = new Scene(root);
+    const camera = new Camera();
+    const viewport = { width: 100, height: 100, pixelRatio: 2 };
+    const svg = new SvgRenderer().render(scene, camera, viewport);
+    // The decal's clip, then the capsule's inside it, closed in turn.
+    expect(svg.match(/<g clip-path/g)).toHaveLength(2);
+    expect(svg.split('<g').length).toBe(svg.split('</g>').length);
+    expect(await differing(scene, camera, viewport)).toBe(0);
+  });
 });
