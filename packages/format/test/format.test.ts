@@ -106,7 +106,7 @@ describe('validateDocument', () => {
       'root.children[1].props.opacity: expected at most 1, got 2.',
       'root.children[1].props.sortMode: expected one of auto, group, attached, layer, got "top".',
       'root.children[2].props.quarters: expected an integer, got 2.5.',
-      'root.children[2].props.style.color: expected a CSS color, got "nope".',
+      'root.children[2].props.style.color: expected a CSS color or a palette role {color}, got "nope".',
       'root.children[2].props.rotation: expected a unit quaternion, got one of length 0.',
       expect.stringMatching(/^root\.children\[3\]\.colour: unknown field/),
       expect.stringMatching(
