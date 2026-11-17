@@ -1,6 +1,6 @@
 import type { Node } from '@mascotte/engine';
 import type { MascotDocument, NodeDocument } from '@mascotte/format';
-import type { DocPath } from './paths.ts';
+import { type DocPath, pathString } from './paths.ts';
 
 /**
  * Where each built node came from in the document. Building keeps the tree's order: a node's
@@ -25,6 +25,10 @@ export function sourceMap(root: Node, document: MascotDocument): Map<Node, DocPa
       }
       if (index < own.length) {
         walk(child, own[index] as NodeDocument, [...path, index]);
+      } else if (source?.prefab === undefined) {
+        throw new Error(
+          `The built tree has more children than the document at ${pathString(path)}.`,
+        );
       } else {
         // A prefab's own node, with its subtree, is its instance's.
         child.traverse((made) => {

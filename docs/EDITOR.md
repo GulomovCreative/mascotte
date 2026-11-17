@@ -66,7 +66,10 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   the engine's animation problems come one at a time.
 - **An invalid document is still edited and saved.** The viewport keeps the last scene that
   built and marks it stale; the preview waits for a valid document.
-- **Live scene.** A command that sets a plain property applies it to the live node too, through
+- **State for the interface.** The model gives one immutable state (document, selection, issues,
+  scene, whether it is stale, undo and redo), a new value after every change, for signals to watch.
+- **Live scene.** (For now every change rebuilds the scene; the live path below comes with the
+  viewport's gizmos and the inspector.) A command that sets a plain property applies it to the live node too, through
   the property registry, so a drag stays smooth; a bound value (a parameter or palette reference)
   is resolved first. A command that changes the structure (nodes, prefabs, parameters, motions,
   machines) rebuilds the scene from the document, keeping the camera, the selection (by path),
