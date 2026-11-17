@@ -33,7 +33,11 @@ async function attempt(what: string, task: () => Promise<void> | void): Promise<
  */
 function mayReplace(): boolean {
   if (offeredDraft.value !== null) {
-    return confirm('Replace the document? The unsaved draft offered will be discarded.');
+    return confirm(
+      isUnsaved()
+        ? 'Replace the document? Its unsaved changes and the draft offered will be lost.'
+        : 'Replace the document? The unsaved draft offered will be discarded.',
+    );
   }
   return !isUnsaved() || confirm('Replace the document? Its unsaved changes will be lost.');
 }
@@ -41,7 +45,8 @@ function mayReplace(): boolean {
 async function save(as: boolean): Promise<void> {
   const from = editor.value;
   const document = from.state.document;
-  const name = fileName.value ?? `${document.meta?.name || 'mascot'}.json`;
+  const named = document.meta?.name;
+  const name = fileName.value ?? `${typeof named === 'string' && named ? named : 'mascot'}.json`;
   const saved = await saveFile(document, name, as ? null : currentHandle());
   if (saved) markSaved(saved, document, from);
 }

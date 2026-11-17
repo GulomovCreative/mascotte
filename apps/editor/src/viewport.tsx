@@ -90,7 +90,8 @@ export function Viewport() {
         built?.built.camera ?? fallback,
         width,
         height,
-        state.peek().document.view?.background,
+        // The built scene's view: validated, unlike the document while it has issues.
+        built?.built.view.background,
       );
     };
     // Redrawn whenever the state changes (a new scene, an edit).
