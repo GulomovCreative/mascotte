@@ -542,4 +542,23 @@ describe('Player', () => {
     expect(player.palette).toBe('day');
     player.destroy();
   });
+
+  it('exports the frame as SVG and a sequence from the start, leaving the shown mascot alone', async () => {
+    const { canvas } = fakeCanvas();
+    const { ticker } = manualTicker();
+    const player = new Player(canvas, json(), { renderer: 'canvas', ticker });
+    const frame = await player.exportFrame({ format: 'svg', pixelRatio: 2 });
+    expect(frame.type).toBe('image/svg+xml');
+    const svg = await frame.text();
+    expect(svg).toContain(`width="${pip.width * 2}"`);
+    const pose = JSON.stringify(player.scene.getById('body')?.scale);
+    const frames = await player.exportFrames({ format: 'svg', duration: 1, fps: 10 });
+    expect(frames).toHaveLength(10);
+    const texts = await Promise.all(frames.map((blob) => blob.text()));
+    // It breathes: the frames differ.
+    expect(new Set(texts).size).toBeGreaterThan(1);
+    expect(JSON.stringify(player.scene.getById('body')?.scale)).toBe(pose);
+    await expect(player.exportFrames({ duration: 0 })).rejects.toThrow(/duration must be/);
+    player.destroy();
+  });
 });
