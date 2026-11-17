@@ -619,6 +619,10 @@ export class WebGLRenderer {
       uniforms[name] = gl.getUniformLocation(program, name);
     }
     if (!uniforms.uHalf) throw new Error(`Program ${kind} has no uHalf.`);
+    // Without its light a shaded program would mix its tones evenly, without a word.
+    if ((kind === 'sphere' || kind === 'capsule') && !uniforms.uLight) {
+      throw new Error(`Program ${kind} has no uLight.`);
+    }
     return { program, vao, buffer, uniforms, instanced };
   }
 }

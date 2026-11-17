@@ -60,10 +60,7 @@ export class Sphere extends Surface<typeof SPHERE_PARAMS> {
       .close();
     this.applyStyle(out, this.style.stroke * k * s);
     out.setSphereOccluder(o.x * s, o.y * s, radius + out.lineWidth / 2, o.z, s);
-    out.shade = 'sphere';
-    out.shadeX = out.occluderX;
-    out.shadeY = out.occluderY;
-    out.shadeRadius = out.occluderRadius;
+    out.setSphereShade(this.style, out.occluderX, out.occluderY, out.occluderRadius);
     return true;
   }
 }
@@ -128,10 +125,7 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
       out.hasStroke = false;
       out.hasFill = true;
       out.setSphereOccluder(o.x * s, o.y * s, width / 2, o.z, s);
-      out.shade = 'sphere';
-      out.shadeX = out.occluderX;
-      out.shadeY = out.occluderY;
-      out.shadeRadius = width / 2;
+      out.setSphereShade(this.style, o.x * s, o.y * s, width / 2);
       return true;
     }
     out.path
@@ -151,12 +145,7 @@ export class Capsule extends Surface<typeof CAPSULE_PARAMS> {
     out.occluderY2 = b.y * s;
     out.occluderRadius = width / 2;
     out.occluderDepth = o.z;
-    out.shade = 'capsule';
-    out.shadeX = out.occluderX;
-    out.shadeY = out.occluderY;
-    out.shadeX2 = out.occluderX2;
-    out.shadeY2 = out.occluderY2;
-    out.shadeRadius = width / 2;
+    out.setCapsuleShade(this.style, a.x * s, a.y * s, b.x * s, b.y * s, width / 2);
     return true;
   }
 }

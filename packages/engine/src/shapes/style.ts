@@ -12,8 +12,10 @@ export interface ShapeStyleValues {
   /** Back face color; `null` means the same as the front. */
   backfaceColor: string | null;
   /**
-   * Color of the part turned away from the light (toon shading, see `tone.ts`); `null` means no
-   * shadow. Spheres and capsules shade per point, flat faces by their normal.
+   * Color of the part turned away from the light (toon shading, see `render/tone.ts`); `null`
+   * means no shadow. Spheres, capsules, points and lone strokes shade per point; a filled face
+   * takes one tone by its normal; hemisphere domes and cylinder and cone sides are not shaded yet.
+   * Its alpha is not used: the base color's applies.
    */
   shadowColor: string | null;
   /** Color of the part facing the light most (a toon highlight); `null` means no highlight. */

@@ -30,10 +30,13 @@ float segmentDistance(vec2 p, vec2 a, vec2 b) {
   return length(p - a - ab * t);
 }
 
-// Toon shading (tone.ts): the shadow, base or highlight color by n·l, the steps smoothed over
-// about a pixel.
+// Toon shading (tone.ts): the shadow, base or highlight color by n·l, each step smoothed over
+// about two pixels. The tones' own alpha is not used: the base color's alpha (with the shape's
+// opacity) applies to all three.
 vec3 tone(vec3 n, vec3 shadow, vec3 base, vec3 highlight) {
-  float d = dot(normalize(n), uLight);
+  float len = length(n);
+  if (len < 1e-6) return base;
+  float d = dot(n / len, uLight);
   float w = max(fwidth(d), 1e-4);
   vec3 c = mix(shadow, base, smoothstep(-w, w, d - ${SHADOW_BELOW.toFixed(4)}));
   return mix(c, highlight, smoothstep(-w, w, d - ${HIGHLIGHT_ABOVE.toFixed(4)}));

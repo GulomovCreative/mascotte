@@ -384,14 +384,8 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
     out.hasFill = true;
     // A point with a thick stroke is a sphere, like the mascot's head in Zdog: it occludes.
     out.setSphereOccluder(point.x * s, point.y * s, lineWidth / 2, point.z, s);
-    if (style.toned && !facingBack) {
-      out.shade = 'sphere';
-      out.shadeX = out.occluderX;
-      out.shadeY = out.occluderY;
-      out.shadeRadius = out.occluderRadius;
-      out.shadowColor = style.shadowColor;
-      out.highlightColor = style.highlightColor;
-    }
+    // A sphere looks alike from either side: a back color changes only its base.
+    out.setSphereShade(style, out.occluderX, out.occluderY, out.occluderRadius);
     return true;
   }
   // A filled face takes one tone by its normal, its edge stroke too.
@@ -427,27 +421,25 @@ function projectShape(shape: Shape, camera: Camera, out: DisplayItem): boolean {
   out.hasStroke = lineWidth > 0;
   out.hasFill = style.fill;
   out.splittable = !style.fill;
-  // A stroke alone along one segment is a capsule, and is shaded as one.
+  // A stroke alone along one segment is a capsule, shaded as one from either side; seen end-on,
+  // a sphere.
   // упрощение: в Canvas 2D тонируется только обводка из одного отрезка; ломаные и кривые
   // рисуются одним цветом (WebGL тонирует любые как трубки); вернуться, если такие линии станут
   // заметной частью маскотов.
   if (
-    style.toned &&
+    lineWidth > 0 &&
     !style.fill &&
-    !facingBack &&
     opCount === 2 &&
     ops[1] === PathOp.line &&
     !shape.geometry.closed
   ) {
     const data = path.data;
-    out.shade = 'capsule';
-    out.shadeX = data[0] ?? 0;
-    out.shadeY = data[1] ?? 0;
-    out.shadeX2 = data[2] ?? 0;
-    out.shadeY2 = data[3] ?? 0;
-    out.shadeRadius = lineWidth / 2;
-    out.shadowColor = style.shadowColor;
-    out.highlightColor = style.highlightColor;
+    const x0 = data[0] ?? 0;
+    const y0 = data[1] ?? 0;
+    const x1 = data[2] ?? 0;
+    const y1 = data[3] ?? 0;
+    if (x0 === x1 && y0 === y1) out.setSphereShade(style, x0, y0, lineWidth / 2);
+    else out.setCapsuleShade(style, x0, y0, x1, y1, lineWidth / 2);
   }
   return true;
 }
