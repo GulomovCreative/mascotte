@@ -290,13 +290,11 @@ export class Player {
     const read = readDocument(document);
     const params = options.params ?? this.#params;
     // A palette given is required; one kept from before falls back to the base where missing.
-    const kept = this.#palette;
-    const palette =
-      'palette' in options
-        ? options.palette
-        : kept !== undefined && Object.hasOwn(read.palettes ?? {}, kept)
-          ? kept
-          : undefined;
+    let palette = this.#palette;
+    if ('palette' in options) palette = options.palette;
+    else if (palette !== undefined && !Object.hasOwn(read.palettes ?? {}, palette)) {
+      palette = undefined;
+    }
     const next = this.#start(read, params, palette);
     this.#params = params;
     this.#palette = palette;
