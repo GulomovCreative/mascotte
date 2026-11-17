@@ -5,6 +5,16 @@ import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from '../tone.ts';
  * y down, z toward the viewer). The view ray at pixel p goes from (p.x, p.y, uRayZ) along −z.
  */
 
+/** The shape number as a color (24 bits in RGB), for the owners pass (`WebGLRenderer`). */
+const ID_COLOR = /* glsl */ `vec4 idColor() {
+  return vec4(
+    mod(vId, 256.0) / 255.0,
+    mod(floor(vId / 256.0), 256.0) / 255.0,
+    floor(vId / 65536.0) / 255.0,
+    1.0
+  );
+}`;
+
 /** Shared fragment shader functions. */
 const common = /* glsl */ `#version 300 es
 precision highp float;
@@ -13,8 +23,12 @@ uniform float uPx;     // internal frame pixels per CSS pixel
 uniform float uRayZ;
 uniform float uSolid;  // 1 means draw only fully covered pixels (see shade)
 uniform vec3 uLight;   // toward the light, normalized
+uniform float uIdPass; // 1 when drawing shape numbers (the owners pass)
 in vec2 vPos;
+flat in float vId;
 out vec4 outColor;
+
+${ID_COLOR}
 
 float depthOf(float z) {
   return clamp((uDepth.y - z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
@@ -60,8 +74,10 @@ uniform float uPx;
 in vec2 aCorner;       // rectangle corners, 0..1
 ${attributes}
 in vec4 aColor;
+in float aId;
 out vec2 vPos;
 flat out vec4 vColor;
+flat out float vId;
 ${pass
   .split(';')
   .filter(Boolean)
@@ -75,6 +91,7 @@ void main() {
   vec2 p = mix(lo, hi, aCorner);
   vPos = p;
   vColor = aColor;
+  vId = aId;
   ${pass
     .split(';')
     .filter(Boolean)
@@ -88,8 +105,8 @@ void main() {
 `;
 }
 
-function fragment(pass: string, body: string): string {
-  return `${common}
+function fragment(pass: string, body: string, uniforms = ''): string {
+  return `${common}${uniforms}
 flat in vec4 vColor;
 ${pass
   .split(';')
@@ -99,6 +116,11 @@ ${pass
 // Pixel color with edge coverage. A translucent shape is drawn in two passes: first
 // only fully covered pixels, then the edges; the stencil lets each pixel through once.
 vec4 shade(float cover, vec3 rgb) {
+  // Shape numbers: whole pixels, a shape's where it covers most.
+  if (uIdPass > 0.5) {
+    if (cover < 0.5) discard;
+    return idColor();
+  }
   if (uSolid > 0.5 && cover < 1.0) discard;
   return vec4(rgb, vColor.a * cover);
 }
@@ -312,6 +334,10 @@ export const coneProgram = {
 };
 
 const RING_PASS = 'vec3 vA; vec3 vB; float vInner; float vOuter; float vBack;';
+/** The shape number seen at each pixel (the owners pass), and whether there is one. */
+const RING_OWNERS = /* glsl */ `
+uniform highp sampler2D uOwner;
+uniform float uOwners;`;
 /**
  * An outline: the band from `inner` to `outer` around a segment (a point for a sphere) on screen,
  * at the depth of the segment's point nearest the pixel on screen, pushed back by `back` (forward
@@ -333,8 +359,14 @@ export const ringProgram = {
   float cover = coverage(vOuter - d);
   // Inside the shape, past the pixel of its antialiased edge, there is nothing to draw.
   if (cover <= 0.0 || d < vInner - 1.0 / uPx) discard;
+  // A shape drawn after this one (in sort order) covers its outline, as in Canvas 2D.
+  if (uOwners > 0.5) {
+    vec3 owner = texelFetch(uOwner, ivec2(gl_FragCoord.xy), 0).rgb * 255.0 + 0.5;
+    if (floor(owner.r) + floor(owner.g) * 256.0 + floor(owner.b) * 65536.0 > vId + 0.5) discard;
+  }
   gl_FragDepth = depthOf(mix(vA.z, vB.z, t) - vBack);
   outColor = shade(cover);`,
+    RING_OWNERS,
   ),
   attributes: [
     ['aA', 3],
@@ -352,8 +384,11 @@ uniform vec2 uHalf;
 uniform vec2 uDepth;
 in vec3 aPosition;
 in vec4 aColor;
+in float aId;
 flat out vec4 vColor;
+flat out float vId;
 void main() {
+  vId = aId;
   float depth = clamp((uDepth.y - aPosition.z) / max(uDepth.y - uDepth.x, 1e-6), 0.0, 1.0);
   vColor = aColor;
   gl_Position = vec4(aPosition.x / uHalf.x, -aPosition.y / uHalf.y, depth * 2.0 - 1.0, 1.0);
@@ -361,9 +396,12 @@ void main() {
 `,
   fragment: /* glsl */ `#version 300 es
 precision highp float;
+uniform float uIdPass;
 flat in vec4 vColor;
+flat in float vId;
 out vec4 outColor;
-void main() { outColor = vColor; }
+${ID_COLOR}
+void main() { outColor = uIdPass > 0.5 ? idColor() : vColor; }
 `,
   attributes: [['aPosition', 3]] as const,
 };

@@ -154,7 +154,7 @@ describe('outline details', () => {
     const [ring] = ringData(collect(capsule));
     // From one end of the axis to the other (along x), then the black color.
     expect(ring?.slice(0, 6).map((v) => Math.round(v) + 0)).toEqual([-5, 0, 0, 5, 0, 0]);
-    expect(ring?.slice(9)).toEqual([0, 0, 0, 1]);
+    expect(ring?.slice(9, 13)).toEqual([0, 0, 0, 1]);
     const face = new PathShape({
       path: [
         { type: 'move', point: { x: 0, y: 0, z: 0 } },
@@ -177,6 +177,22 @@ describe('outline details', () => {
     expect(faces.length).toBeGreaterThan(0);
     expect(faces.length % 4).toBe(0);
     for (const ring of faces) expect(ring).toEqual([0, 2, 2]);
+    // Every primitive ends with its shape's place in sort order, from 1; a ring with its shape's.
+    const second = new Sphere({ diameter: 10, position: { x: 0, y: 0, z: 30 }, style: ink });
+    const frame = collect(new Sphere({ diameter: 10, style: ink }), second);
+    const bucket = frame.layers[0]?.opaque[0];
+    const numbers = (kind: 'sphere' | 'ring') => {
+      const data = bucket?.data[kind];
+      const out: number[] = [];
+      for (let i = STRIDE[kind] - 1; data && i < data.length; i += STRIDE[kind]) {
+        out.push(data.data[i] as number);
+      }
+      return out;
+    };
+    expect(numbers('sphere')).toEqual([1, 2]);
+    expect(numbers('ring')).toEqual([1, 2]);
+    expect(frame.rings).toBe(true);
+    expect(collect(new Sphere({ diameter: 10 })).rings).toBe(false);
     const invisible = new PathShape({
       path: [
         { type: 'move', point: { x: 0, y: 0, z: 0 } },
