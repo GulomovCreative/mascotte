@@ -5,11 +5,37 @@ import {
   type CanvasTarget,
   DisplayList,
   Node,
+  PathShape,
   Scene,
   Sphere,
 } from '../src/index.ts';
 
 const camera = new Camera();
+
+/** A context that records the calls made on it, clips with their rule. */
+function recorder(): { ctx: CanvasTarget; calls: string[] } {
+  const calls: string[] = [];
+  const ctx = new Proxy(
+    {},
+    {
+      get:
+        (_, key: string) =>
+        (...args: unknown[]) =>
+          calls.push(key === 'clip' ? `clip ${args[0] ?? 'nonzero'}` : key),
+      set: () => true,
+    },
+  ) as CanvasTarget;
+  return { ctx, calls };
+}
+
+/** The item drawn for the node with `id`. */
+function itemById(list: DisplayList, id: string) {
+  for (let i = 0; i < list.count; i++) {
+    const item = list.item(i);
+    if ((item.node as Node).id === id) return item;
+  }
+  throw new Error(`no ${id}`);
+}
 
 /** A body with a belly reaching out of it, a ball inside it, and an eye decal on it. */
 function scene(options: { partialOcclusion?: boolean; yaw?: number } = {}) {
@@ -41,13 +67,7 @@ function scene(options: { partialOcclusion?: boolean; yaw?: number } = {}) {
   const list = new DisplayList(
     options.partialOcclusion === undefined ? {} : { partialOcclusion: options.partialOcclusion },
   ).build(world, camera);
-  const byId = (id: string) => {
-    for (let i = 0; i < list.count; i++) {
-      const item = list.item(i);
-      if ((item.node as Node).id === id) return item;
-    }
-    throw new Error(`no ${id}`);
-  };
+  const byId = (id: string) => itemById(list, id);
   return { list, byId, world };
 }
 
@@ -66,17 +86,7 @@ describe('sphere cuts', () => {
   });
 
   it('clip the belly to where it stands out, and leave out a sphere wholly inside', () => {
-    const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get:
-          (_, key: string) =>
-          (...args: unknown[]) =>
-            calls.push(key === 'clip' ? `clip ${args[0] ?? 'nonzero'}` : key),
-        set: () => true,
-      },
-    ) as CanvasTarget;
+    const { ctx, calls } = recorder();
     const { world } = scene();
     new CanvasRenderer().render(ctx, world, camera, { width: 80, height: 80 });
     // Body, belly and eye are filled; the ball inside the body is not drawn at all.
@@ -93,17 +103,7 @@ describe('sphere cuts', () => {
   });
 
   it('clip the belly seen from the side by the front arc of the circle and the silhouette', () => {
-    const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get:
-          (_, key: string) =>
-          (...args: unknown[]) =>
-            calls.push(key === 'clip' ? `clip ${args[0] ?? 'nonzero'}` : key),
-        set: () => true,
-      },
-    ) as CanvasTarget;
+    const { ctx, calls } = recorder();
     const { world } = scene({ yaw: 1.2 });
     new CanvasRenderer().render(ctx, world, camera, { width: 80, height: 80 });
     expect(calls).toContain('clip evenodd');
@@ -111,17 +111,7 @@ describe('sphere cuts', () => {
 
   /** The calls a frame of `nodes` makes, clips with their rule. */
   function frame(...nodes: Node[]): string[] {
-    const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get:
-          (_, key: string) =>
-          (...args: unknown[]) =>
-            calls.push(key === 'clip' ? `clip ${args[0] ?? 'nonzero'}` : key),
-        set: () => true,
-      },
-    ) as CanvasTarget;
+    const { ctx, calls } = recorder();
     const root = new Node();
     for (const node of nodes) root.add(node);
     new CanvasRenderer().render(ctx, new Scene(root), camera, { width: 120, height: 120 });
@@ -216,12 +206,7 @@ describe('sphere cuts', () => {
     root.add(left).add(right).add(middle);
     const world = new Scene(root);
     const list = new DisplayList();
-    const item = (id: string) => {
-      for (let i = 0; i < list.count; i++) {
-        if ((list.item(i).node as Node).id === id) return list.item(i);
-      }
-      throw new Error(`no ${id}`);
-    };
+    const item = (id: string) => itemById(list, id);
     list.build(world, camera);
     expect(new Set(item('middle').sphereCuts)).toEqual(new Set([item('left'), item('right')]));
     expect(item('pupil').cutBase).toBe(item('middle'));
@@ -229,5 +214,51 @@ describe('sphere cuts', () => {
     middle.position.set(0, 80, 10);
     list.build(world, camera);
     expect([item('middle').sphereCuts, item('pupil').sphereCuts]).toEqual([[], []]);
+  });
+
+  it('cut the parts of a split decal stroke with their anchor', () => {
+    // A belly sunk in a body, a mouth stroke on it crossing a nose that splits it.
+    const root = new Node();
+    const body = new Sphere({ id: 'body', diameter: 40, style: { stroke: 0 } });
+    const belly = new Sphere({
+      id: 'belly',
+      diameter: 30,
+      position: { x: 0, y: 0, z: 12 },
+      style: { stroke: 0 },
+    });
+    belly.add(
+      new Sphere({
+        id: 'nose',
+        diameter: 6,
+        position: { x: 0, y: 0, z: 26 },
+        style: { stroke: 0 },
+      }),
+    );
+    belly.add(
+      new PathShape({
+        id: 'mouth',
+        path: [
+          { type: 'move', point: { x: -10, y: 0, z: 22 } },
+          { type: 'line', point: { x: 10, y: 0, z: 30 } },
+        ],
+        closed: false,
+        sortMode: 'attached',
+        style: { stroke: 2 },
+      }),
+    );
+    body.add(belly);
+    root.add(body);
+    const list = new DisplayList().build(new Scene(root), camera);
+    const bellyItem = itemById(list, 'belly');
+    let parts = 0;
+    for (let i = 0; i < list.count; i++) {
+      const item = list.item(i);
+      if ((item.node as Node).id !== 'mouth') continue;
+      parts++;
+      expect(item.cutBase).toBe(bellyItem);
+      expect(item.sphereCuts).toEqual(bellyItem.sphereCuts);
+    }
+    expect(parts).toBeGreaterThan(0);
+    expect(bellyItem.sphereCuts.length).toBeGreaterThan(0);
   });
 });

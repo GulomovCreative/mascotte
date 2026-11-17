@@ -2,7 +2,7 @@ import type { Vec3 } from '@mascotte/math';
 import type { Camera } from '../scene/camera.ts';
 import type { Scene } from '../scene/scene.ts';
 import type { SurfaceOutline } from '../shapes/surface.ts';
-import { DisplayList, type DisplayListOptions } from './display-list.ts';
+import { type DisplayItem, DisplayList, type DisplayListOptions } from './display-list.ts';
 import { ScreenOp, type ScreenPath } from './screen-path.ts';
 import { HIGHLIGHT_ABOVE, SHADOW_BELOW } from './tone.ts';
 
@@ -83,84 +83,67 @@ export class CanvasRenderer {
     for (let i = 0; i < list.count; i++) {
       const item = list.item(i);
       const clipped = item.clip === 'circle' || item.sphereCuts.length > 0;
+      let shown = true;
       if (clipped) {
         // After restore the context returns to its state before save: the cache is reset too.
         ctx.save();
-        if (item.clip === 'circle') {
-          ctx.beginPath();
-          ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, Math.PI * 2);
-          ctx.clip();
+        shown = clipItem(ctx, item);
+      }
+      if (shown) {
+        if (item.opacity !== alpha) {
+          alpha = item.opacity;
+          ctx.globalAlpha = alpha;
         }
-        // A decal is cut as its anchor.
-        const base = item.cutBase ?? item;
-        let shown = true;
-        for (let k = 0; k < item.sphereCuts.length && shown; k++) {
-          shown = clipSphereCut(ctx, base, item.sphereCuts[k] as SurfaceOutline);
+        if (item.outlineWidth > 0) {
+          // The outline: the item's path stroked wider, just behind it.
+          // упрощение: обводка — целая полоса под фигурой, поэтому у полупрозрачной фигуры её
+          // внутренняя половина просвечивает, а у части обводки, разрезанной окклюдером, на разрезе
+          // круглый конец (WebGL рисует только внешнее кольцо, без разрезов); вернуться, если
+          // обведённые фигуры станут полупрозрачными или разрез станет заметен.
+          trace(ctx, item.path);
+          ctx.lineCap = 'round';
+          ctx.lineWidth = (item.hasStroke ? item.lineWidth : 0) + 2 * item.outlineWidth;
+          ctx.strokeStyle = item.outlineColor;
+          ctx.stroke();
+          lineCap = 'round';
+          lineWidth = Number.NaN;
+          strokeStyle = item.outlineColor;
         }
-        if (!shown) {
-          // Nothing of its front shows outside a sphere drawn before it.
-          ctx.restore();
-          alpha = Number.NaN;
+        if (item.shade !== 'none') {
+          // Shaded: the brush changes several times, the state cache starts over.
+          // упрощение: тона рисуются слоями поверх основы, поэтому у полупрозрачной фигуры они
+          // просвечивают друг через друга (WebGL даёт один цвет на пиксель); вернуться, если
+          // тонированные фигуры станут полупрозрачными (затухание маскота целиком).
+          if (item.shade === 'sphere') shadeSphere(ctx, item, camera.light);
+          else shadeCapsule(ctx, item, camera.light);
           lineCap = '';
           lineWidth = Number.NaN;
           strokeStyle = '';
           fillStyle = '';
-          continue;
-        }
-      }
-      if (item.opacity !== alpha) {
-        alpha = item.opacity;
-        ctx.globalAlpha = alpha;
-      }
-      if (item.outlineWidth > 0) {
-        // The outline: the item's path stroked wider, just behind it.
-        // упрощение: обводка — целая полоса под фигурой, поэтому у полупрозрачной фигуры её
-        // внутренняя половина просвечивает, а у части обводки, разрезанной окклюдером, на разрезе
-        // круглый конец (WebGL рисует только внешнее кольцо, без разрезов); вернуться, если
-        // обведённые фигуры станут полупрозрачными или разрез станет заметен.
-        trace(ctx, item.path);
-        ctx.lineCap = 'round';
-        ctx.lineWidth = (item.hasStroke ? item.lineWidth : 0) + 2 * item.outlineWidth;
-        ctx.strokeStyle = item.outlineColor;
-        ctx.stroke();
-        lineCap = 'round';
-        lineWidth = Number.NaN;
-        strokeStyle = item.outlineColor;
-      }
-      if (item.shade !== 'none') {
-        // Shaded: the brush changes several times, the state cache starts over.
-        // упрощение: тона рисуются слоями поверх основы, поэтому у полупрозрачной фигуры они
-        // просвечивают друг через друга (WebGL даёт один цвет на пиксель); вернуться, если
-        // тонированные фигуры станут полупрозрачными (затухание маскота целиком).
-        if (item.shade === 'sphere') shadeSphere(ctx, item, camera.light);
-        else shadeCapsule(ctx, item, camera.light);
-        lineCap = '';
-        lineWidth = Number.NaN;
-        strokeStyle = '';
-        fillStyle = '';
-      } else {
-        trace(ctx, item.path);
-        if (item.hasStroke) {
-          if (item.lineCap !== lineCap) {
-            lineCap = item.lineCap;
-            ctx.lineCap = item.lineCap;
+        } else {
+          trace(ctx, item.path);
+          if (item.hasStroke) {
+            if (item.lineCap !== lineCap) {
+              lineCap = item.lineCap;
+              ctx.lineCap = item.lineCap;
+            }
+            if (item.lineWidth !== lineWidth) {
+              lineWidth = item.lineWidth;
+              ctx.lineWidth = lineWidth;
+            }
+            if (item.color !== strokeStyle) {
+              strokeStyle = item.color;
+              ctx.strokeStyle = strokeStyle;
+            }
+            ctx.stroke();
           }
-          if (item.lineWidth !== lineWidth) {
-            lineWidth = item.lineWidth;
-            ctx.lineWidth = lineWidth;
+          if (item.hasFill) {
+            if (item.color !== fillStyle) {
+              fillStyle = item.color;
+              ctx.fillStyle = fillStyle;
+            }
+            ctx.fill();
           }
-          if (item.color !== strokeStyle) {
-            strokeStyle = item.color;
-            ctx.strokeStyle = strokeStyle;
-          }
-          ctx.stroke();
-        }
-        if (item.hasFill) {
-          if (item.color !== fillStyle) {
-            fillStyle = item.color;
-            ctx.fillStyle = fillStyle;
-          }
-          ctx.fill();
         }
       }
       if (clipped) {
@@ -193,6 +176,24 @@ function checkViewport(viewport: Viewport): number {
 
 const TAU = Math.PI * 2;
 
+/**
+ * Clips the context to the item's decal circle and its sphere cuts. Returns `false` if nothing of
+ * its front shows outside a sphere drawn before it.
+ */
+function clipItem(ctx: CanvasTarget, item: DisplayItem): boolean {
+  if (item.clip === 'circle') {
+    ctx.beginPath();
+    ctx.arc(item.clipX, item.clipY, item.clipRadius, 0, TAU);
+    ctx.clip();
+  }
+  // A decal is cut as its anchor.
+  const base = item.cutBase ?? item;
+  for (let k = 0; k < item.sphereCuts.length; k++) {
+    if (!clipSphereCut(ctx, base, item.sphereCuts[k] as DisplayItem)) return false;
+  }
+  return true;
+}
+
 /** How many segments a sphere cut's arc of the intersection circle is drawn with. */
 const CUT_STEPS = 24;
 
@@ -203,26 +204,31 @@ const CUT_STEPS = 24;
  */
 const circle = { x: 0, y: 0, r: 0, h: 0, s: 0, ux: 0, uy: 0, e1x: 0, e1y: 0, e2x: 0, e2y: 0 };
 
-/** Adds the circle's point at angle `phi` to the path, moving there if `move`. */
-function circlePoint(ctx: CanvasTarget, phi: number, move: boolean): void {
+/** The circle's point at an angle, on screen, from the sphere's center per unit radius. Reused. */
+const offset = { x: 0, y: 0 };
+
+/** Sets `offset` to the circle's point at angle `phi`. */
+function circleOffset(phi: number): void {
   const c = circle;
   const cos = Math.cos(phi);
   const sin = Math.sin(phi);
-  const px = c.x + c.r * (c.h * c.ux + c.s * (cos * c.e1x + sin * c.e2x));
-  const py = c.y + c.r * (c.h * c.uy + c.s * (cos * c.e1y + sin * c.e2y));
+  offset.x = c.h * c.ux + c.s * (cos * c.e1x + sin * c.e2x);
+  offset.y = c.h * c.uy + c.s * (cos * c.e1y + sin * c.e2y);
+}
+
+/** Adds the circle's point at angle `phi` to the path, moving there if `move`. */
+function circlePoint(ctx: CanvasTarget, phi: number, move: boolean): void {
+  circleOffset(phi);
+  const px = circle.x + circle.r * offset.x;
+  const py = circle.y + circle.r * offset.y;
   if (move) ctx.moveTo(px, py);
   else ctx.lineTo(px, py);
 }
 
 /** The screen angle, around the sphere's center, of the circle's point at angle `phi`. */
 function circleAngle(phi: number): number {
-  const c = circle;
-  const cos = Math.cos(phi);
-  const sin = Math.sin(phi);
-  return Math.atan2(
-    c.h * c.uy + c.s * (cos * c.e1y + sin * c.e2y),
-    c.h * c.ux + c.s * (cos * c.e1x + sin * c.e2x),
-  );
+  circleOffset(phi);
+  return Math.atan2(offset.y, offset.x);
 }
 
 /**
@@ -288,19 +294,21 @@ function clipSphereCut(ctx: CanvasTarget, item: SurfaceOutline, other: SurfaceOu
       clipOutlineOver(ctx, item, other);
       return true;
     }
-    // The circle is all in front.
-    ctx.arc(x, y, outer, 0, TAU);
-    ctx.closePath();
+    // The circle is all in front. With `u` away and no outline only its inside shows: the clip is
+    // the circle alone. Otherwise it is cut out of the disk, even-odd.
+    const cutOut = uz > 0 || item.outlineWidth > 0;
+    if (cutOut) {
+      ctx.arc(x, y, outer, 0, TAU);
+      ctx.closePath();
+    }
     if (uz <= 0 && item.outlineWidth > 0) {
       // The cap holds the rest of the front: the circle's inside shows, and the outline band.
       ctx.arc(x, y, r, 0, TAU);
       ctx.closePath();
-    } else if (uz <= 0) {
-      ctx.beginPath();
     }
     for (let i = 0; i <= CUT_STEPS; i++) circlePoint(ctx, (i / CUT_STEPS) * TAU, i === 0);
     ctx.closePath();
-    ctx.clip(uz > 0 || item.outlineWidth > 0 ? 'evenodd' : 'nonzero');
+    ctx.clip(cutOut ? 'evenodd' : 'nonzero');
     clipOutlineOver(ctx, item, other);
     return true;
   }

@@ -156,8 +156,11 @@ export class DisplayList {
       item.sphereCuts.length = 0;
       item.cutBase = null;
       if (!this.#partialOcclusion || item.occluder !== 'sphere' || item.clip !== 'none') continue;
-      spheres.push(item);
       const left = item.occluderX - item.occluderRadius;
+      // A sphere with no finite place (seen at the camera's eye, say) cuts nothing.
+      const depth = item.occluderDepth * item.occluderScale;
+      if (!Number.isFinite(left + item.occluderY + depth + 2 * item.occluderRadius)) continue;
+      spheres.push(item);
       if (left < lowest) lowest = left;
     }
     const count = spheres.length;
@@ -168,7 +171,8 @@ export class DisplayList {
     for (let i = 0; i < count; i++) {
       const item = spheres[i] as DisplayItem;
       const left = item.occluderX - item.occluderRadius - lowest;
-      keys[i] = Math.floor(left * 64) * SORT_INDEX + i;
+      // Kept within 2^32 steps, so the packed key stays an exact integer.
+      keys[i] = Math.min(Math.floor(left * 64), 2 ** 32) * SORT_INDEX + i;
     }
     keys.fill(Number.POSITIVE_INFINITY, count);
     keys.sort();
@@ -292,6 +296,8 @@ export class DisplayList {
     part.clipX = shape.clipX;
     part.clipY = shape.clipY;
     part.clipRadius = shape.clipRadius;
+    // A part of a decal stroke is cut with its anchor, as the stroke would be.
+    part.decalAnchor = shape.decalAnchor;
     part.shade = shape.shade;
     part.shadeX = shape.shadeX;
     part.shadeY = shape.shadeY;
