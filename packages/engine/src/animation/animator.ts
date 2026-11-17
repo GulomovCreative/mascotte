@@ -38,7 +38,7 @@ import {
  * procedural behaviors (see behaviors.ts) or blends of those by a number input (see
  * blend.ts); in this file, "clip" stands for any of them. Every property animated by a clip
  * played on the animator, or turned by a spring, becomes a channel; its value when it first
- * becomes one is its rest pose, and it is not updated later (a behavior's `from` is not the
+ * becomes one is its rest pose, updated later only by `refreshRest` (a behavior's `from` is not the
  * rest pose: an override layer below full weight blends it with rest). Each frame starts from
  * the rest pose, and every layer blends its clips into it in order:
  * - an override layer moves the pose towards its clips by its weight;

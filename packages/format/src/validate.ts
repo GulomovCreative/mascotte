@@ -465,19 +465,14 @@ function checkPalettes(c: Checker, value: unknown): void {
   c.roles = null;
   if (!c.object(value, 'palettes', 'an object of palettes')) return;
   const entries = Object.entries(value);
-  if (entries.length === 0) {
+  const [base] = entries;
+  if (!base) {
     c.fail('palettes', 'expected at least one palette: the first holds every role.');
     return;
   }
+  // Without a base there are no roles to check the others against.
+  if (!c.object(base[1], join('palettes', base[0]), 'a palette of colors by role')) return;
   const roles = new Set<string>();
-  if (!isObject(entries[0]?.[1])) {
-    c.object(
-      entries[0]?.[1],
-      join('palettes', entries[0]?.[0] ?? ''),
-      'a palette of colors by role',
-    );
-    return;
-  }
   entries.forEach(([name, palette], i) => {
     const at = join('palettes', name);
     // JavaScript puts number-like keys first, so the first palette written would not be the base.
