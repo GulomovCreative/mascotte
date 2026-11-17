@@ -99,41 +99,36 @@ export class CanvasRenderer {
         // упрощение: тона рисуются слоями поверх основы, поэтому у полупрозрачной фигуры они
         // просвечивают друг через друга (WebGL даёт один цвет на пиксель); вернуться, если
         // тонированные фигуры станут полупрозрачными (затухание маскота целиком).
-
         if (item.shade === 'sphere') shadeSphere(ctx, item, camera.light);
         else shadeCapsule(ctx, item, camera.light);
         lineCap = '';
         lineWidth = Number.NaN;
         strokeStyle = '';
         fillStyle = '';
-        if (clipped) {
-          ctx.restore();
-          alpha = Number.NaN;
+      } else {
+        trace(ctx, item.path);
+        if (item.hasStroke) {
+          if (item.lineCap !== lineCap) {
+            lineCap = item.lineCap;
+            ctx.lineCap = item.lineCap;
+          }
+          if (item.lineWidth !== lineWidth) {
+            lineWidth = item.lineWidth;
+            ctx.lineWidth = lineWidth;
+          }
+          if (item.color !== strokeStyle) {
+            strokeStyle = item.color;
+            ctx.strokeStyle = strokeStyle;
+          }
+          ctx.stroke();
         }
-        continue;
-      }
-      trace(ctx, item.path);
-      if (item.hasStroke) {
-        if (item.lineCap !== lineCap) {
-          lineCap = item.lineCap;
-          ctx.lineCap = item.lineCap;
+        if (item.hasFill) {
+          if (item.color !== fillStyle) {
+            fillStyle = item.color;
+            ctx.fillStyle = fillStyle;
+          }
+          ctx.fill();
         }
-        if (item.lineWidth !== lineWidth) {
-          lineWidth = item.lineWidth;
-          ctx.lineWidth = lineWidth;
-        }
-        if (item.color !== strokeStyle) {
-          strokeStyle = item.color;
-          ctx.strokeStyle = strokeStyle;
-        }
-        ctx.stroke();
-      }
-      if (item.hasFill) {
-        if (item.color !== fillStyle) {
-          fillStyle = item.color;
-          ctx.fillStyle = fillStyle;
-        }
-        ctx.fill();
       }
       if (clipped) {
         ctx.restore();
@@ -192,13 +187,13 @@ function shadeSphere(ctx: CanvasTarget, item: SurfaceOutline, light: Readonly<Ve
   const x = item.shadeX;
   const y = item.shadeY;
   const r = item.shadeRadius;
-  const across = Math.hypot(light.x, light.y);
   // The light's direction on screen (any, if it shines along the view).
-  const theta = across > 1e-9 ? Math.atan2(light.y, light.x) : 0;
+  const sideways = Math.hypot(light.x, light.y) > 1e-9;
+  const theta = sideways ? Math.atan2(light.y, light.x) : 0;
   // The outline assumes the terminator at n·l = 0 (`SHADOW_BELOW`; a test pins it).
   if (item.shadowColor !== null) {
     ctx.beginPath();
-    if (across > 1e-9) {
+    if (sideways) {
       ctx.arc(x, y, r, theta + Math.PI / 2, theta + (3 * Math.PI) / 2);
       const minor = r * Math.abs(light.z);
       if (light.z >= 0) ctx.ellipse(x, y, minor, r, theta, (3 * Math.PI) / 2, Math.PI / 2, true);
@@ -263,8 +258,7 @@ function shadeCapsule(ctx: CanvasTarget, item: SurfaceOutline, light: Readonly<V
   ctx.clip();
   ctx.lineCap = item.lineCap;
   if (item.shadowColor !== null && k > SHADOW_BELOW) {
-    const half = Math.acos(Math.min(1, SHADOW_BELOW / k));
-    band(ctx, item, wx, wy, beta, half, item.color);
+    band(ctx, item, wx, wy, beta, Math.acos(Math.min(1, SHADOW_BELOW / k)), item.color);
   }
   if (item.highlightColor !== null && k > HIGHLIGHT_ABOVE) {
     band(ctx, item, wx, wy, beta, Math.acos(HIGHLIGHT_ABOVE / k), item.highlightColor);
@@ -291,10 +285,13 @@ function band(
   if (!(hi > lo)) return;
   let shift: number;
   let width: number;
-  if (hi >= 1 - 1e-9 || lo <= -1 + 1e-9) {
-    // Reaching a side: the whole capsule, shifted so its other side is at the band's edge.
+  // Reaching a side: the whole capsule, shifted so its other side is at the band's edge.
+  if (hi >= 1 - 1e-9) {
     width = 2 * r;
-    shift = hi >= 1 - 1e-9 ? r * (lo + 1) : r * (hi - 1);
+    shift = r * (lo + 1);
+  } else if (lo <= -1 + 1e-9) {
+    width = 2 * r;
+    shift = r * (hi - 1);
   } else {
     width = r * (hi - lo);
     shift = (r * (lo + hi)) / 2;

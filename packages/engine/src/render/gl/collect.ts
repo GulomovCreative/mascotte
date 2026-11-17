@@ -401,12 +401,13 @@ export class GLCollector {
   }
 
   /**
-   * The shadow and highlight colors of `tones` at index `o`: the base `css` where it has none, or
-   * for `null` (one flat color).
+   * The shadow and highlight colors of `tones`, then the base `css`, at index `o`. The base stands
+   * in for a tone `tones` has none of, or for both with `null` (one flat color).
    */
   #writeTones(d: Float32Array, o: number, tones: ShapeStyle | null, css: string): void {
     this.#writeColor(d, o, tones?.shadowColor ?? css);
     this.#writeColor(d, o + 4, tones?.highlightColor ?? css);
+    this.#writeColor(d, o + 8, css);
   }
 
   /** A sphere centered at `scratch` with radius `#radius`, shaded by `tones`. */
@@ -420,7 +421,6 @@ export class GLCollector {
     d[o + 2] = scratch.z;
     d[o + 3] = r;
     this.#writeTones(d, o + 4, tones, css);
-    this.#writeColor(d, o + 12, css);
     this.#extent(scratch.z, r);
   }
 
@@ -457,10 +457,8 @@ export class GLCollector {
     d[o + 4] = (ty + zy * to) * s;
     d[o + 5] = bz;
     d[o + 6] = r;
-    if (kind === 'capsule') {
-      this.#writeTones(d, o + 7, tones, css);
-      this.#writeColor(d, o + 15, css);
-    } else this.#writeColor(d, o + 7, css);
+    if (kind === 'capsule') this.#writeTones(d, o + 7, tones, css);
+    else this.#writeColor(d, o + 7, css);
     this.#extent(az, r);
     this.#extent(bz, r);
   }
@@ -640,7 +638,6 @@ export class GLCollector {
         d[o + 5] = bz;
         d[o + 6] = radius;
         this.#writeTones(d, o + 7, tones, css);
-        this.#writeColor(d, o + 15, css);
         o += STRIDE.capsule;
         if (az - radius < this.#zMin) this.#zMin = az - radius;
         if (az + radius > this.#zMax) this.#zMax = az + radius;

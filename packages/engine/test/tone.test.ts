@@ -51,6 +51,24 @@ function tones(scene: Scene, camera: Camera, kind: 'sphere' | 'capsule'): number
   return out;
 }
 
+/** A context that records each call (numbers to two decimals) and each assignment into `calls`. */
+function recorder(calls: string[]): CanvasTarget {
+  const format = (a: unknown) => (typeof a === 'number' ? a.toFixed(2) : a);
+  return new Proxy(
+    {},
+    {
+      get:
+        (_, key: string) =>
+        (...args: unknown[]) =>
+          calls.push(`${key} ${args.map(format).join(' ')}`.trim()),
+      set: (_, key: string, value) => {
+        calls.push(`${key}=${value}`);
+        return true;
+      },
+    },
+  ) as CanvasTarget;
+}
+
 const black = [0, 0, 0];
 const white = [1, 1, 1];
 const grey = [128 / 255, 128 / 255, 128 / 255].map((v) => Math.fround(v));
@@ -140,22 +158,7 @@ describe('toon shading', () => {
 
   it('draws the shadow and highlight of a sphere and the bands of a capsule in Canvas 2D', () => {
     const calls: string[] = [];
-    const record =
-      (name: string) =>
-      (...args: unknown[]) =>
-        calls.push(
-          `${name} ${args.map((a) => (typeof a === 'number' ? a.toFixed(2) : a)).join(' ')}`.trim(),
-        );
-    const ctx = new Proxy(
-      {},
-      {
-        get: (_, key: string) => record(key),
-        set: (_, key: string, value) => {
-          calls.push(`${key}=${value}`);
-          return true;
-        },
-      },
-    ) as CanvasTarget;
+    const ctx = recorder(calls);
     const camera = new Camera({ light: { x: -0.6, y: 0, z: 0.8 } });
     const sphere = new Sphere({ diameter: 20, style: { ...toned, stroke: 0 } });
     new CanvasRenderer().render(ctx, sceneWith(sphere), camera, { width: 40, height: 40 });
@@ -256,6 +259,14 @@ describe('toon shading', () => {
     line.style.shadowColor = null;
     line.style.highlightColor = null;
     expect(list.build(scene, camera).item(0).shade).toBe('none');
+    // A point turned away is still a shaded sphere, in both backends.
+    const point = new PathShape({
+      path: [{ type: 'move', point: { x: 0, y: 0, z: 0 } }],
+      style: { ...toned, stroke: 10 },
+    });
+    point.setRotationFromEuler({ x: 0, y: Math.PI, z: 0, order: 'XYZ' } as never);
+    expect(tones(sceneWith(point), camera, 'sphere')).toEqual([[black, white, grey]]);
+    expect(new DisplayList().build(sceneWith(point), camera).item(0).shade).toBe('sphere');
     // A stroke seen end-on, and a capsule too, are spheres.
     const endOn = new PathShape({
       path: [
@@ -297,13 +308,7 @@ describe('toon shading', () => {
 
   it('balances save and restore around a shaded decal and draws its tones inside the clip', () => {
     const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get: (_, key: string) => () => calls.push(key),
-        set: () => true,
-      },
-    ) as CanvasTarget;
+    const ctx = recorder(calls);
     const head = new Sphere({ diameter: 40, style: { color: '#808080', stroke: 0 } });
     head.add(
       new Sphere({
@@ -331,33 +336,12 @@ describe('toon shading', () => {
 
   it('shades a sphere lit along the view: no shadow in front, all shadow from behind', () => {
     const calls: string[] = [];
-    const ctx = new Proxy(
-      {},
-      {
-        get:
-          (_, key: string) =>
-          (...args: unknown[]) =>
-            calls.push(
-              `${key} ${args.map((a) => (typeof a === 'number' ? a.toFixed(2) : a)).join(' ')}`.trim(),
-            ),
-        set: (_, key: string, value) => {
-          calls.push(`${key}=${value}`);
-          return true;
-        },
-      },
-    ) as CanvasTarget;
+    const ctx = recorder(calls);
     const sphere = new Sphere({ diameter: 20, style: { ...toned, stroke: 0 } });
     const render = (z: number) => {
       calls.length = 0;
-      new CanvasRenderer().render(
-        ctx,
-        sceneWith(sphere),
-        new Camera({ light: { x: 0, y: 0, z } }),
-        {
-          width: 40,
-          height: 40,
-        },
-      );
+      const camera = new Camera({ light: { x: 0, y: 0, z } });
+      new CanvasRenderer().render(ctx, sceneWith(sphere), camera, { width: 40, height: 40 });
       // After the base circle's fill, without the frame's closing reset.
       return calls.slice(calls.indexOf('fillStyle=#808080') + 2, -1);
     };
