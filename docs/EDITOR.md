@@ -102,7 +102,7 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   node's world matrix and pivot.
 - **Debug view** (toggles): node axes and pivots, rig bones and slots, sort order and sort
   points, decal anchors, the frame. Drawn on the same overlay.
-- **Engine work**: node bounds in world and screen space (for framing and gizmos), and the debug
+- **Engine work**: node bounds in world and screen space (for framing the selection, not yet scheduled), and the debug
   view's data (sort points and runs, decal anchors), exposed by the engine so the overlay does
   not reach into the depth sorter's internals.
 
@@ -210,7 +210,7 @@ the task that needs it.
    to document nodes, the debug overlay from the engine's debug data. *Done when* any node
    of Pip can be picked and its axes, the bones and the sort order shown.
 5. **Gizmos.** Move, rotate and scale handles, local and world axes, snapping, each drag one
-   command; the engine's node bounds. *Done when* Pip's wing can be posed and the pose undone.
+   command. *Done when* Pip's wing can be posed and the pose undone.
 6. **Scene tree and document panel.** The hierarchy with add, remove, duplicate, reparent and
    rename, prefab instances, the document's frame, camera and archetype. *Done when* Gloop's tree
    can be built from an empty document.

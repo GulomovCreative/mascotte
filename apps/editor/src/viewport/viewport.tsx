@@ -8,10 +8,23 @@ import {
   Scene,
   WebGLRenderer,
 } from '@mascotte/engine';
+import { type Mat3x4, mat3x4 } from '@mascotte/math';
 import { effect, signal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
-import { samePath } from '../model/paths.ts';
+import { setProp } from '../model/commands.ts';
+import { nodeAt, samePath } from '../model/paths.ts';
 import { editor, problem, state } from '../store.ts';
+import {
+  dragged,
+  drawGizmo,
+  type GizmoFrame,
+  type GizmoMode,
+  type GizmoSpace,
+  gizmoFrame,
+  type Handle,
+  handleAt,
+  type Transform,
+} from './gizmo.ts';
 import { applyOrbit, type Orbit, orbitFrom, pan, turn, zoom } from './orbit.ts';
 import { type DebugView, drawOverlay } from './overlay.ts';
 
@@ -30,6 +43,13 @@ effect(() => {
   void editor.value;
   orbit.value = null;
 });
+
+/** What the gizmo changes: move, rotate or scale. */
+export const gizmoMode = signal<GizmoMode>('move');
+/** The axes it moves and turns along (scale always goes along the node's own). */
+export const gizmoSpace = signal<GizmoSpace>('local');
+/** Whether a drag snaps (also while Ctrl is held). */
+export const snapping = signal(false);
 
 /** What the debug view shows. */
 export const debugView = signal<DebugView>({
@@ -92,6 +112,57 @@ function selectedNode(): Node | null {
   return null;
 }
 
+/**
+ * The transform of the document node at the selection as the document holds it, or `null` when
+ * a part of it is not a plain value (a parameter or palette reference) the gizmo cannot change.
+ */
+function selectedTransform(): Transform | null {
+  const { document, selection } = state.peek();
+  const props = (selection && nodeAt(document, selection)?.props) || {};
+  const vector = (value: unknown, fallback: number) => {
+    if (value === undefined) return { x: fallback, y: fallback, z: fallback };
+    if (typeof value !== 'object' || value === null) return null;
+    const v = value as Record<string, unknown>;
+    const part = (key: string) => (v[key] === undefined ? fallback : v[key]);
+    const [x, y, z] = [part('x'), part('y'), part('z')];
+    return typeof x === 'number' && typeof y === 'number' && typeof z === 'number'
+      ? { x, y, z }
+      : null;
+  };
+  const position = vector(props.position, 0);
+  const scale = vector(props.scale, 1);
+  const r = props.rotation ?? { x: 0, y: 0, z: 0, w: 1 };
+  if (!position || !scale || typeof r !== 'object' || r === null) return null;
+  const { x, y, z, w } = r as unknown as Record<string, unknown>;
+  if (![x, y, z, w].every((part) => typeof part === 'number')) return null;
+  return { position, scale, rotation: { x, y, z, w } as Transform['rotation'] };
+}
+
+/** A few buttons, one pressed: the one whose option `value` holds. */
+function Choice<T extends string>(props: {
+  legend: string;
+  value: { value: T };
+  options: readonly (readonly [T, string])[];
+}) {
+  return (
+    <fieldset class="segmented">
+      <legend class="visually-hidden">{props.legend}</legend>
+      {props.options.map(([option, label]) => (
+        <button
+          key={option}
+          type="button"
+          aria-pressed={props.value.value === option}
+          onClick={() => {
+            props.value.value = option;
+          }}
+        >
+          {label}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
+
 /** A toggle of the debug view. */
 function DebugToggle(props: { name: keyof DebugView; label: string }) {
   return (
@@ -115,21 +186,41 @@ function DebugToggle(props: { name: keyof DebugView; label: string }) {
 function ViewportBar() {
   return (
     <div class="viewport-bar">
-      <fieldset class="segmented">
-        <legend class="visually-hidden">Camera</legend>
-        {(['orbit', 'document'] as const).map((mode) => (
-          <button
-            key={mode}
-            type="button"
-            aria-pressed={viewCamera.value === mode}
-            onClick={() => {
-              viewCamera.value = mode;
-            }}
-          >
-            {mode === 'orbit' ? 'Orbit' : 'Document camera'}
-          </button>
-        ))}
-      </fieldset>
+      <Choice
+        legend="Camera"
+        value={viewCamera}
+        options={[
+          ['orbit', 'Orbit'],
+          ['document', 'Document camera'],
+        ]}
+      />
+      <Choice
+        legend="Gizmo"
+        value={gizmoMode}
+        options={[
+          ['move', 'Move'],
+          ['rotate', 'Rotate'],
+          ['scale', 'Scale'],
+        ]}
+      />
+      <Choice
+        legend="Gizmo axes"
+        value={gizmoSpace}
+        options={[
+          ['local', 'Local'],
+          ['world', 'World'],
+        ]}
+      />
+      <label>
+        <input
+          type="checkbox"
+          checked={snapping.value}
+          onChange={(event) => {
+            snapping.value = (event.currentTarget as HTMLInputElement).checked;
+          }}
+        />
+        Snap
+      </label>
       <fieldset class="debug-toggles">
         <legend class="visually-hidden">Debug view</legend>
         <DebugToggle name="axes" label="Axes" />
@@ -210,7 +301,14 @@ export function Viewport() {
     };
     const draw = () => {
       // Read first, so the effect keeps watching them even when this frame draws nothing.
-      void [state.value, viewCamera.value, orbit.value, debugView.value];
+      void [
+        state.value,
+        viewCamera.value,
+        orbit.value,
+        debugView.value,
+        gizmoMode.value,
+        gizmoSpace.value,
+      ];
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       // Not laid out (or gone): nothing to draw on.
@@ -255,18 +353,27 @@ export function Viewport() {
       overlay.save();
       try {
         overlay.setTransform(ratio, 0, 0, ratio, (width / 2) * ratio, (height / 2) * ratio);
+        // The gizmo of the selection, when the gizmo can change its transform; else its axes.
+        const node = selectedNode();
+        const mode = gizmoMode.value;
+        const movable = node !== null && selectedTransform() !== null;
         drawOverlay(
           overlay,
           {
             scene: built.scene,
             camera,
             rig: built.built.rig,
-            selected: selectedNode(),
+            selected: movable ? null : node,
             scale,
             view: viewCamera.value === 'document' && view ? view : null,
           },
           debugView.value,
         );
+        gizmo =
+          node && movable
+            ? gizmoFrame(node, camera, mode === 'scale' ? 'local' : gizmoSpace.value, scale)
+            : null;
+        if (gizmo) drawGizmo(overlay, gizmo, mode, grab?.handle ?? null);
       } catch (error) {
         throw new Error(
           `its debug view failed: ${error instanceof Error ? error.message : error}`,
@@ -278,6 +385,30 @@ export function Viewport() {
         // A failure halfway leaves no dashes or fonts behind for the next frame.
         overlay.restore();
       }
+    };
+    // The gizmo as last drawn, and the drag of one of its handles: what it started from.
+    let gizmo: GizmoFrame | null = null;
+    let grab: {
+      id: number;
+      handle: Handle;
+      frame: GizmoFrame;
+      space: GizmoSpace;
+      start: Transform;
+      parent: Mat3x4;
+      path: NonNullable<typeof state.value.selection>;
+      from: { x: number; y: number };
+    } | null = null;
+    // A pointer event's place in CSS pixels from the frame's center, as the gizmo is drawn.
+    const centered = (event: PointerEvent) => ({
+      x: event.offsetX - canvas.clientWidth / 2,
+      y: event.offsetY - canvas.clientHeight / 2,
+    });
+    const endGrab = () => {
+      if (!grab) return;
+      grab = null;
+      // The drag is one step to undo.
+      editor.peek().commit();
+      fit();
     };
     const stop = effect(fit);
 
@@ -299,6 +430,12 @@ export function Viewport() {
       }
       // The middle button pans here, not scrolls or pastes.
       if (event.button === 1) event.preventDefault();
+      const at = centered(event);
+      const handle =
+        event.button === 0 && gizmo ? handleAt(gizmo, gizmoMode.peek(), at.x, at.y) : null;
+      const node = handle ? selectedNode() : null;
+      const start = handle ? selectedTransform() : null;
+      const path = state.peek().selection;
       // Kept while the drag leaves the canvas; a pointer the browser no longer tracks (an event
       // made up by a test) cannot be, and the drag ends at the canvas's edge.
       if (!canvas.hasPointerCapture(event.pointerId)) {
@@ -307,6 +444,19 @@ export function Viewport() {
         } catch (error) {
           if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
         }
+      }
+      if (handle && gizmo && start && path) {
+        grab = {
+          id: event.pointerId,
+          handle,
+          frame: gizmo,
+          space: handle.mode === 'scale' ? 'local' : gizmoSpace.peek(),
+          start,
+          parent: mat3x4.clone(node?.parent?.worldMatrix ?? mat3x4.create()),
+          path,
+          from: at,
+        };
+        return;
       }
       press = {
         id: event.pointerId,
@@ -320,6 +470,24 @@ export function Viewport() {
       };
     };
     const onMove = (event: PointerEvent) => {
+      if (grab && event.pointerId === grab.id) {
+        if (event.buttons === 0) {
+          endGrab();
+          return;
+        }
+        const { name, value } = dragged(
+          grab.handle,
+          grab.frame,
+          grab.space,
+          grab.start,
+          grab.parent,
+          grab.from,
+          centered(event),
+          snapping.peek() || event.ctrlKey,
+        );
+        editor.peek().execute(setProp(grab.path, name, value));
+        return;
+      }
       if (!press || event.pointerId !== press.id) return;
       // Released where the canvas did not hear it (no capture): the drag is over.
       if (event.buttons === 0) {
@@ -343,6 +511,10 @@ export function Viewport() {
       orbit.value = press.pan ? pan(current, own, dx, dy) : turn(current, dx, dy);
     };
     const onUp = (event: PointerEvent) => {
+      if (grab && event.pointerId === grab.id) {
+        endGrab();
+        return;
+      }
       const current = press;
       if (!current || event.pointerId !== current.id) return;
       press = null;
@@ -380,6 +552,7 @@ export function Viewport() {
     canvas.addEventListener('pointerup', onUp);
     const onCancel = () => {
       press = null;
+      endGrab();
     };
     canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });

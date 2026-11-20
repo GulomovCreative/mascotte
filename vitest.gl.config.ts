@@ -2,27 +2,36 @@ import { playwright } from '@vitest/browser-playwright';
 import { defineConfig } from 'vitest/config';
 import { glCommands } from './reference/src/gl-snapshot.ts';
 
+/** Headless Chromium with the SwiftShader software renderer, so frames do not depend on the GPU. */
+const browser = () => ({
+  enabled: true,
+  headless: true,
+  provider: playwright({
+    launchOptions: {
+      args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader', '--ignore-gpu-blocklist'],
+    },
+  }),
+  instances: [{ browser: 'chromium' as const }],
+  commands: glCommands,
+});
+
 /*
- * Tests in a real browser: WebGL2 frames and the editor's interface, in headless Chromium with
- * the SwiftShader software renderer, so frames do not depend on the GPU. Run with `pnpm test:gl`.
+ * Tests in a real browser: WebGL2 frames and the editor's interface. Run with `pnpm test:gl`.
+ * The editor's test files run one at a time: they share the page's origin, so its storage (the
+ * editor's draft) too.
  */
 export default defineConfig({
   test: {
-    include: ['reference/test-gl/**/*.test.ts', 'apps/editor/test/**/*.test.tsx'],
-    browser: {
-      enabled: true,
-      headless: true,
-      provider: playwright({
-        launchOptions: {
-          args: [
-            '--use-angle=swiftshader',
-            '--enable-unsafe-swiftshader',
-            '--ignore-gpu-blocklist',
-          ],
+    projects: [
+      { test: { name: 'gl', include: ['reference/test-gl/**/*.test.ts'], browser: browser() } },
+      {
+        test: {
+          name: 'editor',
+          include: ['apps/editor/test/**/*.test.tsx'],
+          browser: browser(),
+          fileParallelism: false,
         },
-      }),
-      instances: [{ browser: 'chromium' }],
-      commands: glCommands,
-    },
+      },
+    ],
   },
 });
