@@ -2,6 +2,7 @@ import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
 import { DraftBanner, MenuBar } from './menu.tsx';
 import { DocumentPanel } from './panels/document-panel.tsx';
+import { Inspector } from './panels/inspector.tsx';
 import { SceneTree } from './panels/scene-tree.tsx';
 import { state } from './store.ts';
 import { Viewport } from './viewport/viewport.tsx';
@@ -105,7 +106,7 @@ export function App() {
         {state.value.selection === null ? (
           <DocumentPanel />
         ) : (
-          <p class="empty">A node's properties are not editable yet.</p>
+          <Inspector path={state.value.selection} />
         )}
       </Panel>
       <BottomPanel />

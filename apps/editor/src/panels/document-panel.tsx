@@ -12,7 +12,7 @@ function set(field: DocumentField, value: PlainValue | undefined): void {
 }
 
 /** The input's number, or `undefined` for an empty input; `null` for one that is not a number. */
-function numberOf(input: HTMLInputElement): number | undefined | null {
+export function numberOf(input: HTMLInputElement): number | undefined | null {
   // Text a number input cannot read ("1e", "-") reads as empty: it is not a number, not a removal.
   if (input.validity.badInput) return null;
   if (input.value.trim() === '') return undefined;
@@ -108,7 +108,7 @@ export function DocumentPanel() {
     set(['camera', 'props', 'light'], { x: from.x, y: from.y, z: from.z, [axis]: next });
   };
   return (
-    <form class="document-panel" aria-label="Document" onSubmit={(event) => event.preventDefault()}>
+    <form class="form-panel" aria-label="Document" onSubmit={(event) => event.preventDefault()}>
       {own.length > 0 ? (
         <ul class="document-issues" role="alert">
           {own.map((issue) => (

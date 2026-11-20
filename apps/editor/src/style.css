@@ -352,7 +352,7 @@ body {
   font: inherit;
 }
 
-.document-panel fieldset {
+.form-panel fieldset {
   /* A fieldset is as wide as its content by default; it fits the panel instead. */
   min-inline-size: 0;
   display: grid;
@@ -363,12 +363,12 @@ body {
   border: 0;
 }
 
-.document-panel legend {
+.form-panel legend {
   margin-bottom: 4px;
   font-weight: 600;
 }
 
-.document-panel label {
+.form-panel label {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
@@ -376,15 +376,15 @@ body {
   font-size: 12px;
 }
 
-.document-panel input,
-.document-panel select,
-.document-panel textarea {
+.form-panel input,
+.form-panel select,
+.form-panel textarea {
   min-width: 0;
   font: inherit;
   color: var(--text);
 }
 
-.document-panel .field-row {
+.form-panel .field-row {
   margin: 0;
   padding: 0;
   border: 0;
@@ -412,4 +412,69 @@ body {
   padding-left: 16px;
   color: #c0392b;
   font-size: 12px;
+}
+
+.prop {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 2px;
+}
+
+.prop-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.prop-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prop.invalid .prop-name {
+  color: #c0392b;
+  font-weight: 700;
+}
+
+.form-panel .field-row > input[type="text"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.form-panel .ref {
+  margin: 0;
+  padding: 0 0 0 8px;
+  border-left: 2px solid var(--border);
+  gap: 2px;
+}
+
+.path-command {
+  display: grid;
+  gap: 4px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.form-panel label.check {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 0 0 auto;
+}
+
+.node-id {
+  color: var(--muted);
+  font-weight: 400;
+}
+
+.prop > input[type="checkbox"] {
+  justify-self: start;
+}
+
+.prop-head select {
+  width: auto;
 }
