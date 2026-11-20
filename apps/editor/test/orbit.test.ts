@@ -17,8 +17,8 @@ describe('orbit', () => {
     expect(camera.zoom).toBe(2);
     // Unturned, a drag right moves the target left by the drag over the zoom.
     expect(pan(start, camera, 10, 0).target).toEqual({ x: 0, y: -10, z: 0 });
-    // Turned half round, a drag right moves the target along the camera's x axis, now the
-    // world's -z; a drag down along its y axis.
+    // Turned a quarter round, a drag right moves the target against the camera's x axis, now
+    // the world's -z.
     const half = { ...start, yaw: Math.PI / 2 };
     applyOrbit(camera, half, document);
     const moved = pan(half, camera, 10, 0).target;

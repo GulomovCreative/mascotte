@@ -207,10 +207,10 @@ the task that needs it.
    *Done when* a reference mascot opens, saves and reopens deep-equal, and a new document of each
    archetype is valid.
 4. **Viewport, picking and debug view.** The orbit camera, the document camera toggle, picking
-   to document nodes, the debug overlay; the engine's bounds and debug data. *Done when* any node
+   to document nodes, the debug overlay from the engine's debug data. *Done when* any node
    of Pip can be picked and its axes, the bones and the sort order shown.
 5. **Gizmos.** Move, rotate and scale handles, local and world axes, snapping, each drag one
-   command. *Done when* Pip's wing can be posed and the pose undone.
+   command; the engine's node bounds. *Done when* Pip's wing can be posed and the pose undone.
 6. **Scene tree and document panel.** The hierarchy with add, remove, duplicate, reparent and
    rename, prefab instances, the document's frame, camera and archetype. *Done when* Gloop's tree
    can be built from an empty document.
