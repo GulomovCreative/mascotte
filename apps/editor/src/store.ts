@@ -59,7 +59,13 @@ let pendingDraft: ReturnType<typeof setTimeout> | undefined;
 
 function keepDraftNow(): void {
   pendingDraft = undefined;
-  keepDraft(currentDocument(), fileName.peek());
+  // Run from a timer or as the page goes: a failure is said, not thrown where nothing hears it.
+  try {
+    keepDraft(currentDocument(), fileName.peek());
+  } catch (error) {
+    console.error(error);
+    problem.value = `Could not keep a draft: ${error instanceof Error ? error.message : String(error)}`;
+  }
 }
 
 function cancelDraft(): void {
