@@ -6,9 +6,10 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/app.tsx';
 import { newDocument } from '../src/files/documents.ts';
 import { setNodeField } from '../src/model/commands.ts';
-import type { DocPath } from '../src/model/paths.ts';
-import { nodeAt } from '../src/model/paths.ts';
+import { type DocPath, nodeAt } from '../src/model/paths.ts';
 import { editor, offeredDraft, openDocument, problem, state } from '../src/store.ts';
+
+const FORM = 'form[aria-label="Node"]';
 
 let host: HTMLDivElement | null = null;
 
@@ -50,7 +51,7 @@ async function inspect(node: NodeDocument, document = documentWith(node)): Promi
 }
 
 function control<T extends HTMLElement = HTMLInputElement>(label: string): T {
-  const found = document.querySelector<T>(`form[aria-label="Node"] [aria-label="${label}"]`);
+  const found = document.querySelector<T>(`${FORM} [aria-label="${label}"]`);
   if (!found) throw new Error(`no control ${label}`);
   return found;
 }
@@ -253,9 +254,7 @@ describe('inspector', () => {
     await change('opacity', '3');
     expect(props(path).opacity).toBe(3);
     expect(document.querySelector('.prop.invalid .prop-name')?.textContent).toBe('opacity');
-    expect(document.querySelector('form[aria-label="Node"] [role="alert"]')?.textContent).toMatch(
-      /props\.opacity/,
-    );
+    expect(document.querySelector(`${FORM} [role="alert"]`)?.textContent).toMatch(/props\.opacity/);
     await change('opacity', '');
     expect(props(path).opacity).toBeUndefined();
     expect(document.querySelector('.prop.invalid')).toBeNull();
@@ -310,9 +309,7 @@ describe('inspector', () => {
       props: { rotation: { x: 0, y: 0, z: 0 } },
     } as unknown as NodeDocument);
     expect(state.value.issues.length).toBeGreaterThan(0);
-    expect(document.querySelector('form[aria-label="Node"]')?.textContent).toMatch(
-      /Path 1 is not a command/,
-    );
+    expect(document.querySelector(FORM)?.textContent).toMatch(/Path 1 is not a command/);
     expect(control<HTMLSelectElement>('Path 2 type').value).toBe('constructor');
     expect(control('rotation x').value).toBe('');
     await change('rotation z', '90');
@@ -345,13 +342,11 @@ describe('inspector', () => {
 
   it("shows an instance's values from its prefab's root, not its path", async () => {
     const path = await inspect({ prefab: 'mouth', id: 'it' });
-    expect(document.querySelector('form[aria-label="Node"] legend')?.textContent).toMatch(
-      /^mouth \(PathShape\)/,
-    );
+    expect(document.querySelector(`${FORM} legend`)?.textContent).toMatch(/^mouth \(PathShape\)/);
     // The mouth's root is open, though a PathShape is closed by default.
     expect(control('closed').checked).toBe(false);
     expect(control('style.color').placeholder).toBe('#5a2a0c');
-    const legends = [...document.querySelectorAll('form[aria-label="Node"] legend')];
+    const legends = [...document.querySelectorAll(`${FORM} legend`)];
     expect(legends.map((legend) => legend.textContent)).not.toContain('Path');
     await click('closed');
     expect(props(path).closed).toBe(true);
@@ -359,9 +354,7 @@ describe('inspector', () => {
 
   it('says why a node has no properties to show', async () => {
     await inspect({ prefab: 'nothing', id: 'it' });
-    expect(document.querySelector('form[aria-label="Node"]')?.textContent).toMatch(
-      /No prefab "nothing"/,
-    );
+    expect(document.querySelector(FORM)?.textContent).toMatch(/No prefab "nothing"/);
   });
 
   it('shows nodes of malformed prefabs, palettes and props without breaking', async () => {
@@ -373,9 +366,7 @@ describe('inspector', () => {
       palettes: { base: null },
     } as unknown as MascotDocument;
     const path = await inspect(node, document);
-    expect(window.document.querySelector('form[aria-label="Node"] legend')?.textContent).toMatch(
-      /^eye \(Node\)/,
-    );
+    expect(window.document.querySelector(`${FORM} legend`)?.textContent).toMatch(/^eye \(Node\)/);
     // Props that are no object are replaced by the first edit.
     const odd = { ...nodeAt(state.value.document, path), props: 'abc' } as unknown as NodeDocument;
     openDocument(
@@ -393,12 +384,10 @@ describe('inspector', () => {
 
   it("shows an instance's properties by its prefab's root, and names a node", async () => {
     const path = await inspect({ prefab: 'eye', id: 'it' });
-    expect(document.querySelector('form[aria-label="Node"] legend')?.textContent).toMatch(
-      /^eye \(Node\)/,
-    );
+    expect(document.querySelector(`${FORM} legend`)?.textContent).toMatch(/^eye \(Node\)/);
     await change('position x', '7');
     expect(props(path).position).toEqual({ x: 7, y: 0, z: 0 });
-    const name = document.querySelector<HTMLInputElement>('form[aria-label="Node"] label input');
+    const name = document.querySelector<HTMLInputElement>(`${FORM} label input`);
     if (!name) throw new Error('no name field');
     name.value = 'Left eye';
     name.dispatchEvent(new Event('change', { bubbles: true }));
