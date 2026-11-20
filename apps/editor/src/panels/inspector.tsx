@@ -963,14 +963,15 @@ function InstanceParams(props: {
         const { default: fallback, min, max } = isObject(spec) ? spec : {};
         const value = values[name];
         const label = `param ${name}`;
-        // A parameter is a number (or none, back to the prefab's default): a vector is refused.
+        // A parameter is a number (or none, back to the prefab's default): anything else, such as a
+        // vector, is refused.
         const setValue = (next: unknown) => {
           const scalar =
             next === undefined ||
             typeof next === 'number' ||
             (isRef(next) && !isObject(next.times));
           if (scalar) set(name, next as Num | undefined);
-          else problem.value = `The parameter ${name} takes a number, not a vector.`;
+          else problem.value = `The parameter ${name} takes a number or a reference to one.`;
         };
         return (
           <Field

@@ -124,8 +124,17 @@ export function PalettesFields() {
 }
 
 /** A number of a parameter's spec: its default (required), its least or greatest value. */
-function SpecNumber(props: { name: string; spec: ShapeParam; field: 'default' | 'min' | 'max' }) {
-  const { name, spec, field } = props;
+/**
+ * A number of a parameter's spec. It shows `spec`, and changes only its own field of `stored`, the
+ * spec as the document has it (a field of the wrong kind stays, for the format to report).
+ */
+function SpecNumber(props: {
+  name: string;
+  spec: ShapeParam;
+  stored: Readonly<Record<string, unknown>>;
+  field: 'default' | 'min' | 'max';
+}) {
+  const { name, spec, stored, field } = props;
   const value = spec[field];
   return (
     <label>
@@ -142,10 +151,10 @@ function SpecNumber(props: { name: string; spec: ShapeParam; field: 'default' | 
             input.value = typeof value === 'number' ? String(value) : '';
             return;
           }
-          const { [field]: _, ...rest } = spec;
+          const { [field]: _, ...rest } = stored;
           set(
             ['params', name],
-            (next === undefined ? rest : { ...rest, [field]: next }) as ShapeParam,
+            (next === undefined ? rest : { ...rest, [field]: next }) as unknown as ShapeParam,
           );
         }}
       />
@@ -215,9 +224,15 @@ export function ParamsFields() {
               </button>
             </div>
             <div class="field-row">
-              <SpecNumber name={name} spec={spec} field="default" />
-              <SpecNumber name={name} spec={spec} field="min" />
-              <SpecNumber name={name} spec={spec} field="max" />
+              {(['default', 'min', 'max'] as const).map((field) => (
+                <SpecNumber
+                  key={field}
+                  name={name}
+                  spec={spec}
+                  stored={value as Readonly<Record<string, unknown>>}
+                  field={field}
+                />
+              ))}
             </div>
             <label>
               Description
@@ -226,8 +241,9 @@ export function ParamsFields() {
                 value={spec.description ?? ''}
                 onChange={(event) => {
                   const text = (event.currentTarget as HTMLInputElement).value.trim();
-                  const { description: _, ...rest } = spec;
-                  set(['params', name], text === '' ? rest : { ...rest, description: text });
+                  const { description: _, ...rest } = value as Readonly<Record<string, unknown>>;
+                  const next = text === '' ? rest : { ...rest, description: text };
+                  set(['params', name], next as unknown as ShapeParam);
                 }}
               />
             </label>
