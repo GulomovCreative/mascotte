@@ -636,4 +636,61 @@ describe('editor document', () => {
     expect(() => editor.execute(extractPrefab(tail, ' '))).toThrow(/name/);
     expect(editor.state.document).toBe(document);
   });
+
+  it("refuses a prefab whose ids the instance would make twice, or as another node's", () => {
+    const base = readDocument(gloopDocument);
+    const make = (children: NodeDocument[], extra: NodeDocument[] = []): MascotDocument => ({
+      ...base,
+      root: {
+        ...base.root,
+        children: [...(base.root.children ?? []), ...extra, { type: 'Node', id: 'ear', children }],
+      },
+    });
+    const twice = make([
+      { type: 'Node', id: 'ear-tip' },
+      { type: 'Node', id: 'tip' },
+    ]);
+    const elsewhere = make([{ type: 'Node', id: 'dot' }], [{ type: 'Node', id: 'ear-dot' }]);
+    for (const document of [twice, elsewhere]) {
+      const editor = new EditorDocument(document);
+      const path = [(document.root.children?.length ?? 1) - 1];
+      expect(() => editor.execute(extractPrefab(path, 'earPrefab'))).toThrow(/would make the id/);
+      expect(editor.state.document).toBe(document);
+    }
+  });
+
+  it('gives a node with no id one from the prefab name, free with the ids it makes', () => {
+    const base = readDocument(gloopDocument);
+    const document: MascotDocument = {
+      ...base,
+      root: {
+        ...base.root,
+        children: [
+          ...(base.root.children ?? []),
+          { type: 'Node', id: 'leaf-tip' },
+          { type: 'Node', children: [{ type: 'Node', id: 'tip' }] },
+        ],
+      },
+    };
+    const editor = new EditorDocument(document);
+    const path = [(document.root.children?.length ?? 1) - 1];
+    editor.execute(extractPrefab(path, 'leaf'));
+    // `leaf` would make `leaf-tip`, another node's: the instance is `leaf-2`.
+    expect(nodeAt(editor.state.document, path)).toEqual({ prefab: 'leaf', id: 'leaf-2' });
+    expect(editor.state.issues).toEqual([]);
+  });
+
+  it('leaves out of the preview what the document no longer allows', () => {
+    const document = readDocument(misoDocument);
+    const editor = new EditorDocument(document);
+    editor.setPreview({ palette: 'smoke', params: { earLength: 20 } });
+    expect(editor.state.preview).toEqual({ palette: 'smoke', params: { earLength: 20 } });
+    editor.execute(setDocumentField(['params', 'earLength'], { default: 14, min: 8, max: 16 }));
+    // 20 is above the new range: left out, so the scene still builds.
+    expect(editor.state.preview).toEqual({ palette: 'smoke' });
+    expect(editor.state.issues).toEqual([]);
+    expect(editor.state.stale).toBe(false);
+    editor.undo();
+    expect(editor.state.preview).toEqual({ palette: 'smoke', params: { earLength: 20 } });
+  });
 });

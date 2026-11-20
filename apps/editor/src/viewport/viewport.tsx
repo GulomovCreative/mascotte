@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { setProp } from '../model/commands.ts';
 import type { EditorDocument } from '../model/editor-document.ts';
 import { nodeAt, samePath } from '../model/paths.ts';
-import { editor, problem, state } from '../store.ts';
+import { attempt, editor, problem, state } from '../store.ts';
 import {
   dragged,
   drawGizmo,
@@ -185,7 +185,9 @@ function PaletteSwitcher() {
           const palette = (event.currentTarget as HTMLSelectElement).value;
           const { palette: _, ...rest } = preview;
           // The base is no preview: it is what the document shows anyway.
-          editor.value.setPreview(palette === palettes[0] ? rest : { ...rest, palette });
+          attempt('Could not preview it', () =>
+            editor.value.setPreview(palette === palettes[0] ? rest : { ...rest, palette }),
+          );
         }}
       >
         {palettes.map((name) => (

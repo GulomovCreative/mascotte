@@ -6,7 +6,7 @@ import { attempt, editor, prefabMode, state } from '../store.ts';
 import { PalettesFields, ParamsFields, PrefabsFields, RigFields } from './assets.tsx';
 
 /** Sets the document's field `field` (or removes it), as a step; a refusal shows in the menu bar. */
-export function set(field: DocumentField, value: FieldValue | undefined): void {
+export function set<F extends DocumentField>(field: F, value: FieldValue<F> | undefined): void {
   attempt('Could not change the document', () =>
     editor.value.execute(setDocumentField(field, value)),
   );
@@ -115,9 +115,20 @@ export function DocumentPanel() {
   );
   // A prefab's own mode: what a prefab has besides its tree. Its frame, camera and palettes are
   // the document's, edited there.
+  const issueList =
+    own.length > 0 ? (
+      <ul class="document-issues" role="alert">
+        {own.map((issue) => (
+          <li key={`${issue.path} ${issue.message}`}>
+            <code>{issue.path}</code> {issue.message}
+          </li>
+        ))}
+      </ul>
+    ) : null;
   if (prefabMode.value) {
     return (
       <form class="form-panel" aria-label="Prefab" onSubmit={(event) => event.preventDefault()}>
+        {issueList}
         <fieldset>
           <legend>Prefab {prefabMode.value.name}</legend>
           {description}
@@ -137,15 +148,7 @@ export function DocumentPanel() {
   };
   return (
     <form class="form-panel" aria-label="Document" onSubmit={(event) => event.preventDefault()}>
-      {own.length > 0 ? (
-        <ul class="document-issues" role="alert">
-          {own.map((issue) => (
-            <li key={`${issue.path} ${issue.message}`}>
-              <code>{issue.path}</code> {issue.message}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {issueList}
       <fieldset>
         <legend>Document</legend>
         <label>

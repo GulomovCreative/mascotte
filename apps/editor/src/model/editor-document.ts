@@ -30,8 +30,9 @@ export type Checked =
   | { readonly issues: readonly [Issue, ...Issue[]]; readonly scene: null };
 
 /**
- * How the viewport shows the document without changing it: a palette other than the base, and
- * values of its shape parameters. Names the document does not have (any more) are left out.
+ * How the viewport shows the document without changing it: a palette (the base without one), and
+ * values of its shape parameters (as `buildDocument` takes them). Names the document does not
+ * have (any more), and values its parameters' ranges do not allow (any more), are left out.
  */
 export interface Preview {
   readonly palette?: string;
@@ -44,10 +45,19 @@ function previewOf(document: MascotDocument, preview: Preview): Preview {
     preview.palette !== undefined && Object.hasOwn(document.palettes ?? {}, preview.palette)
       ? preview.palette
       : undefined;
+  const specs: Readonly<Record<string, unknown>> = document.params ?? {};
   const params = Object.fromEntries(
-    Object.entries(preview.params ?? {}).filter(([name]) =>
-      Object.hasOwn(document.params ?? {}, name),
-    ),
+    Object.entries(preview.params ?? {}).filter(([name, value]) => {
+      const spec = Object.hasOwn(specs, name) ? specs[name] : undefined;
+      if (typeof spec !== 'object' || spec === null) return false;
+      const { default: fallback, min, max } = spec as Record<string, unknown>;
+      return (
+        typeof fallback === 'number' &&
+        Number.isFinite(value) &&
+        !(typeof min === 'number' && value < min) &&
+        !(typeof max === 'number' && value > max)
+      );
+    }),
   );
   return {
     ...(palette === undefined ? {} : { palette }),
