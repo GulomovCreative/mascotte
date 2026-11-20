@@ -1,10 +1,11 @@
-import type { MascotDocument, NodeDocument } from '@mascotte/format';
-import { readDocument } from '@mascotte/format';
+import { type MascotDocument, type NodeDocument, readDocument } from '@mascotte/format';
 import { misoDocument } from '@mascotte/reference';
 import { render } from 'preact';
 import { afterEach, describe, expect, it } from 'vitest';
 import { App } from '../src/app.tsx';
 import { newDocument } from '../src/files/documents.ts';
+import { keptDraft } from '../src/files/drafts.ts';
+import { duplicateNode } from '../src/model/commands.ts';
 import { nodeAt } from '../src/model/paths.ts';
 import {
   editor,
@@ -122,7 +123,7 @@ describe('palettes, parameters, prefabs and rig', () => {
     }
     expect(state.value.document.palettes).toEqual(miso.palettes);
 
-    // The ear length, and a preview of it that leaves the document alone.
+    // The ear length: its default, range and description.
     await addNamed('Add parameter', 'earLength');
     await change('earLength default', '14');
     await change('earLength min', '8');
@@ -146,14 +147,24 @@ describe('palettes, parameters, prefabs and rig', () => {
     const ear = state.value.selection as number[];
     expect(nodeAt(state.value.document, ear)).toEqual({ prefab: 'catEar', id: 'pathshape' });
 
-    // In its own mode: its length parameter, and a point that it moves.
+    // In its own mode: its description, its length parameter, its colors from the document's
+    // palette roles, and a point that the length moves.
     await select(null);
     await press('Edit prefab catEar');
     expect(prefabMode.value?.name).toBe('catEar');
+    await change('Description', miso.prefabs?.catEar?.description as string);
     await addNamed('Add parameter', 'length');
     await change('length default', '14');
     await change('length min', '4');
     await select([]);
+    for (const [name, role] of [
+      ['style.color', 'fur'],
+      ['style.shadowColor', 'shade'],
+      ['style.outlineColor', 'ink'],
+    ] as const) {
+      await change(`${name} source`, 'palette');
+      await change(`${name} role`, role);
+    }
     for (let i = 0; i < 3; i++) await press('Add point');
     await change('Path 2 point x', '7');
     await change('Path 3 point source', 'param');
@@ -166,6 +177,13 @@ describe('palettes, parameters, prefabs and rig', () => {
     const catEar = state.value.document.prefabs?.catEar;
     expect(catEar?.params).toEqual(miso.prefabs?.catEar?.params);
     expect(catEar?.root.path?.[2]).toEqual(miso.prefabs?.catEar?.root.path?.[2]);
+    expect(catEar?.description).toBe(miso.prefabs?.catEar?.description);
+    const props = miso.prefabs?.catEar?.root.props ?? {};
+    for (const name of ['style.color', 'style.shadowColor', 'style.outlineColor']) {
+      expect(catEar?.root.props?.[name], name).toEqual(props[name]);
+    }
+    // The mode's document took the palettes in, but the prefab has none of its own.
+    expect(Object.keys(catEar ?? {}).sort()).toEqual(['description', 'params', 'root']);
     // The whole mode is one step.
     expect(state.value.undoLabel).toBe('Set prefabs.catEar');
 
@@ -173,9 +191,14 @@ describe('palettes, parameters, prefabs and rig', () => {
     await select(ear);
     await change('param length source', 'param');
     expect(nodeAt(state.value.document, ear)?.params).toEqual({ length: { param: 'earLength' } });
+    editor.value.execute(duplicateNode(ear));
     await select(null);
     await change('Slot ear.L', 'pathshape');
-    expect(state.value.document.rig?.slots?.['ear.L']).toBe('pathshape');
+    await change('Slot ear.R', 'pathshape-2');
+    expect(state.value.document.rig?.slots).toMatchObject({
+      'ear.L': 'pathshape',
+      'ear.R': 'pathshape-2',
+    });
     expect(state.value.issues).toEqual([]);
     expect(problem.value).toBeNull();
   });
@@ -268,5 +291,42 @@ describe('palettes, parameters, prefabs and rig', () => {
     await change('param stroke', '');
     expect(control('style.stroke').placeholder).toBe('3');
     expect(control('param stroke').placeholder).toBe('3');
+  });
+
+  it("keeps a palette whose last color is cleared, and lists a prefab's issues in its mode", async () => {
+    await mount(newDocument('blob'));
+    await select(null);
+    await addNamed('Add palette', 'base');
+    await addNamed('Add role', 'fur');
+    await addNamed('Add palette', 'night');
+    await change('fur', '#000000', '[aria-label="Palette night"]');
+    await change('fur', '', '[aria-label="Palette night"]');
+    expect(state.value.document.palettes).toEqual({ base: { fur: '#888888' }, night: {} });
+    await addNamed('Add prefab', 'blob');
+    await press('Edit prefab blob');
+    await addNamed('Add parameter', 'size');
+    await change('size min', '5');
+    expect(document.querySelector('[aria-label="Prefab"] [role="alert"]')?.textContent).toMatch(
+      /params\.size/,
+    );
+  });
+
+  it('keeps a draft of the document with the prefab being edited, and after it', async () => {
+    await mount(newDocument('blob'));
+    offeredDraft.value = null;
+    const drafted = () => readDocument(JSON.parse(keptDraft()?.text ?? 'null'));
+    editPrefab('eye');
+    await select([]);
+    await change('position x', '3');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(drafted().prefabs?.eye?.root.props?.position).toEqual({ x: 3, y: 0, z: 0 });
+    expect(drafted().meta.name).toBe('Untitled');
+    leavePrefab(true);
+    await settle();
+    await change('Name', 'Blobby');
+    expect(state.value.document.meta.name).toBe('Blobby');
+    window.dispatchEvent(new Event('pagehide'));
+    expect(drafted().meta.name).toBe('Blobby');
+    expect(drafted().prefabs?.eye?.root.props?.position).toEqual({ x: 3, y: 0, z: 0 });
   });
 });

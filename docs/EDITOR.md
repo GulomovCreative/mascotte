@@ -111,8 +111,9 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 ### 3.4. Panels
 
 - **Document.** `meta`, the frame (`view`: size, background), the camera (`camera.props`:
-  projection, zoom, distance, light) and the archetype. Shown in the inspector while nothing is
-  selected (Escape in the tree, or a click on nothing in the viewport).
+  projection, zoom, distance, light), the archetype, and the palettes, parameters, prefabs and
+  rig below. Shown in the inspector while nothing is selected (Escape in the tree, or a click on
+  nothing in the viewport); in a prefab's mode, the prefab's description and parameters.
 - **Scene tree.** The hierarchy with ids and types; add a shape or a prefab instance, remove,
   duplicate, reparent by dragging (onto a row's middle to go inside it, its edges to go before
   or after it), rename. Rig slots, decals and prefab instances are marked;
@@ -139,11 +140,15 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   parameters and bindings, as for a document): the tree, the inspector and the viewport show the
   prefab as a document of its own, in the document's frame, camera and palettes, and its edits
   reach the document as one step when the mode ends (Done; Cancel drops them). Meanwhile the file
-  waits (no new, open or save). A library prefab edited becomes the document's own, which
-  replaces it. A subtree can be **extracted** into a new prefab: an instance takes its place with
-  its id, name and transform, ids under it lose the instance's prefix (or are renamed to the
-  prefixed id everywhere), and the document parameters it uses become the prefab's, bound to the
-  document's, so the expanded tree stays as it was.
+  waits (no new, open or save), and the draft keeps the document with the prefab as it is being
+  edited. A library prefab edited becomes the document's own, which takes the library's place in
+  the document. Renaming an id inside a prefab does not yet rename what the document names it by
+  (`instance-id` in slots and tracks). A subtree can be **extracted** into a new prefab: an
+  instance takes its place with its id (one from the prefab's name if it has none), name and
+  transform; ids under it lose the instance's prefix (or are renamed to the prefixed id
+  everywhere), and the document parameters it uses become the prefab's, bound to the
+  document's, so the expanded tree stays as it was. A subtree whose ids the instance would make
+  twice, or make as another node's, is refused.
 - **Rig.** The archetype, its slots and the nodes they bind; problems the format reports (an
   unbound slot, a library motion on the wrong kind of layer) are shown here.
 

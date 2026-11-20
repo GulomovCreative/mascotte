@@ -19,12 +19,12 @@ import {
   type ScalarRef,
   type VectorRef,
 } from '@mascotte/format';
-import { PREFABS } from '@mascotte/library';
 import { color, euler, type Quat, quat, type Vec3 } from '@mascotte/math';
 import type { ComponentChildren } from 'preact';
 import { useState } from 'preact/hooks';
 import { type Command, extractPrefab, setName, setNodeField, setProp } from '../model/commands.ts';
 import { type DocPath, nodeAt, pathString } from '../model/paths.ts';
+import { prefabDefinition } from '../model/prefabs.ts';
 import { attempt, editor, prefabMode, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
 
@@ -199,25 +199,30 @@ function kindOf(document: MascotDocument, node: NodeDocument): NodeKind {
         : `Unknown type ${JSON.stringify(node.type)}.`;
     return { type: node.type, inherited: {}, params: {}, problem };
   }
-  // As the format expands it: the document's own definition, unless it is none, then the library's.
-  const own = isObject(document.prefabs) ? document.prefabs[node.prefab] : undefined;
-  const prefab: Readonly<Record<string, unknown>> | undefined =
-    isObject(own) && isObject(own.root)
-      ? own
-      : (PREFABS.get(node.prefab) as unknown as Readonly<Record<string, unknown>> | undefined);
-  const root = prefab?.root;
+  const prefab = prefabDefinition(document, node.prefab);
+  const root: unknown = prefab?.root;
   if (!prefab || !isObject(root)) {
     return { type: undefined, inherited: {}, params: {}, problem: `No prefab "${node.prefab}".` };
   }
-  // The prefab's parameters as this instance sets them: a number, or the document's parameters
-  // (at their defaults) through a reference; the prefab's default otherwise.
+  // The prefab's parameters as this instance sets them, as the format takes them: a number, or
+  // the document's parameters (at their defaults) through a reference, in the parameter's range;
+  // the prefab's default otherwise.
+  const specs: Readonly<Record<string, unknown>> = isObject(prefab.params) ? prefab.params : {};
   const documentValues = defaultsOf(document.params);
-  const values = defaultsOf(prefab.params);
+  const values = defaultsOf(specs);
   for (const [name, value] of Object.entries(isObject(node.params) ? node.params : {})) {
     const set = isRef(value) ? resolve(value, documentValues) : value;
-    if (typeof set === 'number' && Number.isFinite(set)) values[name] = set;
+    const spec = specs[name];
+    const { min, max } = isObject(spec) ? spec : {};
+    const allowed =
+      typeof set === 'number' &&
+      Number.isFinite(set) &&
+      !(typeof min === 'number' && set < min) &&
+      !(typeof max === 'number' && set > max);
+    if (allowed && Object.hasOwn(values, name)) values[name] = set;
   }
-  // The root's values as the instance has them; one that does not come to a value is left out.
+  // The root's values as the instance has them (colors in the base palette, not the viewport's);
+  // one that does not come to a value is left out, and shows the registry's default.
   const inherited = Object.fromEntries(
     Object.entries(isObject(root.props) ? root.props : {}).flatMap(([name, value]) => {
       const plain = isRef(value)
@@ -231,7 +236,7 @@ function kindOf(document: MascotDocument, node: NodeDocument): NodeKind {
   return {
     type: typeof root.type === 'string' ? root.type : undefined,
     inherited,
-    params: isObject(prefab.params) ? prefab.params : {},
+    params: specs,
     problem: `The prefab "${node.prefab}" has a root of unknown type.`,
   };
 }
@@ -958,7 +963,15 @@ function InstanceParams(props: {
         const { default: fallback, min, max } = isObject(spec) ? spec : {};
         const value = values[name];
         const label = `param ${name}`;
-        const setValue = (next: unknown) => set(name, next as Num);
+        // A parameter is a number (or none, back to the prefab's default): a vector is refused.
+        const setValue = (next: unknown) => {
+          const scalar =
+            next === undefined ||
+            typeof next === 'number' ||
+            (isRef(next) && !isObject(next.times));
+          if (scalar) set(name, next as Num | undefined);
+          else problem.value = `The parameter ${name} takes a number, not a vector.`;
+        };
         return (
           <Field
             key={name}

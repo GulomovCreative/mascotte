@@ -153,6 +153,18 @@ function SpecNumber(props: { name: string; spec: ShapeParam; field: 'default' | 
   );
 }
 
+/** A parameter's spec from what the document stores: its fields of the right kinds, or none without a default. */
+function specOf(value: unknown): ShapeParam | undefined {
+  if (!isObject(value) || typeof value.default !== 'number') return undefined;
+  const { min, max, description } = value;
+  return {
+    default: value.default,
+    ...(typeof min === 'number' ? { min } : {}),
+    ...(typeof max === 'number' ? { max } : {}),
+    ...(typeof description === 'string' ? { description } : {}),
+  };
+}
+
 /**
  * The shape parameters (docs/EDITOR.md, Panels): each one's default, range and description, and a
  * slider that shows the viewport another value without changing the document.
@@ -163,18 +175,31 @@ export function ParamsFields() {
   const setPreview = (name: string, value: number | undefined) => {
     const { [name]: _, ...rest } = preview.params ?? {};
     const next = value === undefined ? rest : { ...rest, [name]: value };
-    editor.value.setPreview({ ...preview, params: next });
+    attempt('Could not preview it', () => editor.value.setPreview({ ...preview, params: next }));
   };
   return (
     <fieldset>
       <legend>Parameters</legend>
       {params.map(([name, value]) => {
-        // One that is no spec shows as a default of 0; the format reports it.
-        const spec: ShapeParam =
-          isObject(value) && typeof value.default === 'number'
-            ? (value as unknown as ShapeParam)
-            : { default: 0 };
-        const shown = preview.params?.[name];
+        const spec = specOf(value);
+        // One that is no spec can only go; the format says what is wrong with it.
+        if (!spec) {
+          return (
+            <div key={name} class="prop-head">
+              <span class="prop-name">{`${name} is not a parameter`}</span>
+              <button
+                type="button"
+                aria-label={`Remove parameter ${name}`}
+                onClick={() => set(['params', name], undefined)}
+              >
+                Remove
+              </button>
+            </div>
+          );
+        }
+        const shown = Object.hasOwn(preview.params ?? {}, name)
+          ? preview.params?.[name]
+          : undefined;
         const low = spec.min ?? Math.min(0, spec.default);
         const high = spec.max ?? Math.max(spec.default * 2, low + 1);
         return (
@@ -246,7 +271,8 @@ export function ParamsFields() {
 
 /**
  * The prefabs (docs/EDITOR.md, Panels): the document's own and the library's, each edited in its
- * own mode (a library prefab edited becomes the document's own, which replaces it).
+ * own mode (a library prefab edited becomes the document's own, which takes the library's place
+ * in the document).
  */
 export function PrefabsFields() {
   const { document } = state.value;

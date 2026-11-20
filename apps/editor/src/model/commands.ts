@@ -297,23 +297,33 @@ export type DocumentField =
   | readonly ['prefabs', string]
   | readonly ['rig', 'slots', string];
 
-/**
- * A value `setDocumentField` sets: a plain one, a shape parameter, a palette (colors by role) or
- * a prefab.
- */
-export type FieldValue =
-  | PlainValue
-  | ShapeParam
-  | Readonly<Record<string, string>>
-  | PrefabDocument;
+/** The value `setDocumentField` sets at `F`: a shape parameter, a palette, a prefab, a number or text. */
+export type FieldValue<F extends DocumentField = DocumentField> = F extends readonly [
+  'params',
+  string,
+]
+  ? ShapeParam
+  : F extends readonly ['palettes', string]
+    ? Readonly<Record<string, string>>
+    : F extends readonly ['prefabs', string]
+      ? PrefabDocument
+      : F extends readonly ['view', 'width' | 'height']
+        ? number
+        : F extends readonly ['camera', 'props', string]
+          ? PlainValue
+          : string;
 
 /**
  * Sets the document's field at `field` (`['view', 'width']`, `['camera', 'props', 'zoom']`), or
  * removes it with `undefined`; every object the removal leaves empty goes too (`camera.props`,
- * then `camera`). The value it has already is no change. The fields the format requires
- * (`meta.name`, `view.width`, `view.height`) cannot be removed.
+ * then `camera`), but a palette stays, though it names no role. The value it has already is no
+ * change. The fields the format requires (`meta.name`, `view.width`, `view.height`) cannot be
+ * removed.
  */
-export function setDocumentField(field: DocumentField, value: FieldValue | undefined): Command {
+export function setDocumentField<F extends DocumentField>(
+  field: F,
+  value: FieldValue<F> | undefined,
+): Command {
   const required =
     field[0] === 'meta' ? field[1] === 'name' : field[0] === 'view' && field[1] !== 'background';
   const name = field.join('.');
@@ -330,12 +340,19 @@ export function setDocumentField(field: DocumentField, value: FieldValue | undef
           at === field.length - 1
             ? value
             : set(typeof current === 'object' && current !== null ? { ...current } : {}, at + 1);
+        // A palette that names no role is still a palette (one that changes nothing yet).
+        const kept = field[0] === 'palettes' && at === 1;
         const empty =
-          next === undefined || (at < field.length - 1 && Object.keys(next as object).length === 0);
+          next === undefined ||
+          (at < field.length - 1 && !kept && Object.keys(next as object).length === 0);
         return empty ? rest : { ...object, [key]: next };
       };
+      // Own keys only: a name such as "constructor" finds nothing.
       const before = field.reduce<unknown>(
-        (object, key) => (object as Record<string, unknown> | undefined)?.[key],
+        (object, key) =>
+          typeof object === 'object' && object !== null && Object.hasOwn(object, key)
+            ? (object as Record<string, unknown>)[key]
+            : undefined,
         document,
       );
       if (same(before, value)) return { document };
@@ -365,13 +382,14 @@ function hasInstance(node: NodeDocument): boolean {
 /**
  * Makes the node at `path` and its subtree the document's new prefab `name`, and puts an instance
  * of it in its place; the expanded tree stays as it was:
- * - the instance keeps the node's id and name, and its place (its transform props); the prefab's
- *   root has the rest;
+ * - the instance keeps the node's id (or gets one from the prefab's name: an instance needs one)
+ *   and name, and its place (its transform props); the prefab's root has the rest;
  * - an id under it that its id prefixes loses the prefix (the instance gives it back); another
  *   is renamed to the prefixed id everywhere, as the instance names it;
  * - a document parameter its values refer to becomes a parameter of the prefab, as the document
  *   has it, and the instance binds it to the document's.
- * A prefab holds no prefabs, so a subtree with an instance cannot become one. Selects the instance.
+ * A prefab holds no prefabs, so a subtree with an instance cannot become one; nor one whose ids
+ * the instance would make twice, or make as another node's. Selects the instance.
  */
 export function extractPrefab(path: DocPath, name: string): Command {
   return {
@@ -387,7 +405,27 @@ export function extractPrefab(path: DocPath, name: string): Command {
       if (Object.hasOwn(document.prefabs ?? {}, wanted) || PREFABS.has(wanted)) {
         throw new RangeError(`The prefab name "${wanted}" is taken.`);
       }
-      const id = node.id ?? uniqueId(wanted, expandedIds(document));
+      // The ids under it, as the prefab keeps them (without the instance's prefix).
+      const own = (current: NodeDocument): string[] => [
+        ...(current.id === undefined ? [] : [current.id]),
+        ...(current.children ?? []).flatMap(own),
+      ];
+      const inside = (node.children ?? []).flatMap(own);
+      const taken = expandedIds(document);
+      for (const old of [...inside, ...(node.id === undefined ? [] : [node.id])]) taken.delete(old);
+      const id = node.id ?? uniqueId(wanted, taken, inside);
+      const kept = inside.map((old) => (old.startsWith(`${id}-`) ? old.slice(id.length + 1) : old));
+      // The instance makes `id-kept` of each: none may be made twice, or be another node's.
+      const made = new Set<string>();
+      for (const suffix of kept) {
+        const full = `${id}-${suffix}`;
+        if (made.has(full) || taken.has(full)) {
+          throw new RangeError(
+            `The instance would make the id "${full}", which ${made.has(full) ? 'it makes twice' : 'another node has'}; rename it first.`,
+          );
+        }
+        made.add(full);
+      }
       const names = new Map<string, string>();
       const strip = (current: NodeDocument): NodeDocument => {
         const { id: own, children, ...rest } = current;
