@@ -369,7 +369,7 @@ So that the editor does not need hacks, the engine provides:
 
 - introspection: node types, their properties and ranges (the property registry: `propertiesOf`, `findProperty`) — done;
 - seeking and stepping through clips (`layer.time`, `Animator.evaluate`; fades, springs and machine states are not seekable) — done;
-- hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, with the editor's gizmos;
+- hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, when the editor frames the selection (the gizmos work without them);
 - data for a debug view: axes, pivots, bones, sort order and sort points, decal anchors — done (the editor's overlay uses `DepthSorter`, `Node.getSortPoint`, `decalAnchor` and `Rig.bones`);
 - hot swapping of the document without recreating the player (`Player.load`) — done;
 - a map from built nodes to the document paths they came from — done in the editor (the format keeps the tree's order; `expandDocument` is exported for the ids prefab instances make).
@@ -490,7 +490,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 - [x] Editor document model ([#86](https://github.com/GulomovCreative/mascotte/issues/86))
 - [x] Editor files ([#87](https://github.com/GulomovCreative/mascotte/issues/87))
 - [x] Editor viewport, picking and debug view ([#88](https://github.com/GulomovCreative/mascotte/issues/88))
-- [ ] Editor gizmos ([#89](https://github.com/GulomovCreative/mascotte/issues/89))
+- [x] Editor gizmos ([#89](https://github.com/GulomovCreative/mascotte/issues/89))
 - [ ] Editor scene tree and document panel ([#90](https://github.com/GulomovCreative/mascotte/issues/90))
 - [ ] Editor inspector and bindings ([#91](https://github.com/GulomovCreative/mascotte/issues/91))
 - [ ] Editor palettes, parameters, prefabs and rig ([#92](https://github.com/GulomovCreative/mascotte/issues/92))

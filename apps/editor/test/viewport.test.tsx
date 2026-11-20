@@ -4,9 +4,10 @@ import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
 import { App } from '../src/app.tsx';
 import { newDocument } from '../src/files/documents.ts';
-import { pathString } from '../src/model/paths.ts';
-import { openDocument, state } from '../src/store.ts';
-import { debugView, orbit, viewCamera } from '../src/viewport/viewport.tsx';
+import { nodeAt, pathString } from '../src/model/paths.ts';
+import { editor, openDocument, state } from '../src/store.ts';
+import { gizmoFrame } from '../src/viewport/gizmo.ts';
+import { debugView, gizmoMode, orbit, viewCamera } from '../src/viewport/viewport.tsx';
 
 let host: HTMLDivElement | null = null;
 
@@ -30,6 +31,7 @@ afterEach(() => {
     host = null;
   }
   viewCamera.value = 'orbit';
+  gizmoMode.value = 'move';
   debugView.value = { axes: true, bones: false, sort: false, anchors: false, frame: true };
   openDocument(newDocument('blob'), null);
 });
@@ -108,6 +110,13 @@ function onCanvas(canvas: HTMLCanvasElement, node: Node, scale: number): { x: nu
   return { x: width / 2 + point.x * scale, y: height / 2 + point.y * scale };
 }
 
+/** How far apart a ring's points lie on screen. */
+function spread(ring: readonly { x: number; y: number }[]): number {
+  const xs = ring.map((p) => p.x);
+  const ys = ring.map((p) => p.y);
+  return Math.min(Math.max(...xs) - Math.min(...xs), Math.max(...ys) - Math.min(...ys));
+}
+
 function click(canvas: HTMLCanvasElement, at: { x: number; y: number }) {
   pointer(canvas, 'pointerdown', at.x, at.y);
   pointer(canvas, 'pointerup', at.x, at.y, 0);
@@ -132,6 +141,45 @@ describe('viewport', () => {
     pointer(canvas, 'pointermove', 200, 100);
     pointer(canvas, 'pointerup', 200, 100, 0);
     expect(orbit.value).toBe(before);
+  });
+
+  it("poses Pip's wing with the rotate gizmo in one step, and undoes it", async () => {
+    const canvas = await mountPip();
+    viewCamera.value = 'document';
+    gizmoMode.value = 'rotate';
+    const scene = state.value.scene;
+    const path = scene?.sources.get(built('wing-left'));
+    if (!scene || !path) throw new Error('no wing');
+    editor.value.select(path);
+    const before = state.value.document;
+    const view = scene.built.view;
+    const { width, height } = canvas.getBoundingClientRect();
+    const scale = Math.min(width / view.width, height / view.height);
+    const frame = gizmoFrame(built('wing-left'), scene.built.camera, 'local', scale);
+    // The ring that faces the viewer most: its points spread furthest on screen.
+    const ring = [...(frame?.axes ?? [])]
+      .map((axis) => axis.ring)
+      .sort((a, b) => spread(b) - spread(a))[0];
+    if (!ring || ring.length < 13) throw new Error('no ring');
+    const at = (point: { x: number; y: number }) => ({
+      x: width / 2 + point.x,
+      y: height / 2 + point.y,
+    });
+    const from = at(ring[0] as { x: number; y: number });
+    pointer(canvas, 'pointerdown', from.x, from.y);
+    // Round the ring a quarter, in steps: one step to undo all the same.
+    for (const k of [4, 8, 12]) {
+      const to = at(ring[k] as { x: number; y: number });
+      pointer(canvas, 'pointermove', to.x, to.y);
+    }
+    const end = at(ring[12] as { x: number; y: number });
+    pointer(canvas, 'pointerup', end.x, end.y, 0);
+    const rotation = () => nodeAt(state.value.document, path)?.props?.rotation;
+    expect(rotation()).not.toEqual(nodeAt(before, path)?.props?.rotation);
+    // Not a click: the selection stays.
+    expect(state.value.selection).toEqual(path);
+    editor.value.undo();
+    expect(state.value.document).toBe(before);
   });
 
   it('pans the orbit by a shift-drag, without turning it', async () => {

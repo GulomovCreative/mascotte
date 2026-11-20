@@ -12,6 +12,7 @@
     "@mascotte/engine": "workspace:*",
     "@mascotte/format": "workspace:*",
     "@mascotte/library": "workspace:*",
+    "@mascotte/math": "workspace:*",
     "@mascotte/player": "workspace:*",
     "@mascotte/reference": "workspace:*",
     "@preact/signals": "2.11.4",
