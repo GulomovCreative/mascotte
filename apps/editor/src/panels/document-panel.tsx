@@ -1,11 +1,12 @@
 import { DEFAULT_LIGHT, PROJECTIONS } from '@mascotte/engine';
-import type { PlainValue } from '@mascotte/format';
 import { ARCHETYPES } from '@mascotte/library';
 import type { Vec3 } from '@mascotte/math';
-import { type DocumentField, setDocumentField } from '../model/commands.ts';
-import { attempt, editor, state } from '../store.ts';
+import { type DocumentField, type FieldValue, setDocumentField } from '../model/commands.ts';
+import { attempt, editor, prefabMode, state } from '../store.ts';
+import { PalettesFields, ParamsFields, PrefabsFields, RigFields } from './assets.tsx';
 
-function set(field: DocumentField, value: PlainValue | undefined): void {
+/** Sets the document's field `field` (or removes it), as a step; a refusal shows in the menu bar. */
+export function set(field: DocumentField, value: FieldValue | undefined): void {
   attempt('Could not change the document', () =>
     editor.value.execute(setDocumentField(field, value)),
   );
@@ -57,7 +58,7 @@ function NumberField(props: {
 }
 
 /** A CSS color: its text, and a picker that shows it when it is `#rrggbb` (white otherwise). */
-function ColorField(props: { label: string; field: DocumentField; value: unknown }) {
+export function ColorField(props: { label: string; field: DocumentField; value: unknown }) {
   const value = typeof props.value === 'string' ? props.value : '';
   const hex = /^#[0-9a-f]{6}$/i.test(value) ? value : '#ffffff';
   const change = (next: string) => set(props.field, next.trim() === '' ? undefined : next.trim());
@@ -83,8 +84,9 @@ function ColorField(props: { label: string; field: DocumentField; value: unknown
 }
 
 /**
- * The document panel (docs/EDITOR.md, 3.4): `meta`, the frame (`view`), the camera (projection,
- * zoom, distance, light) and the archetype. Each change is a command, undone as one step.
+ * The document panel (docs/EDITOR.md, Panels): `meta`, the frame (`view`), the camera (projection,
+ * zoom, distance, light), the archetype, the palettes, parameters, prefabs and rig; in a prefab's
+ * mode, its description and parameters. Each change is a command, undone as one step.
  */
 export function DocumentPanel() {
   const { document, issues } = state.value;
@@ -98,6 +100,32 @@ export function DocumentPanel() {
   // A document's own archetype stays listed, even one the library does not have.
   if (archetype && !archetypes.includes(archetype)) archetypes.push(archetype);
   const projection = typeof camera.projection === 'string' ? camera.projection : '';
+  const description = (
+    <label>
+      Description
+      <textarea
+        rows={3}
+        value={typeof meta.description === 'string' ? meta.description : ''}
+        onChange={(event) => {
+          const text = (event.currentTarget as HTMLTextAreaElement).value;
+          set(['meta', 'description'], text.trim() === '' ? undefined : text);
+        }}
+      />
+    </label>
+  );
+  // A prefab's own mode: what a prefab has besides its tree. Its frame, camera and palettes are
+  // the document's, edited there.
+  if (prefabMode.value) {
+    return (
+      <form class="form-panel" aria-label="Prefab" onSubmit={(event) => event.preventDefault()}>
+        <fieldset>
+          <legend>Prefab {prefabMode.value.name}</legend>
+          {description}
+        </fieldset>
+        <ParamsFields />
+      </form>
+    );
+  }
   const setLight = (axis: keyof Vec3, input: HTMLInputElement) => {
     const next = numberOf(input);
     if (next === null || next === undefined) {
@@ -130,17 +158,7 @@ export function DocumentPanel() {
             }
           />
         </label>
-        <label>
-          Description
-          <textarea
-            rows={3}
-            value={typeof meta.description === 'string' ? meta.description : ''}
-            onChange={(event) => {
-              const text = (event.currentTarget as HTMLTextAreaElement).value;
-              set(['meta', 'description'], text.trim() === '' ? undefined : text);
-            }}
-          />
-        </label>
+        {description}
         <label>
           Archetype
           <select
@@ -239,6 +257,10 @@ export function DocumentPanel() {
           </button>
         </fieldset>
       </fieldset>
+      <PalettesFields />
+      <ParamsFields />
+      <PrefabsFields />
+      <RigFields />
     </form>
   );
 }

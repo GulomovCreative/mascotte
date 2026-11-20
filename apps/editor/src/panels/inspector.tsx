@@ -12,6 +12,7 @@ import {
   type MascotDocument,
   NODE_TYPES,
   type NodeDocument,
+  type Num,
   type ParamRef,
   type PathCommandDocument,
   type PropertyValue,
@@ -21,9 +22,10 @@ import {
 import { PREFABS } from '@mascotte/library';
 import { color, euler, type Quat, quat, type Vec3 } from '@mascotte/math';
 import type { ComponentChildren } from 'preact';
-import { type Command, setName, setNodeField, setProp } from '../model/commands.ts';
+import { useState } from 'preact/hooks';
+import { type Command, extractPrefab, setName, setNodeField, setProp } from '../model/commands.ts';
 import { type DocPath, nodeAt, pathString } from '../model/paths.ts';
-import { attempt, editor, problem, state } from '../store.ts';
+import { attempt, editor, prefabMode, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
 
 type Faces = NonNullable<NodeDocument['faces']>;
@@ -107,14 +109,24 @@ function withKey<T extends object, K extends keyof T>(
   return (value === undefined ? rest : { ...rest, [key]: value }) as T;
 }
 
+/** The parameters' values at their defaults, by name (one with no number for a default is left out). */
+function defaultsOf(params: unknown): Record<string, number> {
+  if (!isObject(params)) return {};
+  return Object.fromEntries(
+    Object.entries(params).flatMap(([name, spec]) =>
+      isObject(spec) && typeof spec.default === 'number' ? [[name, spec.default]] : [],
+    ),
+  );
+}
+
 /**
- * What a reference comes to with the document's parameters at their defaults; `null` when it
- * names a parameter the document does not have or does not come to finite numbers.
+ * What a reference comes to with the parameters' `values`; `null` when it names a parameter they
+ * do not have or does not come to finite numbers.
  */
-function resolve(ref: ParamRef, document: MascotDocument): number | Vec3 | null {
-  const value = document.params?.[ref.param]?.default;
+function resolve(ref: ParamRef, values: Readonly<Record<string, number>>): number | Vec3 | null {
+  const value = Object.hasOwn(values, ref.param) ? values[ref.param] : undefined;
   if (typeof value !== 'number') return null;
-  const plus = isRef(ref.plus) ? resolve(ref.plus, document) : ref.plus;
+  const plus = isRef(ref.plus) ? resolve(ref.plus, values) : ref.plus;
   if (plus === null) return null;
   const times: unknown = ref.times;
   if (isObject(times)) {
@@ -134,9 +146,12 @@ function resolve(ref: ParamRef, document: MascotDocument): number | Vec3 | null 
   return Number.isFinite(result) ? result : null;
 }
 
-/** What a reference comes to (see `resolve`), or `null` after saying why it cannot be unbound. */
+/**
+ * What a reference comes to with the document's parameters at their defaults (see `resolve`), or
+ * `null` after saying why it cannot be unbound.
+ */
 function unbound(label: string, ref: ParamRef, document: MascotDocument): number | Vec3 | null {
-  const value = resolve(ref, document);
+  const value = resolve(ref, defaultsOf(document.params));
   if (value === null) {
     problem.value = `Could not unbind ${label}: its parameters do not come to a value (see its issues).`;
   }
@@ -164,10 +179,14 @@ function colorOf(document: MascotDocument, role: string): string | undefined {
   return undefined;
 }
 
-/** A node's type, the props it starts from (a prefab root's, for an instance), and why it has no type. */
+/**
+ * A node's type, the props it starts from (a prefab root's, for an instance, as its parameters
+ * make them), its prefab's parameters, and why it has no type.
+ */
 interface NodeKind {
   readonly type: string | undefined;
   readonly inherited: Readonly<Record<string, unknown>>;
+  readonly params: Readonly<Record<string, unknown>>;
   readonly problem: string | null;
 }
 
@@ -178,17 +197,41 @@ function kindOf(document: MascotDocument, node: NodeDocument): NodeKind {
       node.type === undefined
         ? 'The node has no type.'
         : `Unknown type ${JSON.stringify(node.type)}.`;
-    return { type: node.type, inherited: {}, problem };
+    return { type: node.type, inherited: {}, params: {}, problem };
   }
   // As the format expands it: the document's own definition, unless it is none, then the library's.
   const own = isObject(document.prefabs) ? document.prefabs[node.prefab] : undefined;
-  const root = isObject(own) && isObject(own.root) ? own.root : PREFABS.get(node.prefab)?.root;
-  if (!root) return { type: undefined, inherited: {}, problem: `No prefab "${node.prefab}".` };
-  // упрощение: свойства корня, привязанные к параметрам префаба, не вычисляются и показываются
-  // значениями по умолчанию из реестра; вычислять их с параметрами экземпляра — вместе с #92.
+  const prefab: Readonly<Record<string, unknown>> | undefined =
+    isObject(own) && isObject(own.root)
+      ? own
+      : (PREFABS.get(node.prefab) as unknown as Readonly<Record<string, unknown>> | undefined);
+  const root = prefab?.root;
+  if (!prefab || !isObject(root)) {
+    return { type: undefined, inherited: {}, params: {}, problem: `No prefab "${node.prefab}".` };
+  }
+  // The prefab's parameters as this instance sets them: a number, or the document's parameters
+  // (at their defaults) through a reference; the prefab's default otherwise.
+  const documentValues = defaultsOf(document.params);
+  const values = defaultsOf(prefab.params);
+  for (const [name, value] of Object.entries(isObject(node.params) ? node.params : {})) {
+    const set = isRef(value) ? resolve(value, documentValues) : value;
+    if (typeof set === 'number' && Number.isFinite(set)) values[name] = set;
+  }
+  // The root's values as the instance has them; one that does not come to a value is left out.
+  const inherited = Object.fromEntries(
+    Object.entries(isObject(root.props) ? root.props : {}).flatMap(([name, value]) => {
+      const plain = isRef(value)
+        ? resolve(value, values)
+        : isColorRef(value)
+          ? colorOf(document, value.color)
+          : value;
+      return plain === null || plain === undefined ? [] : [[name, plain]];
+    }),
+  );
   return {
     type: typeof root.type === 'string' ? root.type : undefined,
-    inherited: isObject(root.props) ? root.props : {},
+    inherited,
+    params: isObject(prefab.params) ? prefab.params : {},
     problem: `The prefab "${node.prefab}" has a root of unknown type.`,
   };
 }
@@ -887,6 +930,95 @@ function FacesEditor(props: { path: DocPath; node: NodeDocument; context: Contex
   );
 }
 
+/**
+ * A prefab instance's parameters: each a number, or bound to the document's parameters; unset,
+ * it is the prefab's default.
+ */
+function InstanceParams(props: {
+  path: DocPath;
+  node: NodeDocument;
+  specs: Readonly<Record<string, unknown>>;
+  context: Context;
+  invalid: (name: string) => boolean;
+}) {
+  const { path, node, specs, context } = props;
+  const values: Readonly<Record<string, Num>> = isObject(node.params) ? node.params : {};
+  // The prefab's parameters, and any the instance sets that it does not have (the format says so).
+  const names = [...new Set([...Object.keys(specs), ...Object.keys(values)])];
+  if (names.length === 0) return null;
+  const set = (name: string, next: Num | undefined) => {
+    const all = withKey<Record<string, Num>, string>({ ...values }, name, next);
+    run(setNodeField(path, 'params', Object.keys(all).length === 0 ? undefined : all));
+  };
+  return (
+    <fieldset>
+      <legend>Parameters</legend>
+      {names.map((name) => {
+        const spec = specs[name];
+        const { default: fallback, min, max } = isObject(spec) ? spec : {};
+        const value = values[name];
+        const label = `param ${name}`;
+        const setValue = (next: unknown) => set(name, next as Num);
+        return (
+          <Field
+            key={name}
+            title={name}
+            label={label}
+            invalid={props.invalid(name)}
+            source={paramSource(label, value, false, context, setValue)}
+            reset={value === undefined ? null : () => set(name, undefined)}
+          >
+            {isRef(value) ? (
+              <RefEditor label={label} value={value} context={context} onValue={setValue} />
+            ) : (
+              <NumberInput
+                label={label}
+                value={typeof value === 'number' ? value : undefined}
+                placeholder={typeof fallback === 'number' ? String(fallback) : ''}
+                min={typeof min === 'number' ? min : undefined}
+                max={typeof max === 'number' ? max : undefined}
+                optional
+                onValue={setValue}
+              />
+            )}
+          </Field>
+        );
+      })}
+    </fieldset>
+  );
+}
+
+/** Makes the node and its subtree a new prefab, with an instance of it in its place. */
+function MakePrefab(props: { path: DocPath }) {
+  const [name, setName] = useState('');
+  const make = () => {
+    if (name.trim() !== '') run(extractPrefab(props.path, name));
+  };
+  return (
+    <fieldset>
+      <legend>Prefab</legend>
+      <div class="field-row">
+        <input
+          type="text"
+          aria-label="Prefab name"
+          placeholder="name"
+          value={name}
+          onInput={(event) => setName((event.currentTarget as HTMLInputElement).value)}
+          onKeyDown={(event) => {
+            if (event.key === 'Enter') {
+              event.preventDefault();
+              make();
+            }
+          }}
+        />
+        <button type="button" onClick={make}>
+          Make prefab
+        </button>
+      </div>
+    </fieldset>
+  );
+}
+
 /** The group a property is shown in. */
 function groupOf(name: string): string {
   if (TRANSFORM.has(name)) return 'Transform';
@@ -982,12 +1114,31 @@ export function Inspector(props: { path: DocPath }) {
           </fieldset>
         );
       })}
+      {node.prefab === undefined ? null : (
+        <InstanceParams
+          path={path}
+          node={node}
+          specs={kind.params}
+          context={context}
+          invalid={(name) =>
+            own.some(
+              (issue) =>
+                issue.path === `${at}.params.${name}` ||
+                issue.path.startsWith(`${at}.params.${name}.`),
+            )
+          }
+        />
+      )}
       {/* An instance's path and faces are its prefab's. */}
       {node.prefab === undefined && typeName === 'PathShape' ? (
         <PathEditor path={path} node={node} context={context} />
       ) : null}
       {node.prefab === undefined && typeName === 'Box' ? (
         <FacesEditor path={path} node={node} context={context} />
+      ) : null}
+      {/* A prefab holds no prefabs: in a prefab's mode, nothing becomes one. */}
+      {path.length > 0 && node.prefab === undefined && prefabMode.value === null ? (
+        <MakePrefab path={path} />
       ) : null}
     </form>
   );

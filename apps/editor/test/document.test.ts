@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   addNode,
   duplicateNode,
+  extractPrefab,
   moveNode,
   removeNode,
   renameNode,
@@ -568,6 +569,71 @@ describe('editor document', () => {
     expect(nodeAt(editor.state.document, path)?.path).toEqual(commands);
     editor.undo();
     editor.undo();
+    expect(editor.state.document).toBe(document);
+  });
+
+  it('makes a subtree a prefab, keeping the expanded tree and what names its nodes', () => {
+    const base = readDocument(gloopDocument);
+    const ear: NodeDocument = {
+      type: 'Node',
+      id: 'ear',
+      name: 'Ear',
+      props: { position: { x: 1, y: 2, z: 3 }, opacity: 0.5 },
+      children: [
+        { type: 'Sphere', id: 'ear-tip', props: { diameter: { param: 'size' } } },
+        { type: 'Sphere', id: 'dot', props: { diameter: 2 } },
+      ],
+    };
+    const document: MascotDocument = {
+      ...base,
+      params: { ...base.params, size: { default: 10, min: 1 } },
+      root: { ...base.root, children: [...(base.root.children ?? []), ear] },
+      rig: { slots: { ...base.rig?.slots, spot: 'dot' } },
+    };
+    expect(check(document).issues).toEqual([]);
+    const path = [(document.root.children?.length ?? 1) - 1];
+    const editor = new EditorDocument(document);
+    editor.execute(extractPrefab(path, 'earPrefab'));
+    const next = editor.state.document;
+    expect(nodeAt(next, path)).toEqual({
+      prefab: 'earPrefab',
+      id: 'ear',
+      name: 'Ear',
+      params: { size: { param: 'size' } },
+      props: { position: { x: 1, y: 2, z: 3 } },
+    });
+    expect(next.prefabs?.earPrefab).toEqual({
+      params: { size: { default: 10, min: 1 } },
+      root: {
+        type: 'Node',
+        props: { opacity: 0.5 },
+        children: [
+          { type: 'Sphere', id: 'tip', props: { diameter: { param: 'size' } } },
+          { type: 'Sphere', id: 'dot', props: { diameter: 2 } },
+        ],
+      },
+    });
+    // `dot` is `ear-dot` once the instance prefixes it, and the rig follows.
+    expect(next.rig?.slots?.spot).toBe('ear-dot');
+    expect(editor.state.issues).toEqual([]);
+    const ids = (made: MascotDocument) => [...expandedIds(made)].filter((id) => id !== 'dot');
+    expect(new Set(ids(next))).toEqual(new Set([...ids(document), 'ear-dot']));
+    expect(editor.state.selection).toEqual(path);
+    editor.undo();
+    expect(editor.state.document).toBe(document);
+  });
+
+  it('refuses to make a prefab of the root, of a subtree with instances, or by a name taken', () => {
+    const document = readDocument(misoDocument);
+    const editor = new EditorDocument(document);
+    expect(() => editor.execute(extractPrefab([], 'all'))).toThrow(/root/);
+    expect(() => editor.execute(extractPrefab(pathOf(document, 'head'), 'head'))).toThrow(
+      /instances/,
+    );
+    const tail = pathOf(document, 'tail');
+    expect(() => editor.execute(extractPrefab(tail, 'catEar'))).toThrow(/taken/);
+    expect(() => editor.execute(extractPrefab(tail, 'eye'))).toThrow(/taken/);
+    expect(() => editor.execute(extractPrefab(tail, ' '))).toThrow(/name/);
     expect(editor.state.document).toBe(document);
   });
 });

@@ -1,8 +1,10 @@
-import type { MascotDocument } from '@mascotte/format';
+import type { MascotDocument, PrefabDocument } from '@mascotte/format';
+import { PREFABS } from '@mascotte/library';
 import { signal } from '@preact/signals';
 import { newDocument } from './files/documents.ts';
 import { type Draft, dropDraft, keepDraft, keptDraft } from './files/drafts.ts';
 import type { FileHandle, SavedFile } from './files/io.ts';
+import { setDocumentField } from './model/commands.ts';
 import { EditorDocument, type EditorState } from './model/editor-document.ts';
 
 /** The document being edited. */
@@ -23,6 +25,15 @@ export const problem = signal<string | null>(null);
  * offer no new draft is kept, so a change made meanwhile does not overwrite it.
  */
 export const offeredDraft = signal<Draft | null>(keptDraft());
+
+/** A prefab edited in its own mode: its name, and the document's editor to go back to. */
+export interface PrefabMode {
+  readonly name: string;
+  readonly outer: EditorDocument;
+}
+
+/** The prefab being edited in its own mode, or `null` while the document is. */
+export const prefabMode = signal<PrefabMode | null>(null);
 
 /** Whether the open document has changes no file holds. */
 export const isUnsaved = () => state.value.document !== savedDocument.value;
@@ -54,7 +65,8 @@ globalThis.addEventListener?.('pagehide', () => {
 
 function onChange(): void {
   state.value = editor.peek().state;
-  if (offeredDraft.peek() !== null) return;
+  // A prefab's edits reach the document, and its draft, when its mode ends.
+  if (offeredDraft.peek() !== null || prefabMode.peek() !== null) return;
   cancelDraft();
   pendingDraft = setTimeout(keepDraftNow, DRAFT_DELAY);
 }
@@ -72,20 +84,101 @@ export function openDocument(
   // Built first: if it throws, the open document stays as it was.
   const next = new EditorDocument(document);
   const previous = editor.peek();
-  unsubscribe();
+  // A prefab being edited is given up with its document.
+  const mode = prefabMode.peek();
+  if (mode) {
+    prefabMode.value = null;
+    mode.outer.state.scene?.scene.destroy();
+  }
   cancelDraft();
-  editor.value = next;
-  unsubscribe = next.subscribe(onChange);
+  follow(next);
   handle = fileHandle;
   fileName.value = name;
   savedDocument.value = unsaved ? null : document;
-  state.value = next.state;
   problem.value = null;
   // The draft offered is set aside, and this document's kept from now on.
   offeredDraft.value = null;
   if (!unsaved) dropDraft();
   // Destroyed once the viewport draws the new scene (it redraws as the state changes).
   previous.state.scene?.scene.destroy();
+}
+
+/** Makes `next` the editor the interface shows and edits. */
+function follow(next: EditorDocument): void {
+  unsubscribe();
+  editor.value = next;
+  unsubscribe = next.subscribe(onChange);
+  state.value = next.state;
+}
+
+/** The prefab `name` of `document`: its own, or the library's. */
+function prefabOf(document: MascotDocument, name: string): PrefabDocument {
+  const own = document.prefabs?.[name];
+  const isObject = (value: unknown) => typeof value === 'object' && value !== null;
+  if (isObject(own) && isObject(own?.root)) return own as PrefabDocument;
+  const library = PREFABS.get(name);
+  if (!library) throw new RangeError(`No prefab "${name}".`);
+  return library as unknown as PrefabDocument;
+}
+
+/**
+ * The document a prefab's mode edits: the prefab's tree, parameters and description, shown in
+ * `document`'s frame and camera, with its palettes (a prefab's colors take its roles).
+ */
+export function prefabDocument(document: MascotDocument, name: string): MascotDocument {
+  const prefab = prefabOf(document, name);
+  return {
+    format: document.format,
+    version: document.version,
+    meta: {
+      name,
+      ...(prefab.description === undefined ? {} : { description: prefab.description }),
+    },
+    view: document.view,
+    ...(document.camera === undefined ? {} : { camera: document.camera }),
+    ...(document.palettes === undefined ? {} : { palettes: document.palettes }),
+    ...(prefab.params === undefined ? {} : { params: prefab.params }),
+    root: prefab.root,
+  };
+}
+
+/**
+ * Edits the prefab `name` (the document's, or the library's, which the document then gets its own
+ * copy of) in its own mode: the tree, the inspector and the viewport show the prefab, until
+ * `leavePrefab`.
+ */
+export function editPrefab(name: string): void {
+  if (prefabMode.peek()) throw new Error('A prefab is being edited already.');
+  const outer = editor.peek();
+  const inner = new EditorDocument(prefabDocument(outer.state.document, name));
+  // The document's draft is kept as it stands before the mode starts.
+  if (pendingDraft !== undefined) {
+    clearTimeout(pendingDraft);
+    keepDraftNow();
+  }
+  prefabMode.value = { name, outer };
+  follow(inner);
+}
+
+/**
+ * Ends the prefab's mode: with `apply`, its edits become the document's prefab, as one step;
+ * without, they are dropped.
+ */
+export function leavePrefab(apply: boolean): void {
+  const mode = prefabMode.peek();
+  if (!mode) return;
+  const inner = editor.peek();
+  const { document: edited, canUndo } = inner.state;
+  prefabMode.value = null;
+  follow(mode.outer);
+  inner.state.scene?.scene.destroy();
+  if (!apply || !canUndo) return;
+  const prefab: PrefabDocument = {
+    ...(edited.meta.description === undefined ? {} : { description: edited.meta.description }),
+    ...(edited.params === undefined ? {} : { params: edited.params }),
+    root: edited.root,
+  };
+  mode.outer.execute(setDocumentField(['prefabs', mode.name], prefab));
 }
 
 /** Discards the draft offered. */

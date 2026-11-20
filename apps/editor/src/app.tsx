@@ -1,6 +1,6 @@
 import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
-import { DraftBanner, MenuBar } from './menu.tsx';
+import { DraftBanner, MenuBar, PrefabBanner } from './menu.tsx';
 import { DocumentPanel } from './panels/document-panel.tsx';
 import { Inspector } from './panels/inspector.tsx';
 import { SceneTree } from './panels/scene-tree.tsx';
@@ -95,6 +95,7 @@ export function App() {
     <div class="editor">
       <MenuBar />
       <DraftBanner />
+      <PrefabBanner />
       <Panel title="Scene" area="tree">
         <SceneTree />
       </Panel>

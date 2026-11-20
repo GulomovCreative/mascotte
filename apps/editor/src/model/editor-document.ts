@@ -30,17 +30,43 @@ export type Checked =
   | { readonly issues: readonly [Issue, ...Issue[]]; readonly scene: null };
 
 /**
+ * How the viewport shows the document without changing it: a palette other than the base, and
+ * values of its shape parameters. Names the document does not have (any more) are left out.
+ */
+export interface Preview {
+  readonly palette?: string;
+  readonly params?: Readonly<Record<string, number>>;
+}
+
+/** `preview` without the palette and parameters `document` does not have. */
+function previewOf(document: MascotDocument, preview: Preview): Preview {
+  const palette =
+    preview.palette !== undefined && Object.hasOwn(document.palettes ?? {}, preview.palette)
+      ? preview.palette
+      : undefined;
+  const params = Object.fromEntries(
+    Object.entries(preview.params ?? {}).filter(([name]) =>
+      Object.hasOwn(document.params ?? {}, name),
+    ),
+  );
+  return {
+    ...(palette === undefined ? {} : { palette }),
+    ...(Object.keys(params).length === 0 ? {} : { params }),
+  };
+}
+
+/**
  * Checks a document as the editor needs it: built (which validates the tree, rig and references)
  * and animated, for what only the engine checks (tracks and keys, behaviors, machines,
- * constraints, springs; those come one at a time). The format reports what is wrong with the
- * document as a `DocumentError`; anything else is a bug and is thrown.
+ * constraints, springs; those come one at a time), as `preview` shows it. The format reports what
+ * is wrong with the document as a `DocumentError`; anything else is a bug and is thrown.
  */
-export function check(document: MascotDocument): Checked {
+export function check(document: MascotDocument, preview: Preview = {}): Checked {
   let built: BuiltMascot;
   let scene: Scene;
   let animator: Animator;
   try {
-    built = buildDocument(document);
+    built = buildDocument(document, previewOf(document, preview));
     scene = new Scene(built.root);
     animator = new Animator(scene, { rig: built.rig });
     built.animate(animator);
@@ -72,6 +98,8 @@ export interface EditorState {
   readonly canRedo: boolean;
   /** The label of the step `undo` would take back. */
   readonly undoLabel: string | null;
+  /** How the viewport shows the document: its palette and parameter values (see `Preview`). */
+  readonly preview: Preview;
 }
 
 /** One step of the history: the document and selection before a command, and its label. */
@@ -97,6 +125,7 @@ export class EditorDocument {
   readonly #redo: Step[] = [];
   #open: string | undefined;
   #state: EditorState;
+  #preview: Preview = {};
   readonly #listeners = new Set<() => void>();
 
   constructor(document: MascotDocument) {
@@ -129,7 +158,7 @@ export class EditorDocument {
       return;
     }
     // Checked before anything changes: a bug thrown here leaves the editor as it was.
-    const checked = check(result.document);
+    const checked = check(result.document, this.#preview);
     if (command.merge === undefined || command.merge !== this.#open) {
       this.#undo.push({ document, selection, label: command.label });
     }
@@ -140,6 +169,17 @@ export class EditorDocument {
       result.selection === undefined ? selection : result.selection,
       checked,
     );
+  }
+
+  /**
+   * Shows the document with `preview`'s palette and parameter values, without changing it (no
+   * step); they stay through later changes, as far as the document has them.
+   */
+  setPreview(preview: Preview): void {
+    const { document, selection } = this.#state;
+    const checked = check(document, preview);
+    this.#preview = preview;
+    this.#apply(document, selection, checked);
   }
 
   /** Ends a gesture: the next command starts a new step even with the same merge key. */
@@ -170,7 +210,7 @@ export class EditorDocument {
   #travel(from: Step[], to: Step[]): void {
     const step = from.at(-1);
     if (!step) return;
-    const checked = check(step.document);
+    const checked = check(step.document, this.#preview);
     from.pop();
     to.push({ ...step, document: this.#state.document, selection: this.#state.selection });
     this.#open = undefined;
@@ -201,6 +241,7 @@ export class EditorDocument {
       canUndo: this.#undo.length > 0,
       canRedo: this.#redo.length > 0,
       undoLabel: this.#undo.at(-1)?.label ?? null,
+      preview: previewOf(document, this.#preview),
     };
   }
 
