@@ -99,12 +99,14 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   hit test passes through them); they are selected in the tree.
 - **Gizmos** for the selection: move, rotate and scale handles in the node's or the world's
   axes, snapping on demand, each drag one command. Drawn on a 2D overlay over the canvas from the
-  node's world matrix and pivot.
+  node's world matrix and pivot. A move and a turn snap how far they go (whole units, 15°), a
+  scale the scale it ends at (0.1); a scale never reaches zero. A ring seen edge-on turns by the
+  angle swept round the center, so a drag along it does little until it passes the center.
 - **Debug view** (toggles): node axes and pivots, rig bones and slots, sort order and sort
   points, decal anchors, the frame. Drawn on the same overlay.
-- **Engine work**: node bounds in world and screen space (for framing the selection, not yet scheduled), and the debug
-  view's data (sort points and runs, decal anchors), exposed by the engine so the overlay does
-  not reach into the depth sorter's internals.
+- **Engine work**: node bounds in world and screen space (for framing the selection, not yet
+  scheduled), and the debug view's data (sort points and runs, decal anchors), exposed by the
+  engine so the overlay does not reach into the depth sorter's internals.
 
 ### 3.4. Panels
 
