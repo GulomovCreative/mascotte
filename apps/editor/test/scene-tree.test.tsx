@@ -113,7 +113,7 @@ function outline(node: NodeDocument, like: NodeDocument): unknown {
 }
 
 async function setField(label: string, value: string): Promise<void> {
-  const field = [...document.querySelectorAll('.document-panel label')]
+  const field = [...document.querySelectorAll('.form-panel label')]
     .find((each) => each.firstChild?.textContent === label)
     ?.querySelector<HTMLInputElement>('input, textarea, select');
   if (!field) throw new Error(`no field ${label}`);

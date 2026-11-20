@@ -55,6 +55,27 @@ export function setProp(path: DocPath, name: string, value: PropertyValue | unde
   };
 }
 
+/** Sets a `PathShape`'s path or a `Box`'s face settings of the node at `path`, or removes them. */
+export function setNodeField<K extends 'path' | 'faces'>(
+  path: DocPath,
+  key: K,
+  value: NodeDocument[K] | undefined,
+): Command {
+  return {
+    label: `Set ${key}`,
+    merge: `${key} ${pathString(path)}`,
+    run: (document) => {
+      if (same(existing(document, path)[key], value)) return { document };
+      return {
+        document: updateNode(document, path, (node) => {
+          const { [key]: _, ...rest } = node;
+          return value === undefined ? rest : { ...rest, [key]: value };
+        }),
+      };
+    },
+  };
+}
+
 /** Sets the node's display name, or removes it. */
 export function setName(path: DocPath, name: string | undefined): Command {
   return {

@@ -492,7 +492,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 - [x] Editor viewport, picking and debug view ([#88](https://github.com/GulomovCreative/mascotte/issues/88))
 - [x] Editor gizmos ([#89](https://github.com/GulomovCreative/mascotte/issues/89))
 - [x] Editor scene tree and document panel ([#90](https://github.com/GulomovCreative/mascotte/issues/90))
-- [ ] Editor inspector and bindings ([#91](https://github.com/GulomovCreative/mascotte/issues/91))
+- [x] Editor inspector and bindings ([#91](https://github.com/GulomovCreative/mascotte/issues/91))
 - [ ] Editor palettes, parameters, prefabs and rig ([#92](https://github.com/GulomovCreative/mascotte/issues/92))
 - [ ] Editor timeline ([#93](https://github.com/GulomovCreative/mascotte/issues/93))
 - [ ] Editor behaviors, blends and library motions ([#94](https://github.com/GulomovCreative/mascotte/issues/94))
