@@ -55,7 +55,10 @@ export function setProp(path: DocPath, name: string, value: PropertyValue | unde
   };
 }
 
-/** Sets a `PathShape`'s path or a `Box`'s face settings of the node at `path`, or removes them. */
+/**
+ * Sets the node's `path` (a PathShape's commands) or `faces` (a Box's face settings), or removes
+ * it with `undefined`; the value it has already is no change.
+ */
 export function setNodeField<K extends 'path' | 'faces'>(
   path: DocPath,
   key: K,

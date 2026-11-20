@@ -119,12 +119,12 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   a prefab instance's own nodes are shown read-only under it.
 - **Inspector.** The selected node's properties, made from the registry: numbers with their
   ranges, vectors, rotations shown as Euler angles (degrees, XYZ) and stored as quaternions,
-  colors with a
-  palette role picker, enums, booleans; paths (their points) and box faces (visibility and color)
-  with their own editors. **Rest values**: the inspector shows and edits the values the document
-  stores (`props`), not the animated pose; with auto-key on (it comes with the timeline), an
-  edit at the playhead sets a key instead. A prefab instance shows the properties of its prefab's
-  root; its path and faces are the prefab's. Each edit is one undo step.
+  colors with a palette role picker, enums, booleans; paths (their points) and box faces
+  (visibility and color) with their own editors. **Rest values**: the inspector shows and edits
+  the values the document stores (`props`), not the animated pose; with auto-key on (it comes
+  with the timeline), an edit at the playhead will set a key instead. A prefab instance shows
+  the properties of its prefab's root, its own over the root's; its path and faces are the
+  prefab's. Each edit is one undo step.
 - **Bindings.** A number, a vector or a color can be bound: a number or vector to shape
   parameters (`param × times + plus`, `plus` itself a reference, so a value can follow several
   parameters; a vector reference is a whole vector), a color to a palette role. Booleans and

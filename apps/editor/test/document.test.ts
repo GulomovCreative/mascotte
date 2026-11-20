@@ -9,6 +9,7 @@ import {
   renameNode,
   setDocumentField,
   setName,
+  setNodeField,
   setProp,
 } from '../src/model/commands.ts';
 import { check, EditorDocument } from '../src/model/editor-document.ts';
@@ -543,6 +544,30 @@ describe('editor document', () => {
     ] as const) {
       expect(() => editor.execute(setDocumentField(field, undefined))).toThrow(/cannot be removed/);
     }
+    expect(editor.state.document).toBe(document);
+  });
+
+  it("sets and removes a node's path and faces, each change one step", () => {
+    const document = readDocument(gloopDocument);
+    const editor = new EditorDocument(document);
+    const path = [0];
+    const commands = [{ type: 'move', point: { x: 1 } }] as const;
+    editor.execute(setNodeField(path, 'path', commands));
+    expect(nodeAt(editor.state.document, path)?.path).toEqual(commands);
+    // The same value again is no change: no document, no step.
+    const set = editor.state.document;
+    editor.commit();
+    editor.execute(setNodeField(path, 'path', [{ type: 'move', point: { x: 1 } }]));
+    expect(editor.state.document).toBe(set);
+    editor.execute(setNodeField(path, 'faces', { top: { visible: false } }));
+    editor.commit();
+    editor.execute(setNodeField(path, 'path', undefined));
+    expect(Object.hasOwn(nodeAt(editor.state.document, path) ?? {}, 'path')).toBe(false);
+    expect(nodeAt(editor.state.document, path)?.faces).toEqual({ top: { visible: false } });
+    editor.undo();
+    expect(nodeAt(editor.state.document, path)?.path).toEqual(commands);
+    editor.undo();
+    editor.undo();
     expect(editor.state.document).toBe(document);
   });
 });

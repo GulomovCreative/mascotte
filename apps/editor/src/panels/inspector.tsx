@@ -1,10 +1,18 @@
-import { BOX_FACES, type BoxFace, Node, type Property, propertiesOf } from '@mascotte/engine';
+import {
+  BOX_FACES,
+  type BoxFace,
+  Node,
+  type PathCommand,
+  type Property,
+  propertiesOf,
+} from '@mascotte/engine';
 import {
   type ColorRef,
   isColorRef,
   type MascotDocument,
   NODE_TYPES,
   type NodeDocument,
+  type ParamRef,
   type PathCommandDocument,
   type PropertyValue,
   type ScalarRef,
@@ -15,10 +23,9 @@ import { color, euler, type Quat, quat, type Vec3 } from '@mascotte/math';
 import type { ComponentChildren } from 'preact';
 import { type Command, setName, setNodeField, setProp } from '../model/commands.ts';
 import { type DocPath, nodeAt, pathString } from '../model/paths.ts';
-import { attempt, editor, state } from '../store.ts';
+import { attempt, editor, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
 
-type Ref = ScalarRef | VectorRef;
 type Faces = NonNullable<NodeDocument['faces']>;
 type FaceSettings = NonNullable<Faces[BoxFace]>;
 /** A path command as the editor handles it: its type and its points by name. */
@@ -29,15 +36,25 @@ const ZERO: Vec3 = { x: 0, y: 0, z: 0 };
 const ONE: Vec3 = { x: 1, y: 1, z: 1 };
 const TRANSFORM = new Set(['position', 'rotation', 'scale', 'pivot']);
 const NODE_PROPERTIES = new Set(propertiesOf(Node).map((property) => property.name));
-// The points of each path command, in the format's order.
-const COMMAND_POINTS: Readonly<Record<string, readonly string[]>> = {
-  move: ['point'],
-  line: ['point'],
-  bezier: ['control1', 'control2', 'point'],
-  arc: ['corner', 'point'],
+/** The point names of each path command type, as the engine's `PathCommand` has them. */
+type CommandPoints = {
+  readonly [T in PathCommand['type']]: readonly Exclude<
+    keyof Extract<PathCommand, { type: T }>,
+    'type'
+  >[];
 };
+// In the format's order (`COMMAND_POINTS` in packages/format/src/validate.ts). A map, so a
+// command type such as "constructor" finds nothing.
+const COMMAND_POINTS: ReadonlyMap<string, readonly string[]> = new Map(
+  Object.entries({
+    move: ['point'],
+    line: ['point'],
+    bezier: ['control1', 'control2', 'point'],
+    arc: ['corner', 'point'],
+  } satisfies CommandPoints),
+);
 
-/** What the editors need from the document: its parameters and palette roles. */
+/** What the editors need: the document, its parameters' names and its palette roles. */
 interface Context {
   readonly document: MascotDocument;
   readonly params: readonly string[];
@@ -46,44 +63,82 @@ interface Context {
 
 /** Runs `command` as a step of its own: an edit in the inspector is not a gesture. */
 function run(command: Command): void {
-  attempt('Could not change the node', () => {
+  attempt(`Could not ${command.label.toLowerCase()}`, () => {
     const current = editor.value;
     current.execute(command);
     current.commit();
   });
 }
 
-function isRef(value: unknown): value is Ref {
+function isRef(value: unknown): value is ParamRef {
   return typeof value === 'object' && value !== null && 'param' in value;
 }
 
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 function isVec3(value: unknown): value is Vec3 {
+  return isObject(value) && AXES.every((axis) => Number.isFinite(value[axis]));
+}
+
+/** A rotation the editor can turn into angles: four finite numbers, not all zero. */
+function isQuat(value: unknown): value is Quat {
   return (
-    typeof value === 'object' &&
-    value !== null &&
-    AXES.every((axis) => typeof (value as Record<string, unknown>)[axis] === 'number')
+    isVec3(value) && Number.isFinite((value as Partial<Quat>).w) && quat.length(value as Quat) > 0
+  );
+}
+
+/** The finite coordinates of a stored vector (a partial one keeps what it has), or none. */
+function coordinates(value: unknown): Partial<Vec3> | undefined {
+  if (!isObject(value)) return undefined;
+  return Object.fromEntries(
+    AXES.filter((axis) => Number.isFinite(value[axis])).map((axis) => [axis, value[axis]]),
   );
 }
 
 /** `object` with `key` set to `value`, or without it for `undefined`. */
-function withKey<T extends object>(object: T, key: string, value: unknown): T {
-  const { [key]: _, ...rest } = object as Record<string, unknown>;
+function withKey<T extends object, K extends keyof T>(
+  object: T,
+  key: K,
+  value: T[K] | undefined,
+): T {
+  const { [key]: _, ...rest } = object;
   return (value === undefined ? rest : { ...rest, [key]: value }) as T;
 }
 
-/** What a reference comes to with the document's parameters at their defaults (an unknown one is 0). */
-function resolve(ref: Ref, document: MascotDocument): number | Vec3 {
-  const value = document.params?.[ref.param]?.default ?? 0;
+/**
+ * What a reference comes to with the document's parameters at their defaults; `null` when it
+ * names a parameter the document does not have or does not come to finite numbers.
+ */
+function resolve(ref: ParamRef, document: MascotDocument): number | Vec3 | null {
+  const value = document.params?.[ref.param]?.default;
+  if (typeof value !== 'number') return null;
   const plus = isRef(ref.plus) ? resolve(ref.plus, document) : ref.plus;
+  if (plus === null) return null;
   if (typeof ref.times === 'object') {
-    const add = isVec3(plus) ? plus : ZERO;
-    return {
+    const add = plus ?? ZERO;
+    if (!isVec3(add)) return null;
+    const result = {
       x: value * ref.times.x + add.x,
       y: value * ref.times.y + add.y,
       z: value * ref.times.z + add.z,
     };
+    return isVec3(result) ? result : null;
   }
-  return value * (ref.times ?? 1) + (typeof plus === 'number' ? plus : 0);
+  const add = plus ?? 0;
+  if (typeof add !== 'number') return null;
+  const result = value * (ref.times ?? 1) + add;
+  return Number.isFinite(result) ? result : null;
+}
+
+/** What a reference comes to (see `resolve`), or `null` after saying why it cannot be unbound. */
+function unbound(label: string, ref: ParamRef, document: MascotDocument): number | Vec3 | null {
+  const value = resolve(ref, document);
+  if (value === null) {
+    problem.value = `Could not unbind ${label}: its parameters do not come to a value (see its issues).`;
+  }
+  return value;
 }
 
 /** The palette roles, the base palette's first. */
@@ -93,17 +148,41 @@ function rolesOf(document: MascotDocument): string[] {
 
 /** The color of `role`: the base palette's, or the first palette naming it. */
 function colorOf(document: MascotDocument, role: string): string | undefined {
-  return Object.values(document.palettes ?? {}).find((palette) => Object.hasOwn(palette, role))?.[
-    role
-  ];
+  for (const palette of Object.values(document.palettes ?? {})) {
+    if (Object.hasOwn(palette, role)) {
+      const value = palette[role];
+      return typeof value === 'string' ? value : undefined;
+    }
+  }
+  return undefined;
+}
+
+/** A node's type, the props it starts from (a prefab root's, for an instance), and why it has no type. */
+interface NodeKind {
+  readonly type: string | undefined;
+  readonly inherited: Readonly<Record<string, unknown>>;
+  readonly problem: string | null;
 }
 
 /** The node type of a node: its own, or its prefab's root's for an instance. */
-function typeOf(document: MascotDocument, node: NodeDocument): string | undefined {
-  if (node.prefab === undefined) return node.type;
-  const prefab = document.prefabs?.[node.prefab] ?? PREFABS.get(node.prefab);
-  const type = prefab?.root.type;
-  return typeof type === 'string' ? type : undefined;
+function kindOf(document: MascotDocument, node: NodeDocument): NodeKind {
+  if (node.prefab === undefined) {
+    return {
+      type: node.type,
+      inherited: {},
+      problem: `Unknown type ${JSON.stringify(node.type)}.`,
+    };
+  }
+  const prefab = Object.hasOwn(document.prefabs ?? {}, node.prefab)
+    ? document.prefabs?.[node.prefab]
+    : PREFABS.get(node.prefab);
+  if (!prefab) return { type: undefined, inherited: {}, problem: `No prefab "${node.prefab}".` };
+  const type = prefab.root.type;
+  return {
+    type: typeof type === 'string' ? type : undefined,
+    inherited: isObject(prefab.root.props) ? prefab.root.props : {},
+    problem: `The prefab "${node.prefab}" has a root of unknown type.`,
+  };
 }
 
 /**
@@ -176,9 +255,9 @@ function VectorInputs(props: {
  */
 function RefEditor(props: {
   label: string;
-  value: Ref;
+  value: ParamRef;
   context: Context;
-  onValue(next: Ref): void;
+  onValue(next: ParamRef): void;
 }) {
   const { label, value, context, onValue } = props;
   const vector = typeof value.times === 'object';
@@ -216,7 +295,7 @@ function RefEditor(props: {
       {vector ? (
         <VectorInputs
           label={`${label} times`}
-          value={value.times as Vec3}
+          value={coordinates(value.times)}
           fallback={ONE}
           onValue={(next) => onValue({ ...value, times: next as Vec3 } as VectorRef)}
         />
@@ -227,18 +306,14 @@ function RefEditor(props: {
           aria-label={`${label} plus source`}
           value={isRef(plus) ? 'param' : 'value'}
           onChange={(event) => {
-            const bound = (event.currentTarget as HTMLSelectElement).value === 'param';
-            onValue(
-              withKey(
-                value,
-                'plus',
-                bound
-                  ? vector
-                    ? { param: value.param, times: ONE }
-                    : { param: value.param }
-                  : undefined,
-              ),
-            );
+            if ((event.currentTarget as HTMLSelectElement).value === 'param') {
+              const param = { param: value.param, ...(vector ? { times: ONE } : {}) };
+              onValue({ ...value, plus: param } as ParamRef);
+            } else if (isRef(plus)) {
+              // What the parameters added stays added, as a plain number or vector.
+              const added = unbound(`${label} plus`, plus, context.document);
+              if (added !== null) onValue({ ...value, plus: added } as ParamRef);
+            }
           }}
         >
           <option value="value">{vector ? 'a vector' : 'a number'}</option>
@@ -259,12 +334,12 @@ function RefEditor(props: {
           label={`${label} plus`}
           value={plus}
           context={context}
-          onValue={(next) => onValue({ ...value, plus: next } as Ref)}
+          onValue={(next) => onValue({ ...value, plus: next } as ParamRef)}
         />
       ) : vector ? (
         <VectorInputs
           label={`${label} plus`}
-          value={isVec3(plus) ? plus : undefined}
+          value={coordinates(plus)}
           fallback={ZERO}
           onValue={(next) => onValue({ ...value, plus: next as Vec3 } as VectorRef)}
         />
@@ -273,11 +348,7 @@ function RefEditor(props: {
   );
 }
 
-/**
- * Where a bindable value comes from: itself, or a parameter (`kind` "param") or a palette role
- * ("palette"). Binding starts from the first parameter or role; unbinding keeps what the
- * binding comes to.
- */
+/** Where a bindable value comes from: itself, or a parameter (`kind` "param") or a palette role ("palette"). */
 function SourceSelect(props: {
   label: string;
   kind: 'param' | 'palette';
@@ -345,6 +416,7 @@ function ColorEditor(props: {
   context: Context;
   onValue(next: string | ColorRef | undefined): void;
 }) {
+  // A stored value of another kind shows as empty; the format reports it.
   const { label, value, context, onValue } = props;
   if (isColorRef(value)) {
     const roles = context.roles.includes(value.color)
@@ -366,6 +438,7 @@ function ColorEditor(props: {
   }
   const text = typeof value === 'string' ? value : '';
   const parsed = color.parse(text || props.placeholder);
+  const hex = parsed ? color.toHex(parsed) : null;
   const change = (next: string) => onValue(next.trim() === '' ? undefined : next.trim());
   return (
     <div class="field-row">
@@ -379,59 +452,89 @@ function ColorEditor(props: {
       <input
         type="color"
         aria-label={`${label} picker`}
-        value={parsed ? color.toHex(parsed).slice(0, 7) : '#ffffff'}
-        onChange={(event) => change((event.currentTarget as HTMLInputElement).value)}
+        value={hex?.slice(0, 7) ?? '#ffffff'}
+        // The picker has no alpha: the color's own alpha stays.
+        onChange={(event) =>
+          change((event.currentTarget as HTMLInputElement).value + (hex?.slice(7) ?? ''))
+        }
       />
     </div>
   );
 }
 
-/** The source select of a color: its own value or a palette role. */
+/**
+ * The source select of a color: its own value or a palette role. Binding takes the first role;
+ * unbinding keeps the role's color in the base palette (or the first naming it), and a role no
+ * palette names cannot be unbound.
+ */
 function colorSource(
   label: string,
   value: unknown,
   context: Context,
   onValue: (next: string | ColorRef) => void,
 ) {
+  const role = context.roles[0];
   return (
     <SourceSelect
       label={label}
       kind="palette"
       bound={isColorRef(value)}
-      available={context.roles.length > 0}
-      onBind={() => onValue({ color: context.roles[0] as string })}
-      onUnbind={() =>
-        isColorRef(value) && onValue(colorOf(context.document, value.color) ?? '#000000')
-      }
+      available={role !== undefined}
+      onBind={() => role !== undefined && onValue({ color: role })}
+      onUnbind={() => {
+        if (!isColorRef(value)) return;
+        const color = colorOf(context.document, value.color);
+        if (color === undefined) {
+          problem.value = `Could not unbind ${label}: no palette has the role "${value.color}".`;
+        } else onValue(color);
+      }}
     />
   );
 }
 
-/** The source select of a number or vector: its own value or a parameter. */
+/**
+ * The source select of a number or vector: its own value or a parameter. Binding takes the first
+ * parameter, times 1; unbinding keeps what the binding comes to with the parameters at their
+ * defaults.
+ */
 function paramSource(
   label: string,
   value: unknown,
   vector: boolean,
   context: Context,
-  onValue: (next: Ref | number | Vec3) => void,
+  onValue: (next: ParamRef | number | Vec3) => void,
 ) {
-  const param = context.params[0] as string;
+  const param = context.params[0];
   return (
     <SourceSelect
       label={label}
       kind="param"
       bound={isRef(value)}
-      available={context.params.length > 0}
-      onBind={() => onValue(vector ? { param, times: ONE } : { param })}
-      onUnbind={() => isRef(value) && onValue(resolve(value, context.document))}
+      available={param !== undefined}
+      onBind={() => param !== undefined && onValue(vector ? { param, times: ONE } : { param })}
+      onUnbind={() => {
+        if (!isRef(value)) return;
+        const plain = unbound(label, value, context.document);
+        if (plain !== null) onValue(plain);
+      }}
     />
   );
 }
 
-/** Euler angles in degrees (XYZ) for a rotation the document stores as a quaternion. */
-function EulerInputs(props: { label: string; value: unknown; onValue(next: Quat): void }) {
-  const stored = props.value as Quat | undefined;
-  const angles = quat.toEuler(euler.create(), stored ?? quat.create(), 'XYZ');
+/**
+ * Euler angles in degrees (XYZ) for a rotation the document stores as a quaternion; unset, it
+ * shows `fallback`'s. A stored value that is no rotation shows as unset (the format reports it).
+ */
+function EulerInputs(props: {
+  label: string;
+  value: unknown;
+  fallback: Quat;
+  onValue(next: Quat): void;
+}) {
+  const stored = isQuat(props.value) ? props.value : undefined;
+  // Normalized, so the angles shown are those the node turns by.
+  const turn = quat.normalize(quat.create(), stored ?? props.fallback);
+  const angles = quat.toEuler(euler.create(), turn, 'XYZ');
   const degrees = (radians: number) => Math.round(((radians * 180) / Math.PI) * 1000) / 1000;
   return (
     <div class="field-row">
@@ -440,7 +543,7 @@ function EulerInputs(props: { label: string; value: unknown; onValue(next: Quat)
           key={axis}
           label={`${props.label} ${axis}`}
           value={stored === undefined ? undefined : degrees(angles[axis])}
-          placeholder="0"
+          placeholder={String(degrees(angles[axis]))}
           onValue={(next) => {
             const turned = quat.fromEuler(quat.create(), {
               ...angles,
@@ -459,10 +562,12 @@ function PropertyField(props: {
   path: DocPath;
   property: Property;
   value: PropertyValue | undefined;
+  /** The value it has unless set: a prefab root's own (for an instance), when it is plain. */
+  inherited: unknown;
   context: Context;
   invalid: boolean;
 }) {
-  const { path, property, value, context } = props;
+  const { path, property, value, inherited, context } = props;
   const name = property.name;
   const set = (next: PropertyValue | undefined) => run(setProp(path, name, next));
   let source: ComponentChildren = null;
@@ -476,7 +581,7 @@ function PropertyField(props: {
         <NumberInput
           label={name}
           value={typeof value === 'number' ? value : undefined}
-          placeholder={String(property.default)}
+          placeholder={String(typeof inherited === 'number' ? inherited : property.default)}
           min={property.min}
           max={property.max}
           step={property.integer ? 1 : undefined}
@@ -492,14 +597,21 @@ function PropertyField(props: {
       ) : (
         <VectorInputs
           label={name}
-          value={isVec3(value) ? value : undefined}
-          fallback={property.default}
+          value={coordinates(value)}
+          fallback={isVec3(inherited) ? inherited : property.default}
           onValue={(next) => set(next as Vec3)}
         />
       );
       break;
     case 'quat':
-      body = <EulerInputs label={name} value={value} onValue={set} />;
+      body = (
+        <EulerInputs
+          label={name}
+          value={value}
+          fallback={isQuat(inherited) ? inherited : property.default}
+          onValue={set}
+        />
+      );
       break;
     case 'color':
       source = colorSource(name, value, context, set);
@@ -507,7 +619,7 @@ function PropertyField(props: {
         <ColorEditor
           label={name}
           value={value}
-          placeholder={property.default ?? 'none'}
+          placeholder={typeof inherited === 'string' ? inherited : (property.default ?? 'none')}
           context={context}
           onValue={set}
         />
@@ -518,7 +630,13 @@ function PropertyField(props: {
         <input
           type="checkbox"
           aria-label={name}
-          checked={typeof value === 'boolean' ? value : property.default}
+          checked={
+            typeof value === 'boolean'
+              ? value
+              : typeof inherited === 'boolean'
+                ? inherited
+                : property.default
+          }
           onChange={(event) => set((event.currentTarget as HTMLInputElement).checked)}
         />
       );
@@ -527,7 +645,13 @@ function PropertyField(props: {
       body = (
         <select
           aria-label={name}
-          value={typeof value === 'string' ? value : property.default}
+          value={
+            typeof value === 'string'
+              ? value
+              : typeof inherited === 'string'
+                ? inherited
+                : property.default
+          }
           onChange={(event) => set((event.currentTarget as HTMLSelectElement).value)}
         >
           {property.values.map((each) => (
@@ -552,26 +676,66 @@ function PropertyField(props: {
   );
 }
 
-/** A path's commands: their types and points (each a vector or bound to a parameter). */
+/**
+ * A path's commands: their types and points (each a vector or bound to a parameter). A path that
+ * is no list, or a command that is no command, is shown as such, to be removed (the format
+ * reports what is wrong with it).
+ */
 function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context }) {
   const { path, context } = props;
-  const list = (props.node.path ?? []) as unknown as readonly LooseCommand[];
-  const set = (next: readonly LooseCommand[]) =>
+  const stored: unknown = props.node.path;
+  const set = (next: readonly unknown[]) =>
     run(
       setNodeField(
         path,
         'path',
-        next.length === 0 ? undefined : (next as unknown as PathCommandDocument[]),
+        // Commands made here have their type's points; others are kept as they were.
+        next.length === 0 ? undefined : (next as PathCommandDocument[]),
       ),
     );
+  if (stored !== undefined && !Array.isArray(stored)) {
+    return (
+      <fieldset>
+        <legend>Path</legend>
+        <p class="empty">The path is not a list of commands.</p>
+        <button type="button" aria-label="Remove the path" onClick={() => set([])}>
+          Remove the path
+        </button>
+      </fieldset>
+    );
+  }
+  const list: readonly unknown[] = stored ?? [];
   const change = (i: number, next: LooseCommand) =>
     set(list.map((command, j) => (j === i ? next : command)));
-  const last = list.at(-1)?.point;
+  const last = list.at(-1);
+  const end = isObject(last) ? coordinates(last.point) : undefined;
   return (
     <fieldset>
       <legend>Path</legend>
-      {list.map((command, i) => {
+      {list.map((entry, i) => {
         const label = `Path ${i + 1}`;
+        const remove = (
+          <button
+            type="button"
+            aria-label={`Remove ${label}`}
+            onClick={() => set(list.filter((_, j) => j !== i))}
+          >
+            Remove
+          </button>
+        );
+        if (!isObject(entry) || typeof entry.type !== 'string') {
+          return (
+            <div key={i} class="path-command">
+              <div class="prop-head">
+                <span class="prop-name">{`${label} is not a command`}</span>
+                {remove}
+              </div>
+            </div>
+          );
+        }
+        const command = entry as LooseCommand;
+        const types = [...COMMAND_POINTS.keys()];
+        if (!COMMAND_POINTS.has(command.type)) types.unshift(command.type);
         return (
           <div key={i} class="path-command">
             <div class="prop-head">
@@ -580,7 +744,7 @@ function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context
                 value={command.type}
                 onChange={(event) => {
                   const type = (event.currentTarget as HTMLSelectElement).value;
-                  const points = COMMAND_POINTS[type] ?? [];
+                  const points = COMMAND_POINTS.get(type) ?? [];
                   // The points it had keep their places; new ones start at its end point.
                   const next = Object.fromEntries(
                     points.map((key) => [key, command[key] ?? command.point ?? {}]),
@@ -588,21 +752,15 @@ function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context
                   change(i, { type, ...next });
                 }}
               >
-                {Object.keys(COMMAND_POINTS).map((type) => (
+                {types.map((type) => (
                   <option key={type} value={type}>
                     {type}
                   </option>
                 ))}
               </select>
-              <button
-                type="button"
-                aria-label={`Remove ${label}`}
-                onClick={() => set(list.filter((_, j) => j !== i))}
-              >
-                Remove
-              </button>
+              {remove}
             </div>
-            {(COMMAND_POINTS[command.type] ?? []).map((key) => {
+            {(COMMAND_POINTS.get(command.type) ?? []).map((key) => {
               const point = command[key];
               const pointLabel = `${label} ${key}`;
               const setPoint = (next: unknown) => change(i, { ...command, [key]: next });
@@ -623,7 +781,7 @@ function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context
                   ) : (
                     <VectorInputs
                       label={pointLabel}
-                      value={point as Partial<Vec3> | undefined}
+                      value={coordinates(point)}
                       fallback={ZERO}
                       partial
                       onValue={setPoint}
@@ -639,10 +797,7 @@ function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context
         type="button"
         aria-label="Add point"
         onClick={() =>
-          set([
-            ...list,
-            { type: list.length === 0 ? 'move' : 'line', point: isRef(last) ? {} : (last ?? {}) },
-          ])
+          set([...list, { type: list.length === 0 ? 'move' : 'line', point: end ?? {} }])
         }
       >
         Add point
@@ -654,7 +809,8 @@ function PathEditor(props: { path: DocPath; node: NodeDocument; context: Context
 /** A box's faces: whether each is shown, and its color (the box's by default). */
 function FacesEditor(props: { path: DocPath; node: NodeDocument; context: Context }) {
   const { path, context } = props;
-  const faces: Faces = props.node.faces ?? {};
+  // Settings that are not objects show as the defaults; the format reports them.
+  const faces: Faces = isObject(props.node.faces) ? props.node.faces : {};
   const set = (face: BoxFace, settings: FaceSettings) => {
     const next = withKey(faces, face, Object.keys(settings).length === 0 ? undefined : settings);
     run(setNodeField(path, 'faces', Object.keys(next).length === 0 ? undefined : next));
@@ -663,21 +819,24 @@ function FacesEditor(props: { path: DocPath; node: NodeDocument; context: Contex
     <fieldset>
       <legend>Faces</legend>
       {BOX_FACES.map((face) => {
-        const settings: FaceSettings = faces[face] ?? {};
+        const stored = faces[face];
+        const settings: FaceSettings = isObject(stored) ? stored : {};
         const label = `${face} face color`;
-        const setColor = (next: unknown) => set(face, withKey(settings, 'color', next));
+        const setColor = (next: string | ColorRef | undefined) =>
+          set(face, withKey(settings, 'color', next));
         return (
           <Field
             key={face}
             title={face}
             label={`${face} face`}
             source={colorSource(label, settings.color, context, setColor)}
-            reset={faces[face] === undefined ? null : () => set(face, {})}
+            reset={stored === undefined ? null : () => set(face, {})}
           >
             <div class="field-row">
               <label class="check">
                 <input
                   type="checkbox"
+                  aria-label={`${face} face visible`}
                   checked={settings.visible ?? true}
                   onChange={(event) =>
                     set(
@@ -690,7 +849,7 @@ function FacesEditor(props: { path: DocPath; node: NodeDocument; context: Contex
                     )
                   }
                 />
-                {`${face} visible`}
+                visible
               </label>
               <ColorEditor
                 label={label}
@@ -718,10 +877,10 @@ function groupOf(name: string): string {
 const GROUPS = ['Transform', 'Shape', 'Style', 'Display'];
 
 /**
- * The inspector (docs/EDITOR.md, 3.4): the selected node's properties as the document stores
+ * The inspector (docs/EDITOR.md, Panels): the selected node's properties as the document stores
  * them (rest values, not the animated pose), made from the registry, with a path's points and a
- * box's faces. Numbers and vectors may be bound to parameters, colors to palette roles. Each
- * edit is a command, undone as one step.
+ * box's faces. Numbers, vectors and path points may be bound to parameters, colors to palette
+ * roles. Each edit is a command, undone as one step.
  */
 export function Inspector(props: { path: DocPath }) {
   const { document, issues } = state.value;
@@ -740,7 +899,8 @@ export function Inspector(props: { path: DocPath }) {
       (issue) =>
         issue.path === `${at}.props.${name}` || issue.path.startsWith(`${at}.props.${name}.`),
     );
-  const typeName = typeOf(document, node);
+  const kind = kindOf(document, node);
+  const typeName = kind.type;
   const type = typeName === undefined ? undefined : NODE_TYPES.get(typeName);
   const context: Context = {
     document,
@@ -779,7 +939,7 @@ export function Inspector(props: { path: DocPath }) {
             }
           />
         </label>
-        {type ? null : <p class="empty">Unknown type: its properties cannot be shown.</p>}
+        {type ? null : <p class="empty">{kind.problem} Its properties cannot be shown.</p>}
       </fieldset>
       {GROUPS.map((group) => {
         const shown = properties.filter((property) => groupOf(property.name) === group);
@@ -793,6 +953,7 @@ export function Inspector(props: { path: DocPath }) {
                 path={path}
                 property={property}
                 value={node.props?.[property.name]}
+                inherited={kind.inherited[property.name]}
                 context={context}
                 invalid={invalid(property.name)}
               />
