@@ -92,7 +92,7 @@ export function DocumentPanel() {
   const own = issues.filter((issue) => !/^root(\.|$)/.test(issue.path));
   const meta = document.meta ?? { name: '' };
   const camera = document.camera?.props ?? {};
-  const light = (camera.light as Vec3 | undefined) ?? undefined;
+  const light = camera.light as Vec3 | undefined;
   const archetypes = [...ARCHETYPES.keys()];
   const archetype = typeof document.archetype === 'string' ? document.archetype : '';
   // A document's own archetype stays listed, even one the library does not have.
@@ -100,11 +100,11 @@ export function DocumentPanel() {
   const projection = typeof camera.projection === 'string' ? camera.projection : '';
   const setLight = (axis: keyof Vec3, input: HTMLInputElement) => {
     const next = numberOf(input);
-    const from = light ?? DEFAULT_LIGHT;
     if (next === null || next === undefined) {
       input.value = light ? String(light[axis]) : '';
       return;
     }
+    const from = light ?? DEFAULT_LIGHT;
     set(['camera', 'props', 'light'], { x: from.x, y: from.y, z: from.z, [axis]: next });
   };
   return (

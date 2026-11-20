@@ -265,11 +265,12 @@ export type DocumentField =
 export function setDocumentField(field: DocumentField, value: PlainValue | undefined): Command {
   const required =
     field[0] === 'meta' ? field[1] === 'name' : field[0] === 'view' && field[1] !== 'background';
+  const name = field.join('.');
   return {
-    label: `Set ${field.join('.')}`,
+    label: `Set ${name}`,
     run: (document) => {
       if (value === undefined && required) {
-        throw new RangeError(`${field.join('.')} cannot be removed.`);
+        throw new RangeError(`${name} cannot be removed.`);
       }
       const set = (object: Record<string, unknown>, at: number): Record<string, unknown> => {
         const key = field[at] as string;
