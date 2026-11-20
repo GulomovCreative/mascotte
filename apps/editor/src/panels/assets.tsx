@@ -3,7 +3,7 @@ import { ARCHETYPES, PREFABS } from '@mascotte/library';
 import { useState } from 'preact/hooks';
 import { expandedIds } from '../model/ids.ts';
 import { attempt, editor, editPrefab, problem, state } from '../store.ts';
-import { ColorField, numberOf, set } from './document-panel.tsx';
+import { ColorField, IssueList, numberOf, set } from './document-panel.tsx';
 
 function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -105,7 +105,7 @@ export function PalettesFields() {
       <AddRow
         label="Add palette"
         taken={(name) =>
-          Object.hasOwn(isObject(document.palettes) ? document.palettes : {}, name)
+          palettes.some(([existing]) => existing === name)
             ? `There is a palette "${name}" already.`
             : null
         }
@@ -123,7 +123,6 @@ export function PalettesFields() {
   );
 }
 
-/** A number of a parameter's spec: its default (required), its least or greatest value. */
 /**
  * A number of a parameter's spec. It shows `spec`, and changes only its own field of `stored`, the
  * spec as the document has it (a field of the wrong kind stays, for the format to report).
@@ -206,6 +205,8 @@ export function ParamsFields() {
             </div>
           );
         }
+        // `specOf` found an object: the spec as the document stores it.
+        const stored = value as Readonly<Record<string, unknown>>;
         const shown = Object.hasOwn(preview.params ?? {}, name)
           ? preview.params?.[name]
           : undefined;
@@ -225,13 +226,7 @@ export function ParamsFields() {
             </div>
             <div class="field-row">
               {(['default', 'min', 'max'] as const).map((field) => (
-                <SpecNumber
-                  key={field}
-                  name={name}
-                  spec={spec}
-                  stored={value as Readonly<Record<string, unknown>>}
-                  field={field}
-                />
+                <SpecNumber key={field} name={name} spec={spec} stored={stored} field={field} />
               ))}
             </div>
             <label>
@@ -241,7 +236,7 @@ export function ParamsFields() {
                 value={spec.description ?? ''}
                 onChange={(event) => {
                   const text = (event.currentTarget as HTMLInputElement).value.trim();
-                  const { description: _, ...rest } = value as Readonly<Record<string, unknown>>;
+                  const { description: _, ...rest } = stored;
                   const next = text === '' ? rest : { ...rest, description: text };
                   set(['params', name], next as unknown as ShapeParam);
                 }}
@@ -275,7 +270,7 @@ export function ParamsFields() {
       <AddRow
         label="Add parameter"
         taken={(name) =>
-          Object.hasOwn(isObject(document.params) ? document.params : {}, name)
+          params.some(([existing]) => existing === name)
             ? `There is a parameter "${name}" already.`
             : null
         }
@@ -343,15 +338,7 @@ export function RigFields() {
   return (
     <fieldset>
       <legend>Rig</legend>
-      {own.length > 0 ? (
-        <ul class="document-issues" role="alert">
-          {own.map((issue) => (
-            <li key={`${issue.path} ${issue.message}`}>
-              <code>{issue.path}</code> {issue.message}
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      <IssueList issues={own} />
       {names.map((slot) => {
         const bound = slots[slot];
         const options = typeof bound === 'string' && !ids.includes(bound) ? [bound, ...ids] : ids;

@@ -67,12 +67,7 @@ async function addNamed(label: string, name: string): Promise<void> {
   input.value = name;
   input.dispatchEvent(new Event('input', { bubbles: true }));
   await settle();
-  const button = [...document.querySelectorAll('button')].find(
-    (each) => each.textContent === label,
-  );
-  if (!button) throw new Error(`no button ${label}`);
-  button.click();
-  await settle();
+  await press(label);
 }
 
 async function press(text: string): Promise<void> {
