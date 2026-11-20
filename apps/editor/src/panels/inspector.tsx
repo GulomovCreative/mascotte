@@ -579,6 +579,17 @@ function EulerInputs(props: {
   );
 }
 
+/** What a plain field shows: its value, else the inherited one, else the default (of its kind). */
+function shownValue<T extends boolean | string>(
+  value: unknown,
+  inherited: unknown,
+  fallback: T,
+): T {
+  if (typeof value === typeof fallback) return value as T;
+  if (typeof inherited === typeof fallback) return inherited as T;
+  return fallback;
+}
+
 /** The editor of one registry property of the node at `path`. */
 function PropertyField(props: {
   path: DocPath;
@@ -652,13 +663,7 @@ function PropertyField(props: {
         <input
           type="checkbox"
           aria-label={name}
-          checked={
-            typeof value === 'boolean'
-              ? value
-              : typeof inherited === 'boolean'
-                ? inherited
-                : property.default
-          }
+          checked={shownValue(value, inherited, property.default)}
           onChange={(event) => set((event.currentTarget as HTMLInputElement).checked)}
         />
       );
@@ -667,13 +672,7 @@ function PropertyField(props: {
       body = (
         <select
           aria-label={name}
-          value={
-            typeof value === 'string'
-              ? value
-              : typeof inherited === 'string'
-                ? inherited
-                : property.default
-          }
+          value={shownValue(value, inherited, property.default)}
           onChange={(event) => set((event.currentTarget as HTMLSelectElement).value)}
         >
           {property.values.map((each) => (
