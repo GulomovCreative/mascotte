@@ -167,6 +167,8 @@ export function Viewport() {
       }
     };
     const draw = () => {
+      // Read first, so the effect keeps watching them even when this frame draws nothing.
+      void [state.value, viewCamera.value, orbit.value, debugView.value];
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       // Not laid out (or gone): nothing to draw on.
