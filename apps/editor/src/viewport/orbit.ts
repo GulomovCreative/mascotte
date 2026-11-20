@@ -51,8 +51,8 @@ export function turn(orbit: Orbit, dx: number, dy: number): Orbit {
 
 /**
  * Panned by a drag of `dx`, `dy` pixels: the target moves the other way across the view, so the
- * scene follows the pointer (at the target's depth, in perspective). `camera` is where the orbit puts it (its axes say which way is
- * across).
+ * scene follows the pointer (at the target's depth, in perspective). `camera` is where the orbit
+ * puts it (its axes say which way is across).
  */
 export function pan(orbit: Orbit, camera: Camera, dx: number, dy: number): Orbit {
   const m = camera.worldMatrix;
