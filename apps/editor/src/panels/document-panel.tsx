@@ -1,4 +1,5 @@
 import { DEFAULT_LIGHT, PROJECTIONS } from '@mascotte/engine';
+import type { Issue } from '@mascotte/format';
 import { ARCHETYPES } from '@mascotte/library';
 import type { Vec3 } from '@mascotte/math';
 import { type DocumentField, type FieldValue, setDocumentField } from '../model/commands.ts';
@@ -83,6 +84,20 @@ export function ColorField(props: { label: string; field: DocumentField; value: 
   );
 }
 
+/** What the format says is wrong with a part of the document; nothing when it says nothing. */
+export function IssueList(props: { issues: readonly Issue[] }) {
+  if (props.issues.length === 0) return null;
+  return (
+    <ul class="document-issues" role="alert">
+      {props.issues.map((issue) => (
+        <li key={`${issue.path} ${issue.message}`}>
+          <code>{issue.path}</code> {issue.message}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 /**
  * The document panel (docs/EDITOR.md, Panels): `meta`, the frame (`view`), the camera (projection,
  * zoom, distance, light), the archetype, the palettes, parameters, prefabs and rig; in a prefab's
@@ -115,20 +130,10 @@ export function DocumentPanel() {
   );
   // A prefab's own mode: what a prefab has besides its tree. Its frame, camera and palettes are
   // the document's, edited there.
-  const issueList =
-    own.length > 0 ? (
-      <ul class="document-issues" role="alert">
-        {own.map((issue) => (
-          <li key={`${issue.path} ${issue.message}`}>
-            <code>{issue.path}</code> {issue.message}
-          </li>
-        ))}
-      </ul>
-    ) : null;
   if (prefabMode.value) {
     return (
       <form class="form-panel" aria-label="Prefab" onSubmit={(event) => event.preventDefault()}>
-        {issueList}
+        <IssueList issues={own} />
         <fieldset>
           <legend>Prefab {prefabMode.value.name}</legend>
           {description}
@@ -148,7 +153,7 @@ export function DocumentPanel() {
   };
   return (
     <form class="form-panel" aria-label="Document" onSubmit={(event) => event.preventDefault()}>
-      {issueList}
+      <IssueList issues={own} />
       <fieldset>
         <legend>Document</legend>
         <label>

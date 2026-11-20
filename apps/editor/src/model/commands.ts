@@ -414,7 +414,9 @@ export function extractPrefab(path: DocPath, name: string): Command {
       const taken = expandedIds(document);
       for (const old of [...inside, ...(node.id === undefined ? [] : [node.id])]) taken.delete(old);
       const id = node.id ?? uniqueId(wanted, taken, inside);
-      const kept = inside.map((old) => (old.startsWith(`${id}-`) ? old.slice(id.length + 1) : old));
+      const unprefixed = (old: string) =>
+        old.startsWith(`${id}-`) ? old.slice(id.length + 1) : old;
+      const kept = inside.map(unprefixed);
       // The instance makes `id-kept` of each: none may be made twice, or be another node's.
       const made = new Set<string>();
       for (const suffix of kept) {
@@ -429,12 +431,10 @@ export function extractPrefab(path: DocPath, name: string): Command {
       const names = new Map<string, string>();
       const strip = (current: NodeDocument): NodeDocument => {
         const { id: own, children, ...rest } = current;
-        let kept = own;
-        if (own?.startsWith(`${id}-`)) kept = own.slice(id.length + 1);
-        else if (own !== undefined) names.set(own, `${id}-${own}`);
+        if (own !== undefined && !own.startsWith(`${id}-`)) names.set(own, `${id}-${own}`);
         return {
           ...rest,
-          ...(kept === undefined ? {} : { id: kept }),
+          ...(own === undefined ? {} : { id: unprefixed(own) }),
           ...(children === undefined ? {} : { children: children.map(strip) }),
         };
       };
