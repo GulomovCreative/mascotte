@@ -54,7 +54,10 @@ const world = { x: 0, y: 0, z: 0 };
 // its lines and labels keep their size whatever the frame's scale.
 let unit = 1;
 
-/** The screen point (from the frame's center) of `node`'s local point, or `null` if unseen. */
+/**
+ * The screen point, in CSS pixels from the frame's center, of `node`'s local point, or `null`
+ * behind the eye. Leaves the world point in `world` and its projection in `projected`.
+ */
 function screenOf(camera: Camera, node: Node, x: number, y: number, z: number) {
   local.x = x;
   local.y = y;

@@ -20,7 +20,10 @@ type Draw = (scene: Scene, camera: Camera, frame: Frame) => void;
 
 /** Which camera the viewport looks through: its own orbit, or the document's within its frame. */
 export const viewCamera = signal<'orbit' | 'document'>('orbit');
-/** The orbit, or `null` until the first scene sets it from the document's camera. */
+/**
+ * The orbit, or `null` until the first turn, pan or zoom; meanwhile the viewport starts it,
+ * unturned, from the document's camera as it is now.
+ */
 export const orbit = signal<Orbit | null>(null);
 // Another document opened: the orbit starts again from its camera.
 effect(() => {
@@ -42,7 +45,12 @@ export const debugView = signal<DebugView>({
  * gives a WebGL2 context cannot give a 2D one afterwards, so a WebGL renderer that fails to start
  * there is an error, not a fallback.
  */
-function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => void } {
+function rendererFor(canvas: HTMLCanvasElement): {
+  draw: Draw;
+  /** Whether the GPU context is lost: frames are skipped until the browser gives it back. */
+  lost: () => boolean;
+  destroy: () => void;
+} {
   const probe = document.createElement('canvas').getContext('webgl2');
   if (probe) {
     probe.getExtension('WEBGL_lose_context')?.loseContext();
@@ -54,10 +62,12 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
     }
     return {
       draw: (scene, camera, frame) => {
-        // A canvas given its size again is cleared: the frame must be drawn anew.
+        // Drawn on every call, as `Draw` promises: the renderer would skip a frame it takes for
+        // unchanged.
         gl.invalidate();
         gl.render(scene, camera, frame);
       },
+      lost: () => gl.contextLost,
       destroy: () => gl.destroy(),
     };
   }
@@ -66,6 +76,7 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
   const canvas2d = new CanvasRenderer();
   return {
     draw: (scene, camera, frame) => canvas2d.render(ctx, scene, camera, frame),
+    lost: () => false,
     destroy: () => {},
   };
 }
@@ -136,7 +147,8 @@ function ViewportBar() {
  * viewport's orbit camera (drag to turn, shift-drag or the middle button to pan, the wheel to
  * zoom) or the document's camera fitted to its frame; a primary click selects the document node
  * under the pointer (not while the scene is stale); the debug view is drawn on an overlay.
- * Redrawn when the document, the camera or the debug view changes.
+ * Redrawn when the editor's state (document, selection), the camera, the debug view, the panel's
+ * size or the pixel ratio changes. What goes wrong is shown in the menu bar.
  */
 export function Viewport() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -145,9 +157,30 @@ export function Viewport() {
     const canvas = ref.current;
     const overlayCanvas = overlayRef.current;
     if (!canvas || !overlayCanvas) return;
-    const overlay = overlayCanvas.getContext('2d');
-    if (!overlay) throw new Error('The viewport overlay has no 2D context.');
-    const renderer = rendererFor(canvas);
+    // What this viewport reported last: it clears only its own message, and sets one once (a
+    // message dismissed stays dismissed while the same thing goes wrong).
+    let reported: string | null = null;
+    const report = (message: string | null) => {
+      if (message === reported) return;
+      if (message !== null) problem.value = message;
+      else if (problem.peek() === reported) problem.value = null;
+      reported = message;
+    };
+    const failed = (what: string, error: unknown) => {
+      console.error(error);
+      report(`${what}: ${error instanceof Error ? error.message : String(error)}`);
+    };
+    let overlay: CanvasRenderingContext2D;
+    let renderer: ReturnType<typeof rendererFor>;
+    try {
+      const context = overlayCanvas.getContext('2d');
+      if (!context) throw new Error('its overlay has no 2D context.');
+      overlay = context;
+      renderer = rendererFor(canvas);
+    } catch (error) {
+      failed('Could not start the viewport', error);
+      return;
+    }
     const hits = new HitTester();
     const empty = new Scene();
     const fallback = new Camera();
@@ -161,10 +194,19 @@ export function Viewport() {
     const fit = () => {
       try {
         draw();
+        report(
+          renderer.lost()
+            ? 'The viewport lost its GPU context: it draws again when the browser gives it back.'
+            : null,
+        );
       } catch (error) {
-        console.error(error);
-        problem.value = `Could not draw the viewport: ${error instanceof Error ? error.message : String(error)}`;
+        failed('Could not draw the viewport', error);
       }
+    };
+    // The orbit as it is, or as it starts from the document's camera; none without a scene.
+    const currentOrbit = (): Orbit | null => {
+      const built = state.peek().scene;
+      return orbit.peek() ?? (built ? orbitFrom(built.built.camera) : null);
     };
     const draw = () => {
       // Read first, so the effect keeps watching them even when this frame draws nothing.
@@ -188,7 +230,7 @@ export function Viewport() {
       let camera = documentCamera;
       let scale = 1;
       if (viewCamera.value === 'orbit') {
-        const current = orbit.value ?? (built ? orbitFrom(documentCamera) : null);
+        const current = currentOrbit();
         if (current) {
           applyOrbit(own, current, documentCamera);
           camera = own;
@@ -210,21 +252,33 @@ export function Viewport() {
       overlay.setTransform(1, 0, 0, 1, 0, 0);
       overlay.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       if (!built) return;
-      overlay.setTransform(ratio, 0, 0, ratio, (width / 2) * ratio, (height / 2) * ratio);
-      drawOverlay(
-        overlay,
-        {
-          scene: built.scene,
-          camera,
-          rig: built.built.rig,
-          selected: selectedNode(),
-          scale,
-          view: viewCamera.value === 'document' && view ? view : null,
-        },
-        debugView.value,
-      );
+      overlay.save();
+      try {
+        overlay.setTransform(ratio, 0, 0, ratio, (width / 2) * ratio, (height / 2) * ratio);
+        drawOverlay(
+          overlay,
+          {
+            scene: built.scene,
+            camera,
+            rig: built.built.rig,
+            selected: selectedNode(),
+            scale,
+            view: viewCamera.value === 'document' && view ? view : null,
+          },
+          debugView.value,
+        );
+      } catch (error) {
+        throw new Error(
+          `its debug view failed: ${error instanceof Error ? error.message : error}`,
+          {
+            cause: error,
+          },
+        );
+      } finally {
+        // A failure halfway leaves no dashes or fonts behind for the next frame.
+        overlay.restore();
+      }
     };
-    // Redrawn whenever what it shows changes.
     const stop = effect(fit);
 
     // A drag of one pointer turns or pans the orbit; a primary press that does not move selects.
@@ -245,12 +299,13 @@ export function Viewport() {
       }
       // The middle button pans here, not scrolls or pastes.
       if (event.button === 1) event.preventDefault();
-      // Kept while the drag leaves the canvas (a pointer the browser no longer tracks cannot be).
-      if (canvas.hasPointerCapture?.(event.pointerId) === false) {
+      // Kept while the drag leaves the canvas; a pointer the browser no longer tracks (an event
+      // made up by a test) cannot be, and the drag ends at the canvas's edge.
+      if (!canvas.hasPointerCapture(event.pointerId)) {
         try {
           canvas.setPointerCapture(event.pointerId);
-        } catch {
-          // Not tracked: the drag ends at the canvas's edge.
+        } catch (error) {
+          if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
         }
       }
       press = {
@@ -283,7 +338,7 @@ export function Viewport() {
       }
       press.moved = true;
       if (viewCamera.peek() !== 'orbit') return;
-      const current = orbit.peek() ?? (state.peek().scene ? orbitFrom(drawn.camera) : null);
+      const current = currentOrbit();
       if (!current) return;
       orbit.value = press.pan ? pan(current, own, dx, dy) : turn(current, dx, dy);
     };
@@ -302,13 +357,23 @@ export function Viewport() {
         event.offsetX / drawn.scale,
         event.offsetY / drawn.scale,
       );
-      editor.peek().select(hit ? (built.sources.get(hit.node) ?? null) : null);
+      if (!hit) {
+        editor.peek().select(null);
+        return;
+      }
+      const path = built.sources.get(hit.node);
+      // Every built node has a source: a hit without one is a broken map, not an empty click.
+      if (path) editor.peek().select(path);
+      else console.warn('The viewport hit a node with no place in the document.', hit.node);
     };
     const onWheel = (event: WheelEvent) => {
-      if (viewCamera.peek() !== 'orbit' || !state.peek().scene) return;
+      const current = currentOrbit();
+      if (viewCamera.peek() !== 'orbit' || !current) return;
       event.preventDefault();
-      const current = orbit.peek() ?? orbitFrom(drawn.camera);
-      orbit.value = zoom(current, Math.exp(-event.deltaY * 0.001));
+      // A wheel that counts lines moves some 16 pixels a line.
+      const delta =
+        event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * 16 : event.deltaY;
+      orbit.value = zoom(current, Math.exp(-delta * 0.001));
     };
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
@@ -319,7 +384,7 @@ export function Viewport() {
     canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });
 
-    // It also fires once on observing: the first fit.
+    // It also fires once on observing: the first frame, if the effect ran before layout.
     const observer = new ResizeObserver(fit);
     observer.observe(canvas);
     // Moved to a screen of another pixel ratio, the canvas keeps its size: fit it again.

@@ -369,8 +369,8 @@ So that the editor does not need hacks, the engine provides:
 
 - introspection: node types, their properties and ranges (the property registry: `propertiesOf`, `findProperty`) — done;
 - seeking and stepping through clips (`layer.time`, `Animator.evaluate`; fades, springs and machine states are not seekable) — done;
-- hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, with the editor's viewport;
-- data for a debug view: axes, pivots, bones, sort order and sort points, decal anchors — to do, with the editor's viewport;
+- hit-testing (`HitTester`) and world matrices for gizmos — done; node bounds — to do, with the editor's gizmos;
+- data for a debug view: axes, pivots, bones, sort order and sort points, decal anchors — done (the editor's overlay uses `DepthSorter`, `Node.getSortPoint`, `decalAnchor` and `Rig.bones`);
 - hot swapping of the document without recreating the player (`Player.load`) — done;
 - a map from built nodes to the document paths they came from — done in the editor (the format keeps the tree's order; `expandDocument` is exported for the ids prefab instances make).
 

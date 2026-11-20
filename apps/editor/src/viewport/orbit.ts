@@ -9,6 +9,7 @@ export interface Orbit {
   readonly yaw: number;
   readonly pitch: number;
   readonly target: { readonly x: number; readonly y: number; readonly z: number };
+  /** Screen pixels per scene unit at the target, as `Camera.zoom`. */
   readonly zoom: number;
 }
 
@@ -29,7 +30,7 @@ export function orbitFrom(camera: Camera): Orbit {
     yaw: 0,
     pitch: 0,
     target: { x: world[9] as number, y: world[10] as number, z: world[11] as number },
-    zoom: camera.zoom,
+    zoom: Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, camera.zoom)),
   };
 }
 

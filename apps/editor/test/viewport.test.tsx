@@ -45,7 +45,7 @@ async function mount(name: string): Promise<HTMLCanvasElement> {
   await expect.poll(() => state.value.document.meta.name).toBe(name);
   const canvas = host.querySelector<HTMLCanvasElement>('canvas.viewport');
   if (!canvas) throw new Error('no viewport');
-  // The viewport starts after the first paint: fitted, it listens.
+  // The viewport's effect runs after the first paint: once the canvas is fitted, it listens.
   await expect.poll(() => canvas.width).not.toBe(300);
   return canvas;
 }
@@ -124,7 +124,6 @@ describe('viewport', () => {
     const view = state.value.scene?.built.view ?? { width: 1, height: 1 };
     const { width, height } = canvas.getBoundingClientRect();
     const scale = Math.min(width / view.width, height / view.height);
-    await new Promise((resolve) => setTimeout(resolve, 50));
     click(canvas, onCanvas(canvas, built('eye-right-pupil'), scale));
     await expect.poll(() => pathString(state.value.selection ?? [])).toBe(instance('eye-right'));
     // A drag there leaves the orbit as it is.
