@@ -69,7 +69,7 @@ export function treeRows(document: MascotDocument, folds: ReadonlySet<string>): 
     // An instance's own children come first in what it builds, at their places.
     const own = made ? [] : childrenOf(node);
     const makes = childrenOf(built).slice(own.length);
-    const count = own.length + makes.length;
+    const count = [...own, ...makes].filter(Boolean).length;
     const closed = !made && node.prefab !== undefined;
     const open = count === 0 ? null : closed === folds.has(key);
     rows.push({ key, path, made, node, built, depth, open });
@@ -86,12 +86,21 @@ export function treeRows(document: MascotDocument, folds: ReadonlySet<string>): 
   return rows;
 }
 
-/** The node paths of the format's issue paths (`root.children[1].props.x` → `[1]`). */
-function issuePaths(issues: readonly { path: string; message: string }[]): Map<string, string[]> {
+/**
+ * The issues of each row, by key: an issue goes to its node's row (`root.children[1].props.x` to
+ * `root.children[1]`), or to the nearest one shown above it (under a folded row, or at what is not
+ * a node).
+ */
+function issuePaths(
+  issues: readonly { path: string; message: string }[],
+  rows: readonly TreeRow[],
+): Map<string, string[]> {
+  const shown = new Set(rows.map((row) => row.key));
   const byNode = new Map<string, string[]>();
   for (const issue of issues) {
-    const node = /^root(\.children\[\d+\])*/.exec(issue.path)?.[0];
+    let node = /^root(\.children\[\d+\])*/.exec(issue.path)?.[0];
     if (!node) continue;
+    while (!shown.has(node) && node !== 'root') node = node.replace(/\.children\[\d+\]$/, '');
     byNode.set(node, [...(byNode.get(node) ?? []), issue.message]);
   }
   return byNode;
@@ -238,7 +247,7 @@ export function SceneTree() {
   const { document, selection, issues } = state.value;
   const rows = treeRows(document, toggled.value);
   const slots = slotsById(document);
-  const problems = issuePaths(issues);
+  const problems = issuePaths(issues, rows);
   const list = useRef<HTMLDivElement>(null);
   const selected = selection === null ? null : pathString(selection);
   const editable = rows.filter((row) => !row.made);

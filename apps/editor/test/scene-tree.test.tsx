@@ -295,6 +295,11 @@ describe('scene tree and document panel', () => {
     mount();
     await settle();
     expect(row('body').dataset.key).toBe('root.children[1]');
+    // What is not a node has no row: its issue is shown on its parent's.
+    expect(row('root').querySelector('.tree-issue')).not.toBeNull();
+    // A node dropped inside its parent, where it is already last, stays without a step.
+    await drag('body', 'root', 'inside');
+    expect(state.value.canUndo).toBe(false);
   });
 
   it('edits the frame and camera, keeping what is required and showing the document issues', async () => {

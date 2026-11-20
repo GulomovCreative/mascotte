@@ -1,6 +1,6 @@
 import type { MascotDocument, NodeDocument, PlainValue, PropertyValue } from '@mascotte/format';
 import { expandedIds, madeSuffixes, uniqueId, withUniqueIds } from './ids.ts';
-import { type DocPath, isWithin, nodeAt, pathString, updateNode } from './paths.ts';
+import { type DocPath, isWithin, nodeAt, pathString, samePath, updateNode } from './paths.ts';
 import { renameReferences } from './references.ts';
 
 /** What a command leaves: the new document, and the selection if it moves it. */
@@ -217,6 +217,8 @@ export function moveNode(path: DocPath, parent: DocPath, index: number): Command
       const at = siblings && index > (path[path.length - 1] as number) ? index - 1 : index;
       const children = existing(removed, target).children ?? [];
       const slot = Math.max(0, Math.min(at, children.length));
+      // Back where it was: no change, no step.
+      if (samePath([...target, slot], path)) return { document };
       const next = insertChild(removed, target, slot, node);
       const moved = [...target, slot];
       let followed: DocPath | null = selection;
