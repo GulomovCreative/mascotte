@@ -1,3 +1,4 @@
+import { createProjectedPoint, type Node } from '@mascotte/engine';
 import { render } from 'preact';
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { page } from 'vitest/browser';
@@ -33,15 +34,15 @@ afterEach(() => {
   openDocument(newDocument('blob'), null);
 });
 
-async function mountPip(): Promise<HTMLCanvasElement> {
+async function mount(name: string): Promise<HTMLCanvasElement> {
   host = document.createElement('div');
   document.body.append(host);
   render(<App />, host);
   const select = host.querySelector<HTMLSelectElement>('select[aria-label="Reference"]');
   if (!select) throw new Error('no menu');
-  select.value = 'Pip';
+  select.value = name;
   select.dispatchEvent(new Event('change', { bubbles: true }));
-  await expect.poll(() => state.value.document.meta.name).toBe('Pip');
+  await expect.poll(() => state.value.document.meta.name).toBe(name);
   const canvas = host.querySelector<HTMLCanvasElement>('canvas.viewport');
   if (!canvas) throw new Error('no viewport');
   // The viewport starts after the first paint: fitted, it listens.
@@ -49,7 +50,16 @@ async function mountPip(): Promise<HTMLCanvasElement> {
   return canvas;
 }
 
-function pointer(canvas: HTMLCanvasElement, type: string, x: number, y: number, buttons = 1) {
+const mountPip = () => mount('Pip');
+
+function pointer(
+  canvas: HTMLCanvasElement,
+  type: string,
+  x: number,
+  y: number,
+  buttons = 1,
+  shiftKey = false,
+) {
   const rect = canvas.getBoundingClientRect();
   canvas.dispatchEvent(
     new PointerEvent(type, {
@@ -57,6 +67,7 @@ function pointer(canvas: HTMLCanvasElement, type: string, x: number, y: number, 
       pointerId: 1,
       button: 0,
       buttons,
+      shiftKey,
       clientX: rect.left + x,
       clientY: rect.top + y,
     }),
@@ -74,7 +85,68 @@ function overlayInk(): number {
   return ink;
 }
 
+/** The built node with `id` in the open scene. */
+function built(id: string): Node {
+  let found: Node | null = null;
+  state.value.scene?.scene.root.traverse((node) => {
+    if (node.id === id) found = node;
+  });
+  if (!found) throw new Error(`no ${id}`);
+  return found;
+}
+
+/**
+ * Where `node`'s origin is on the canvas, through the document's camera, with the frame `scale`
+ * CSS pixels a unit (the orbit starts there, unturned, at 1).
+ */
+function onCanvas(canvas: HTMLCanvasElement, node: Node, scale: number): { x: number; y: number } {
+  const camera = state.value.scene?.built.camera;
+  const point = createProjectedPoint();
+  const world = node.localToWorld({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
+  if (!camera?.project(point, world)) throw new Error('not in view');
+  const { width, height } = canvas.getBoundingClientRect();
+  return { x: width / 2 + point.x * scale, y: height / 2 + point.y * scale };
+}
+
+function click(canvas: HTMLCanvasElement, at: { x: number; y: number }) {
+  pointer(canvas, 'pointerdown', at.x, at.y);
+  pointer(canvas, 'pointerup', at.x, at.y, 0);
+}
+
 describe('viewport', () => {
+  it("picks a prefab's node as its instance, also through the document camera's fitted frame", async () => {
+    const canvas = await mount('Gloop');
+    const instance = (id: string) => pathString(state.value.scene?.sources.get(built(id)) ?? []);
+    click(canvas, onCanvas(canvas, built('eye-left-pupil'), 1));
+    await expect.poll(() => pathString(state.value.selection ?? [])).toBe(instance('eye-left'));
+    // Through the document's camera: its frame fitted into the panel, the other eye.
+    viewCamera.value = 'document';
+    const view = state.value.scene?.built.view ?? { width: 1, height: 1 };
+    const { width, height } = canvas.getBoundingClientRect();
+    const scale = Math.min(width / view.width, height / view.height);
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    click(canvas, onCanvas(canvas, built('eye-right-pupil'), scale));
+    await expect.poll(() => pathString(state.value.selection ?? [])).toBe(instance('eye-right'));
+    // A drag there leaves the orbit as it is.
+    const before = orbit.value;
+    pointer(canvas, 'pointerdown', 100, 100);
+    pointer(canvas, 'pointermove', 200, 100);
+    pointer(canvas, 'pointerup', 200, 100, 0);
+    expect(orbit.value).toBe(before);
+  });
+
+  it('pans the orbit by a shift-drag, without turning it', async () => {
+    const canvas = await mountPip();
+    pointer(canvas, 'pointerdown', 300, 300, 1, true);
+    pointer(canvas, 'pointermove', 360, 300, 1, true);
+    pointer(canvas, 'pointerup', 360, 300, 0, true);
+    await expect.poll(() => orbit.value).not.toBeNull();
+    expect(orbit.value?.yaw).toBe(0);
+    // Dragged right, the scene follows: the target, at the document camera at first, moves left.
+    const start = state.value.scene?.built.camera.worldMatrix[9] ?? 0;
+    expect(orbit.value?.target.x).toBeLessThan(start);
+  });
+
   it("picks Pip's nodes, shows the selection's axes, the bones and the sort order", async () => {
     const canvas = await mountPip();
     const { width, height } = canvas.getBoundingClientRect();
