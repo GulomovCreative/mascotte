@@ -522,4 +522,27 @@ describe('editor document', () => {
     for (let i = 0; i < 6; i++) editor.undo();
     expect(editor.state.document).toBe(document);
   });
+
+  it('makes the objects a field needs, and refuses to remove a required field', () => {
+    const { camera: _, ...document } = readDocument(gloopDocument);
+    const editor = new EditorDocument(document);
+    editor.execute(setDocumentField(['camera', 'props', 'zoom'], 2));
+    expect(editor.state.document.camera).toEqual({ props: { zoom: 2 } });
+    editor.undo();
+    expect(editor.state.document).toBe(document);
+    // Removing it again, once it is gone, is no step.
+    editor.execute(setDocumentField(['view', 'background'], undefined));
+    editor.execute(setDocumentField(['view', 'background'], undefined));
+    expect(editor.state.undoLabel).toBe('Set view.background');
+    editor.undo();
+    expect(editor.state.canUndo).toBe(false);
+    for (const field of [
+      ['meta', 'name'],
+      ['view', 'width'],
+      ['view', 'height'],
+    ] as const) {
+      expect(() => editor.execute(setDocumentField(field, undefined))).toThrow(/cannot be removed/);
+    }
+    expect(editor.state.document).toBe(document);
+  });
 });

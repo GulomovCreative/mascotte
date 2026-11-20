@@ -1,4 +1,4 @@
-import type { MascotDocument, NodeDocument, PropertyValue } from '@mascotte/format';
+import type { MascotDocument, NodeDocument, PlainValue, PropertyValue } from '@mascotte/format';
 import { expandedIds, madeSuffixes, uniqueId, withUniqueIds } from './ids.ts';
 import { type DocPath, isWithin, nodeAt, pathString, updateNode } from './paths.ts';
 import { renameReferences } from './references.ts';
@@ -256,12 +256,19 @@ export type DocumentField =
 
 /**
  * Sets the document's field at `field` (`['view', 'width']`, `['camera', 'props', 'zoom']`), or
- * removes it with `undefined`; an object the removal leaves empty (`camera.props`) goes too.
+ * removes it with `undefined`; every object the removal leaves empty goes too (`camera.props`,
+ * then `camera`). The value it has already is no change. The fields the format requires
+ * (`meta.name`, `view.width`, `view.height`) cannot be removed.
  */
-export function setDocumentField(field: DocumentField, value: unknown): Command {
+export function setDocumentField(field: DocumentField, value: PlainValue | undefined): Command {
+  const required =
+    field[0] === 'meta' ? field[1] === 'name' : field[0] === 'view' && field[1] !== 'background';
   return {
     label: `Set ${field.join('.')}`,
     run: (document) => {
+      if (value === undefined && required) {
+        throw new RangeError(`${field.join('.')} cannot be removed.`);
+      }
       const set = (object: Record<string, unknown>, at: number): Record<string, unknown> => {
         const key = field[at] as string;
         const { [key]: current, ...rest } = object;

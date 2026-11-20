@@ -6,7 +6,7 @@ import {
 } from '@mascotte/format';
 import { PREFABS } from '@mascotte/library';
 import { signal } from '@preact/signals';
-import { useEffect, useRef } from 'preact/hooks';
+import { useLayoutEffect, useRef } from 'preact/hooks';
 import {
   addNode,
   type Command,
@@ -15,12 +15,15 @@ import {
   removeNode,
   renameNode,
 } from '../model/commands.ts';
-import { type DocPath, isWithin, pathString } from '../model/paths.ts';
-import { attempt, editor, state } from '../store.ts';
+import { type DocPath, isWithin, nodeAt, pathString } from '../model/paths.ts';
+import { attempt, editor, problem, state } from '../store.ts';
 
 /** One row of the tree: a node of the document, or one a prefab instance makes (read-only). */
 export interface TreeRow {
-  /** Unique among the rows: the node's path as the format writes it, then the made nodes'. */
+  /**
+   * Unique among the rows: a written node's path as the format writes it (`root.children[1]`), a
+   * made node's its parent row's key and `/<index>`.
+   */
   readonly key: string;
   /** The node's path; for a made node, its instance's (selecting it selects the instance). */
   readonly path: DocPath;
@@ -35,8 +38,8 @@ export interface TreeRow {
 }
 
 /**
- * Rows whose folding was changed from the default (by key): a node's children are shown, a
- * prefab instance's made nodes hidden, until toggled.
+ * Rows whose folding was changed from the default (by key): a node is unfolded, a prefab
+ * instance folded (its children and made nodes hidden), until toggled.
  */
 // упрощение: свёрнутость хранится по пути, и после переноса или удаления узла может перейти к
 // соседу; вернуться, если это будет мешать (хранить по id или по самому узлу).
@@ -45,8 +48,11 @@ export const toggled = signal<ReadonlySet<string>>(new Set());
 const isNode = (value: unknown): value is NodeDocument =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
 
-const childrenOf = (node: NodeDocument | undefined): NodeDocument[] =>
-  Array.isArray(node?.children) ? node.children.filter(isNode) : [];
+/** A node's children, each at its index; what is not a node (in a broken document) is skipped. */
+const childrenOf = (node: NodeDocument | undefined): (NodeDocument | undefined)[] =>
+  Array.isArray(node?.children)
+    ? node.children.map((child) => (isNode(child) ? child : undefined))
+    : [];
 
 /** The tree's rows as shown: the document's nodes, then each instance's made nodes, unfolded. */
 export function treeRows(document: MascotDocument, folds: ReadonlySet<string>): TreeRow[] {
@@ -68,11 +74,12 @@ export function treeRows(document: MascotDocument, folds: ReadonlySet<string>): 
     const open = count === 0 ? null : closed === folds.has(key);
     rows.push({ key, path, made, node, built, depth, open });
     if (!open) return;
+    const builds = childrenOf(built);
     own.forEach((child, i) => {
-      walk(child, childrenOf(built)[i], `${key}.children[${i}]`, [...path, i], depth + 1, false);
+      if (child) walk(child, builds[i], `${key}.children[${i}]`, [...path, i], depth + 1, false);
     });
     makes.forEach((child, i) => {
-      walk(child, child, `${key}/${i}`, path, depth + 1, true);
+      if (child) walk(child, child, `${key}/${i}`, path, depth + 1, true);
     });
   };
   walk(document.root, isNode(expanded?.root) ? expanded.root : undefined, 'root', [], 0, false);
@@ -116,13 +123,20 @@ const renaming = signal<string | null>(null);
 /** The node being dragged. */
 let dragged: DocPath | null = null;
 
-/** The move a drop of `from` at `zone` of the node at `to` makes, or `null` if it cannot. */
+/**
+ * The move a drop of `from` at `zone` of the node at `to` makes, or `null` if it cannot move
+ * there or would stay where it is.
+ */
 export function dropMove(from: DocPath, to: DocPath, zone: Zone): Command | null {
   if (from.length === 0 || isWithin(to, from)) return null;
   if (zone === 'inside') return moveNode(from, to, Number.MAX_SAFE_INTEGER);
   if (to.length === 0) return null;
+  const parent = to.slice(0, -1);
   const index = (to[to.length - 1] as number) + (zone === 'after' ? 1 : 0);
-  return moveNode(from, to.slice(0, -1), index);
+  const at = from[from.length - 1] as number;
+  const siblings = from.length === to.length && isWithin(from, parent);
+  if (siblings && (index === at || index === at + 1)) return null;
+  return moveNode(from, parent, index);
 }
 
 /** The zone of a row at the pointer: its top and bottom quarters, or its middle. */
@@ -170,21 +184,31 @@ function AddMenu(props: { document: MascotDocument; parent: DocPath }) {
   );
 }
 
-/** The input that edits a node's id in place: Enter or leaving it renames, Escape does not. */
+/**
+ * The input that edits a node's id in place: Enter or leaving it renames, Escape or an empty id
+ * does not. An id taken (or one the format refuses) becomes a free one, and the menu bar says so.
+ */
 function RenameInput(props: { row: TreeRow }) {
   const input = useRef<HTMLInputElement>(null);
-  useEffect(() => {
+  useLayoutEffect(() => {
     input.current?.focus();
     input.current?.select();
   }, []);
-  const finish = (keep: boolean) => {
+  const finish = (keep: boolean, refocus: boolean) => {
     // Enter ends it before the input goes and blurs: one rename, not two.
     if (renaming.peek() !== props.row.key) return;
     renaming.value = null;
-    const value = input.current?.value ?? '';
-    if (keep && value !== props.row.node.id)
-      run('Could not rename it', renameNode(props.row.path, value));
-    document.querySelector<HTMLElement>(`[data-key="${props.row.key}"]`)?.focus();
+    const { path, node } = props.row;
+    const value = input.current?.value.trim() ?? '';
+    if (keep && value !== '' && value !== node.id) {
+      run('Could not rename it', renameNode(path, value));
+      const id = nodeAt(state.peek().document, path)?.id;
+      if (id !== undefined && id !== value && id !== node.id) {
+        problem.value = `Renamed to "${id}": "${value}" is taken or not allowed.`;
+      }
+    }
+    // Focus goes back to the row from the keys; a click elsewhere keeps its own.
+    if (refocus) document.querySelector<HTMLElement>(`[data-key="${props.row.key}"]`)?.focus();
   };
   return (
     <input
@@ -194,10 +218,10 @@ function RenameInput(props: { row: TreeRow }) {
       defaultValue={props.row.node.id ?? ''}
       onKeyDown={(event) => {
         event.stopPropagation();
-        if (event.key === 'Enter') finish(true);
-        else if (event.key === 'Escape') finish(false);
+        if (event.key === 'Enter') finish(true, true);
+        else if (event.key === 'Escape') finish(false, true);
       }}
-      onBlur={() => finish(true)}
+      onBlur={() => finish(true, false)}
     />
   );
 }
@@ -206,9 +230,9 @@ function RenameInput(props: { row: TreeRow }) {
  * The scene tree (docs/EDITOR.md, 3.4): the document's nodes with their ids and types, the rig
  * slots each binds, decals, prefab instances with their made nodes read-only under them, and
  * the issues at each node. A click selects; dragging a node onto another puts it inside (the
- * middle of the row) or before or after it (its edges). Keys: the arrows move and fold, F2
- * renames, Delete removes, Ctrl+D duplicates, Escape selects nothing (the inspector then shows
- * the document).
+ * middle of the row) or before or after it (its edges). Keys: the arrows, Home and End move and
+ * fold, F2 or Enter renames, Delete or Backspace removes, Ctrl+D (Cmd+D) duplicates, Escape
+ * selects nothing (the inspector then shows the document).
  */
 export function SceneTree() {
   const { document, selection, issues } = state.value;
@@ -220,8 +244,8 @@ export function SceneTree() {
   const editable = rows.filter((row) => !row.made);
   const focusable = selected !== null && editable.some((row) => row.key === selected);
 
-  // A selection moved with the keys takes the focus along.
-  useEffect(() => {
+  // A selection moved with the keys takes the focus along, before the next key comes.
+  useLayoutEffect(() => {
     if (!list.current?.contains(globalThis.document.activeElement) || selected === null) return;
     list.current.querySelector<HTMLElement>(`[data-key="${selected}"]`)?.focus();
   }, [selected]);
