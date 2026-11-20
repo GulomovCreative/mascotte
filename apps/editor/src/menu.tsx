@@ -2,6 +2,7 @@ import { ARCHETYPES } from '@mascotte/library';
 import { newDocument, REFERENCE_DOCUMENTS, readDocumentText } from './files/documents.ts';
 import { openFile, saveFile } from './files/io.ts';
 import {
+  attempt,
   currentHandle,
   discardDraft,
   editor,
@@ -13,19 +14,6 @@ import {
   problem,
   state,
 } from './store.ts';
-
-/**
- * Runs `task`, showing what goes wrong in the menu bar after `what` ("Could not open"); the
- * error goes to the console too, with its stack and cause.
- */
-async function attempt(what: string, task: () => Promise<void> | void): Promise<void> {
-  try {
-    await task();
-  } catch (error) {
-    console.error(error);
-    problem.value = `${what}: ${error instanceof Error ? error.message : String(error)}`;
-  }
-}
 
 /**
  * Whether the open document may be replaced: asked when it has unsaved changes, or when a draft

@@ -1,6 +1,9 @@
 import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
 import { DraftBanner, MenuBar } from './menu.tsx';
+import { DocumentPanel } from './panels/document-panel.tsx';
+import { SceneTree } from './panels/scene-tree.tsx';
+import { state } from './store.ts';
 import { Viewport } from './viewport/viewport.tsx';
 
 /** The tabs of the bottom panel. */
@@ -92,13 +95,18 @@ export function App() {
       <MenuBar />
       <DraftBanner />
       <Panel title="Scene" area="tree">
-        <p class="empty">No document open.</p>
+        <SceneTree />
       </Panel>
       <main class="viewport-area" aria-label="Viewport">
         <Viewport />
       </main>
       <Panel title="Inspector" area="inspector">
-        <p class="empty">Nothing selected.</p>
+        {/* With nothing selected, the inspector shows the document. */}
+        {state.value.selection === null ? (
+          <DocumentPanel />
+        ) : (
+          <p class="empty">A node's properties are not editable yet.</p>
+        )}
       </Panel>
       <BottomPanel />
     </div>

@@ -246,3 +246,39 @@ export function duplicateNode(path: DocPath): Command {
     },
   };
 }
+
+/** Where `setDocumentField` sets a value: a field of the document outside its tree. */
+export type DocumentField =
+  | readonly ['meta', 'name' | 'description']
+  | readonly ['archetype']
+  | readonly ['view', 'width' | 'height' | 'background']
+  | readonly ['camera', 'props', string];
+
+/**
+ * Sets the document's field at `field` (`['view', 'width']`, `['camera', 'props', 'zoom']`), or
+ * removes it with `undefined`; an object the removal leaves empty (`camera.props`) goes too.
+ */
+export function setDocumentField(field: DocumentField, value: unknown): Command {
+  return {
+    label: `Set ${field.join('.')}`,
+    run: (document) => {
+      const set = (object: Record<string, unknown>, at: number): Record<string, unknown> => {
+        const key = field[at] as string;
+        const { [key]: current, ...rest } = object;
+        const next =
+          at === field.length - 1
+            ? value
+            : set(typeof current === 'object' && current !== null ? { ...current } : {}, at + 1);
+        const empty =
+          next === undefined || (at < field.length - 1 && Object.keys(next as object).length === 0);
+        return empty ? rest : { ...object, [key]: next };
+      };
+      const before = field.reduce<unknown>(
+        (object, key) => (object as Record<string, unknown> | undefined)?.[key],
+        document,
+      );
+      if (same(before, value)) return { document };
+      return { document: set({ ...document }, 0) as unknown as MascotDocument };
+    },
+  };
+}

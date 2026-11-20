@@ -111,9 +111,11 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 ### 3.4. Panels
 
 - **Document.** `meta`, the frame (`view`: size, background), the camera (`camera.props`:
-  projection, zoom, distance, light) and the archetype.
+  projection, zoom, distance, light) and the archetype. Shown in the inspector while nothing is
+  selected (Escape in the tree, or a click on nothing in the viewport).
 - **Scene tree.** The hierarchy with ids and types; add a shape or a prefab instance, remove,
-  duplicate, reparent by dragging, rename. Rig slots, decals and prefab instances are marked;
+  duplicate, reparent by dragging (onto a row's middle to go inside it, its edges to go before
+  or after it), rename. Rig slots, decals and prefab instances are marked;
   a prefab instance's own nodes are shown read-only under it.
 - **Inspector.** The selected node's properties, made from the registry: numbers with their
   ranges, vectors, rotations shown as Euler angles and stored as quaternions, colors with a
