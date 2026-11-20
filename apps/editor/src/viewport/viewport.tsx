@@ -11,7 +11,7 @@ import {
 import { effect, signal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import { samePath } from '../model/paths.ts';
-import { editor, state } from '../store.ts';
+import { editor, problem, state } from '../store.ts';
 import { applyOrbit, type Orbit, orbitFrom, pan, turn, zoom } from './orbit.ts';
 import { type DebugView, drawOverlay } from './overlay.ts';
 
@@ -70,10 +70,13 @@ function rendererFor(canvas: HTMLCanvasElement): { draw: Draw; destroy: () => vo
   };
 }
 
-/** The built node of the selected document node: the first the source map gives its path. */
+/**
+ * The built node of the selected document node: the first the source map gives its path. None
+ * while the scene is stale: its paths are an older document's.
+ */
 function selectedNode(): Node | null {
-  const { scene, selection } = state.value;
-  if (!scene || !selection) return null;
+  const { scene, selection, stale } = state.value;
+  if (!scene || !selection || stale) return null;
   for (const [node, path] of scene.sources) if (samePath(path, selection)) return node;
   return null;
 }
@@ -131,8 +134,8 @@ function ViewportBar() {
 /**
  * The viewport: the open document's scene (the last that built), drawn by the engine through the
  * viewport's orbit camera (drag to turn, shift-drag or the middle button to pan, the wheel to
- * zoom) or the document's camera fitted to its frame; a click selects the document node under
- * the pointer; the debug view is drawn on an overlay. Redrawn when the document, the camera or
+ * zoom) or the document's camera fitted to its frame; a primary click selects the document node
+ * under the pointer (not while the scene is stale); the debug view is drawn on an overlay. Redrawn when the document, the camera or
  * the debug view changes.
  */
 export function Viewport() {
@@ -153,7 +156,17 @@ export function Viewport() {
     // own units, and how many CSS pixels a unit is.
     let drawn = { camera: fallback as Camera, width: 1, height: 1, scale: 1 };
 
+    // A frame that fails to draw is reported, not thrown: the effect that draws it runs inside
+    // whatever changed the state, the store's own updates included.
     const fit = () => {
+      try {
+        draw();
+      } catch (error) {
+        console.error(error);
+        problem.value = `Could not draw the viewport: ${error instanceof Error ? error.message : String(error)}`;
+      }
+    };
+    const draw = () => {
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       // Not laid out (or gone): nothing to draw on.
@@ -195,8 +208,7 @@ export function Viewport() {
       overlay.setTransform(1, 0, 0, 1, 0, 0);
       overlay.clearRect(0, 0, overlayCanvas.width, overlayCanvas.height);
       if (!built) return;
-      const k = ratio * scale;
-      overlay.setTransform(k, 0, 0, k, (frameWidth / 2) * k, (frameHeight / 2) * k);
+      overlay.setTransform(ratio, 0, 0, ratio, (width / 2) * ratio, (height / 2) * ratio);
       drawOverlay(
         overlay,
         {
@@ -204,8 +216,7 @@ export function Viewport() {
           camera,
           rig: built.built.rig,
           selected: selectedNode(),
-          width: frameWidth,
-          height: frameHeight,
+          scale,
           view: viewCamera.value === 'document' && view ? view : null,
         },
         debugView.value,
@@ -214,17 +225,24 @@ export function Viewport() {
     // Redrawn whenever what it shows changes.
     const stop = effect(fit);
 
-    // A drag turns or pans the orbit; a press that does not move selects.
+    // A drag of one pointer turns or pans the orbit; a primary press that does not move selects.
     let press: {
+      id: number;
       x: number;
       y: number;
       lastX: number;
       lastY: number;
       moved: boolean;
       pan: boolean;
+      select: boolean;
     } | null = null;
     const onDown = (event: PointerEvent) => {
-      if (event.button !== 0 && event.button !== 1) return;
+      // Another pointer while one drags is left out (a second finger).
+      if ((press && press.id !== event.pointerId) || (event.button !== 0 && event.button !== 1)) {
+        return;
+      }
+      // The middle button pans here, not scrolls or pastes.
+      if (event.button === 1) event.preventDefault();
       // Kept while the drag leaves the canvas (a pointer the browser no longer tracks cannot be).
       if (canvas.hasPointerCapture?.(event.pointerId) === false) {
         try {
@@ -234,6 +252,8 @@ export function Viewport() {
         }
       }
       press = {
+        id: event.pointerId,
+        select: event.button === 0,
         x: event.offsetX,
         y: event.offsetY,
         lastX: event.offsetX,
@@ -243,7 +263,12 @@ export function Viewport() {
       };
     };
     const onMove = (event: PointerEvent) => {
-      if (!press) return;
+      if (!press || event.pointerId !== press.id) return;
+      // Released where the canvas did not hear it (no capture): the drag is over.
+      if (event.buttons === 0) {
+        press = null;
+        return;
+      }
       const dx = event.offsetX - press.lastX;
       const dy = event.offsetY - press.lastY;
       press.lastX = event.offsetX;
@@ -261,10 +286,12 @@ export function Viewport() {
     };
     const onUp = (event: PointerEvent) => {
       const current = press;
+      if (!current || event.pointerId !== current.id) return;
       press = null;
-      if (!current || current.moved) return;
-      const built = state.peek().scene;
-      if (!built) return;
+      if (current.moved || !current.select) return;
+      // A stale scene's paths are an older document's: nothing to pick until it builds again.
+      const { scene: built, stale } = state.peek();
+      if (!built || stale) return;
       const hit = hits.hitTest(
         built.scene,
         drawn.camera,
@@ -283,9 +310,10 @@ export function Viewport() {
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
-    canvas.addEventListener('pointercancel', () => {
+    const onCancel = () => {
       press = null;
-    });
+    };
+    canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });
 
     // It also fires once on observing: the first fit.
@@ -310,6 +338,7 @@ export function Viewport() {
       canvas.removeEventListener('pointerdown', onDown);
       canvas.removeEventListener('pointermove', onMove);
       canvas.removeEventListener('pointerup', onUp);
+      canvas.removeEventListener('pointercancel', onCancel);
       canvas.removeEventListener('wheel', onWheel);
       renderer.destroy();
     };

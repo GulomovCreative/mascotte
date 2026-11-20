@@ -29,9 +29,8 @@ export interface OverlayScene {
   readonly rig: Rig;
   /** The built node of the selected document node (an instance's or a solid's own node). */
   readonly selected: Node | null;
-  /** The frame in its own units (CSS pixels for the orbit, the document's for its camera). */
-  readonly width: number;
-  readonly height: number;
+  /** CSS pixels per frame unit (1 for the orbit; the document's frame fitted, for its camera). */
+  readonly scale: number;
   /** The document's frame, drawn when looking through its camera; else `null`. */
   readonly view: { readonly width: number; readonly height: number } | null;
 }
@@ -51,6 +50,9 @@ const sorter = new DepthSorter();
 const projected = createProjectedPoint();
 const local = { x: 0, y: 0, z: 0 };
 const world = { x: 0, y: 0, z: 0 };
+// CSS pixels per frame unit of the overlay being drawn: the overlay is drawn in CSS pixels, so
+// its lines and labels keep their size whatever the frame's scale.
+let unit = 1;
 
 /** The screen point (from the frame's center) of `node`'s local point, or `null` if unseen. */
 function screenOf(camera: Camera, node: Node, x: number, y: number, z: number) {
@@ -58,7 +60,7 @@ function screenOf(camera: Camera, node: Node, x: number, y: number, z: number) {
   local.y = y;
   local.z = z;
   node.localToWorld(world, local);
-  return camera.project(projected, world) ? { x: projected.x, y: projected.y } : null;
+  return camera.project(projected, world) ? { x: projected.x * unit, y: projected.y * unit } : null;
 }
 
 function dot(ctx: CanvasRenderingContext2D, x: number, y: number, radius: number, color: string) {
@@ -91,7 +93,7 @@ function label(ctx: CanvasRenderingContext2D, text: string, x: number, y: number
 function drawAxes(ctx: CanvasRenderingContext2D, camera: Camera, node: Node): void {
   const origin = screenOf(camera, node, 0, 0, 0);
   if (!origin) return;
-  const scale = projected.scale;
+  const scale = projected.scale * unit;
   const base = node.localToWorld({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 0 });
   ctx.lineWidth = 2;
   for (const axis of AXES) {
@@ -177,8 +179,8 @@ function drawSort(
 }
 
 /**
- * Draws the debug view on `ctx`, whose transform puts the frame's center at the origin in the
- * frame's units (as the engine projects).
+ * Draws the debug view on `ctx`, whose transform puts the frame's center at the origin in CSS
+ * pixels.
  */
 export function drawOverlay(
   ctx: CanvasRenderingContext2D,
@@ -186,6 +188,7 @@ export function drawOverlay(
   view: DebugView,
 ): void {
   const { camera, scene } = overlay;
+  unit = overlay.scale;
   if (view.frame && overlay.view) {
     ctx.lineWidth = 1;
     ctx.strokeStyle = FRAME;

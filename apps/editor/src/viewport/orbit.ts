@@ -19,7 +19,10 @@ const PITCH = Math.PI / 2 - 0.01;
 const MIN_ZOOM = 0.05;
 const MAX_ZOOM = 50;
 
-/** An orbit that starts where the document's camera looks from, unturned. */
+/**
+ * An orbit that starts where the document's camera stands, unturned: a document camera that is
+ * turned itself shows another view than the orbit's first.
+ */
 export function orbitFrom(camera: Camera): Orbit {
   const world = camera.worldMatrix;
   return {
@@ -42,13 +45,13 @@ export function applyOrbit(camera: Camera, orbit: Orbit, like: Camera): void {
 
 /** Turned by a drag of `dx`, `dy` pixels: right turns the mascot right, down tips it toward you. */
 export function turn(orbit: Orbit, dx: number, dy: number): Orbit {
-  const pitch = Math.max(-PITCH, Math.min(PITCH, orbit.pitch - dy * TURN));
+  const pitch = Math.max(-PITCH, Math.min(PITCH, orbit.pitch + dy * TURN));
   return { ...orbit, yaw: orbit.yaw - dx * TURN, pitch };
 }
 
 /**
  * Panned by a drag of `dx`, `dy` pixels: the target moves the other way across the view, so the
- * scene follows the pointer. `camera` is where the orbit puts it (its axes say which way is
+ * scene follows the pointer (at the target's depth, in perspective). `camera` is where the orbit puts it (its axes say which way is
  * across).
  */
 export function pan(orbit: Orbit, camera: Camera, dx: number, dy: number): Orbit {
