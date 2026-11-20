@@ -45,7 +45,10 @@ export function setProp(path: DocPath, name: string, value: PropertyValue | unde
       if (same(existing(document, path).props?.[name], value)) return { document };
       return {
         document: updateNode(document, path, (node) => {
-          const { [name]: _, ...rest } = node.props ?? {};
+          // Props that are no object (the format reports them) are replaced, not spread.
+          const own = node.props;
+          const { [name]: _, ...rest } =
+            typeof own === 'object' && own !== null && !Array.isArray(own) ? own : {};
           const props = value === undefined ? rest : { ...rest, [name]: value };
           const { props: __, ...without } = node;
           return Object.keys(props).length === 0 ? without : { ...without, props };

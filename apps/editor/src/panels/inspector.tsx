@@ -116,19 +116,21 @@ function resolve(ref: ParamRef, document: MascotDocument): number | Vec3 | null 
   if (typeof value !== 'number') return null;
   const plus = isRef(ref.plus) ? resolve(ref.plus, document) : ref.plus;
   if (plus === null) return null;
-  if (typeof ref.times === 'object') {
+  const times: unknown = ref.times;
+  if (isObject(times)) {
+    if (!isVec3(times)) return null;
     const add = plus ?? ZERO;
     if (!isVec3(add)) return null;
     const result = {
-      x: value * ref.times.x + add.x,
-      y: value * ref.times.y + add.y,
-      z: value * ref.times.z + add.z,
+      x: value * times.x + add.x,
+      y: value * times.y + add.y,
+      z: value * times.z + add.z,
     };
     return isVec3(result) ? result : null;
   }
   const add = plus ?? 0;
-  if (typeof add !== 'number') return null;
-  const result = value * (ref.times ?? 1) + add;
+  if (typeof add !== 'number' || (times !== undefined && typeof times !== 'number')) return null;
+  const result = value * (times ?? 1) + add;
   return Number.isFinite(result) ? result : null;
 }
 
@@ -143,12 +145,17 @@ function unbound(label: string, ref: ParamRef, document: MascotDocument): number
 
 /** The palette roles, the base palette's first. */
 function rolesOf(document: MascotDocument): string[] {
-  return [...new Set(Object.values(document.palettes ?? {}).flatMap(Object.keys))];
+  return [...new Set(palettesOf(document).flatMap(Object.keys))];
+}
+
+/** The document's palettes in order, those that are objects (the format reports the others). */
+function palettesOf(document: MascotDocument): Readonly<Record<string, unknown>>[] {
+  return isObject(document.palettes) ? Object.values(document.palettes).filter(isObject) : [];
 }
 
 /** The color of `role`: the base palette's, or the first palette naming it. */
 function colorOf(document: MascotDocument, role: string): string | undefined {
-  for (const palette of Object.values(document.palettes ?? {})) {
+  for (const palette of palettesOf(document)) {
     if (Object.hasOwn(palette, role)) {
       const value = palette[role];
       return typeof value === 'string' ? value : undefined;
@@ -167,20 +174,21 @@ interface NodeKind {
 /** The node type of a node: its own, or its prefab's root's for an instance. */
 function kindOf(document: MascotDocument, node: NodeDocument): NodeKind {
   if (node.prefab === undefined) {
-    return {
-      type: node.type,
-      inherited: {},
-      problem: `Unknown type ${JSON.stringify(node.type)}.`,
-    };
+    const problem =
+      node.type === undefined
+        ? 'The node has no type.'
+        : `Unknown type ${JSON.stringify(node.type)}.`;
+    return { type: node.type, inherited: {}, problem };
   }
-  const prefab = Object.hasOwn(document.prefabs ?? {}, node.prefab)
-    ? document.prefabs?.[node.prefab]
-    : PREFABS.get(node.prefab);
-  if (!prefab) return { type: undefined, inherited: {}, problem: `No prefab "${node.prefab}".` };
-  const type = prefab.root.type;
+  // As the format expands it: the document's own definition, unless it is none, then the library's.
+  const own = isObject(document.prefabs) ? document.prefabs[node.prefab] : undefined;
+  const root = isObject(own) && isObject(own.root) ? own.root : PREFABS.get(node.prefab)?.root;
+  if (!root) return { type: undefined, inherited: {}, problem: `No prefab "${node.prefab}".` };
+  // упрощение: свойства корня, привязанные к параметрам префаба, не вычисляются и показываются
+  // значениями по умолчанию из реестра; вычислять их с параметрами экземпляра — вместе с #92.
   return {
-    type: typeof type === 'string' ? type : undefined,
-    inherited: isObject(prefab.root.props) ? prefab.root.props : {},
+    type: typeof root.type === 'string' ? root.type : undefined,
+    inherited: isObject(root.props) ? root.props : {},
     problem: `The prefab "${node.prefab}" has a root of unknown type.`,
   };
 }
@@ -260,7 +268,7 @@ function RefEditor(props: {
   onValue(next: ParamRef): void;
 }) {
   const { label, value, context, onValue } = props;
-  const vector = typeof value.times === 'object';
+  const vector = isObject(value.times);
   const names = context.params.includes(value.param)
     ? context.params
     : [value.param, ...context.params];
@@ -306,13 +314,20 @@ function RefEditor(props: {
           aria-label={`${label} plus source`}
           value={isRef(plus) ? 'param' : 'value'}
           onChange={(event) => {
-            if ((event.currentTarget as HTMLSelectElement).value === 'param') {
-              const param = { param: value.param, ...(vector ? { times: ONE } : {}) };
+            const select = event.currentTarget as HTMLSelectElement;
+            if (select.value === 'param') {
+              // What it added stays added, as the new reference's own plus.
+              const param = {
+                param: value.param,
+                ...(vector ? { times: ONE } : {}),
+                ...(plus === undefined ? {} : { plus }),
+              };
               onValue({ ...value, plus: param } as ParamRef);
             } else if (isRef(plus)) {
               // What the parameters added stays added, as a plain number or vector.
               const added = unbound(`${label} plus`, plus, context.document);
-              if (added !== null) onValue({ ...value, plus: added } as ParamRef);
+              if (added === null) select.value = 'param';
+              else onValue({ ...value, plus: added } as ParamRef);
             }
           }}
         >
@@ -355,17 +370,19 @@ function SourceSelect(props: {
   bound: boolean;
   available: boolean;
   onBind(): void;
-  onUnbind(): void;
+  /** Unbinds it; `false` when it cannot, and it stays bound. */
+  onUnbind(): boolean;
 }) {
   return (
     <select
       aria-label={`${props.label} source`}
       value={props.bound ? props.kind : 'value'}
-      onChange={(event) =>
-        (event.currentTarget as HTMLSelectElement).value === 'value'
-          ? props.onUnbind()
-          : props.onBind()
-      }
+      onChange={(event) => {
+        const select = event.currentTarget as HTMLSelectElement;
+        if (select.value !== 'value') props.onBind();
+        // Refused: the select shows the binding again, which the state still has.
+        else if (!props.onUnbind()) select.value = props.kind;
+      }}
     >
       <option value="value">value</option>
       <option value={props.kind} disabled={!props.available && !props.bound}>
@@ -482,11 +499,14 @@ function colorSource(
       available={role !== undefined}
       onBind={() => role !== undefined && onValue({ color: role })}
       onUnbind={() => {
-        if (!isColorRef(value)) return;
+        if (!isColorRef(value)) return true;
         const color = colorOf(context.document, value.color);
         if (color === undefined) {
           problem.value = `Could not unbind ${label}: no palette has the role "${value.color}".`;
-        } else onValue(color);
+          return false;
+        }
+        onValue(color);
+        return true;
       }}
     />
   );
@@ -513,9 +533,11 @@ function paramSource(
       available={param !== undefined}
       onBind={() => param !== undefined && onValue(vector ? { param, times: ONE } : { param })}
       onUnbind={() => {
-        if (!isRef(value)) return;
+        if (!isRef(value)) return true;
         const plain = unbound(label, value, context.document);
-        if (plain !== null) onValue(plain);
+        if (plain === null) return false;
+        onValue(plain);
+        return true;
       }}
     />
   );
@@ -837,7 +859,7 @@ function FacesEditor(props: { path: DocPath; node: NodeDocument; context: Contex
                 <input
                   type="checkbox"
                   aria-label={`${face} face visible`}
-                  checked={settings.visible ?? true}
+                  checked={settings.visible !== false}
                   onChange={(event) =>
                     set(
                       face,
