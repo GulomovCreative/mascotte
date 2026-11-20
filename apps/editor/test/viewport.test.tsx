@@ -189,9 +189,9 @@ describe('viewport', () => {
     expect(state.value.document).toBe(posed);
     editor.value.undo();
     expect(state.value.document).toBe(before);
-    // A drag the browser takes away is put back.
+    // A drag the browser takes away is taken back.
     drag('pointercancel');
-    expect(rotation()).toEqual(nodeAt(before, path)?.props?.rotation);
+    expect(state.value.document).toBe(before);
   });
 
   it('pans the orbit by a shift-drag, without turning it', async () => {
