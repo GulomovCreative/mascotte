@@ -193,12 +193,9 @@ export function drawOverlay(
     ctx.lineWidth = 1;
     ctx.strokeStyle = FRAME;
     ctx.setLineDash([6, 4]);
-    ctx.strokeRect(
-      -overlay.view.width / 2,
-      -overlay.view.height / 2,
-      overlay.view.width,
-      overlay.view.height,
-    );
+    const width = overlay.view.width * unit;
+    const height = overlay.view.height * unit;
+    ctx.strokeRect(-width / 2, -height / 2, width, height);
     ctx.setLineDash([]);
   }
   if (view.sort || view.anchors) drawSort(ctx, camera, scene, view.sort, view.anchors);
