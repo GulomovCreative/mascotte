@@ -115,3 +115,16 @@ export function markSaved(saved: SavedFile, document: MascotDocument, from: Edit
 export function currentHandle(): FileHandle | null {
   return handle;
 }
+
+/**
+ * Runs `task`, showing what goes wrong in the menu bar after `what` ("Could not open"); the
+ * error goes to the console too, with its stack and cause.
+ */
+export async function attempt(what: string, task: () => Promise<void> | void): Promise<void> {
+  try {
+    await task();
+  } catch (error) {
+    console.error(error);
+    problem.value = `${what}: ${error instanceof Error ? error.message : String(error)}`;
+  }
+}

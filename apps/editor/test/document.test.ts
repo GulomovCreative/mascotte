@@ -7,6 +7,7 @@ import {
   moveNode,
   removeNode,
   renameNode,
+  setDocumentField,
   setName,
   setProp,
 } from '../src/model/commands.ts';
@@ -493,5 +494,32 @@ describe('editor document', () => {
       }),
     ).toThrow(TypeError);
     expect(editor.state).toBe(before);
+  });
+
+  it('sets and removes the fields outside the tree, dropping what they leave empty', () => {
+    const document = readDocument(gloopDocument);
+    const editor = new EditorDocument(document);
+    editor.execute(setDocumentField(['camera', 'props', 'projection'], 'perspective'));
+    editor.execute(setDocumentField(['view', 'background'], undefined));
+    editor.execute(setDocumentField(['meta', 'description'], undefined));
+    editor.execute(setDocumentField(['archetype'], 'bird'));
+    let next = editor.state.document;
+    expect(next.camera?.props).toEqual({ zoom: 1.4, projection: 'perspective' });
+    expect(next.view).toEqual({ width: 240, height: 240 });
+    expect(next.meta).toEqual({ name: 'Gloop' });
+    expect(next.archetype).toBe('bird');
+    // The archetype's slots are not bound now: an issue, still edited.
+    expect(editor.state.issues.length).toBeGreaterThan(0);
+    // Removing the camera's last property removes the camera.
+    editor.execute(setDocumentField(['camera', 'props', 'zoom'], undefined));
+    editor.execute(setDocumentField(['camera', 'props', 'projection'], undefined));
+    next = editor.state.document;
+    expect('camera' in next).toBe(false);
+    // The same value again is no step.
+    const steps = editor.state.undoLabel;
+    editor.execute(setDocumentField(['view', 'width'], 240));
+    expect(editor.state.undoLabel).toBe(steps);
+    for (let i = 0; i < 6; i++) editor.undo();
+    expect(editor.state.document).toBe(document);
   });
 });
