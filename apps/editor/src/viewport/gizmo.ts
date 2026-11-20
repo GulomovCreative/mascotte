@@ -11,34 +11,46 @@ export interface Handle {
   readonly axis: 0 | 1 | 2;
 }
 
-/** How long a move or scale handle is on screen, and a rotate ring's radius, in CSS pixels. */
+/** How long a move or scale handle is on screen, in CSS pixels. */
 export const HANDLE_LENGTH = 72;
+/** A rotate ring's radius on screen where its plane faces the viewer, in CSS pixels. */
 const RING = 56;
 /** How close the pointer must come to a handle to take it, in CSS pixels. */
 const REACH = 7;
 const SEGMENTS = 48;
+/** x, y and z: red, green, blue. */
 export const AXIS_COLORS = ['#e5484d', '#30a46c', '#3e63dd'] as const;
+/** The smallest scale a drag leaves along an axis: a zero would flatten the node for good. */
+const MIN_SCALE = 0.01;
 
-/** Snapping steps: scene units for a move, radians for a turn, a factor for a scale. */
+/**
+ * Snapping steps: the scene units a move goes, the radians a turn sweeps, and the step of the
+ * scale a scale ends at.
+ */
 export const SNAP = { move: 1, rotate: Math.PI / 12, scale: 0.1 } as const;
 
 /** One axis of the gizmo as the screen shows it. */
 interface ScreenAxis {
   /** The axis in the world, of unit length. */
   readonly world: Vec3;
-  /** Its direction on screen (unit), and screen pixels per scene unit along it (0 end-on). */
+  /** Its direction on screen, of unit length (0, 0 end-on). */
   readonly x: number;
   readonly y: number;
+  /** CSS pixels on screen per scene unit along it. */
   readonly pixels: number;
+  /** How much of it lies across the screen: 1 across, 0 end-on. */
+  readonly across: number;
   /** Whether it points toward the viewer. */
   readonly toward: boolean;
-  /** A rotate ring around it: screen points, closed. */
+  /** A rotate ring around it: screen points, closed unless part of it is behind the eye. */
   readonly ring: readonly { x: number; y: number }[];
 }
 
 /** The gizmo of a node as the screen shows it: its center and its three axes. */
 export interface GizmoFrame {
-  /** The center (the node's pivot), in CSS pixels from the frame's center. */
+  /** The axes it is drawn along. */
+  readonly space: GizmoSpace;
+  /** The center (the node's pivot), in CSS pixels from the viewport's center. */
   readonly x: number;
   readonly y: number;
   readonly axes: readonly [ScreenAxis, ScreenAxis, ScreenAxis];
@@ -52,8 +64,9 @@ function normalize(v: Vec3): Vec3 {
 }
 
 /**
- * The gizmo of `node` seen from `camera`, in `space`; `unit` is CSS pixels per frame unit (the
- * document camera's frame is fitted). `null` when its center is behind the eye.
+ * The gizmo of `node` seen from `camera`, along `space`'s axes; `unit` is CSS pixels per projected
+ * unit (the scale the viewport fits the camera's view with). `null` when its center is behind
+ * the eye.
  */
 export function gizmoFrame(
   node: Node,
@@ -81,7 +94,8 @@ export function gizmoFrame(
     const along = mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, view, world);
     const pixels = Math.hypot(along.x, along.y) * across;
     const length = Math.hypot(along.x, along.y);
-    // A ring in the plane across the axis, `RING` pixels round where the plane faces the viewer.
+    // A ring in the plane square to the axis, `RING` CSS pixels in radius where that plane faces
+    // the viewer.
     const u = normalize(
       Math.abs(world.y) < 0.9
         ? { x: world.z, y: 0, z: -world.x }
@@ -111,11 +125,12 @@ export function gizmoFrame(
       x: length > 1e-9 ? along.x / length : 0,
       y: length > 1e-9 ? along.y / length : 0,
       pixels,
+      across: length,
       toward: along.z > 0,
       ring,
     };
   }) as unknown as GizmoFrame['axes'];
-  return { x: cx, y: cy, axes };
+  return { space, x: cx, y: cy, axes };
 }
 
 /** Distance from (`px`, `py`) to the segment from `a` to `b`. */
@@ -126,10 +141,12 @@ function toSegment(px: number, py: number, ax: number, ay: number, bx: number, b
   return Math.hypot(px - ax - dx * t, py - ay - dy * t);
 }
 
-/** An axis seen nearly end-on has no handle: dragging along it would mean nothing. */
-const shown = (axis: ScreenAxis) => axis.pixels > 1e-3 && Math.hypot(axis.x, axis.y) > 0.15;
+/**
+ * An axis seen nearly end-on has no handle: a pixel along it would be a long way in the scene.
+ */
+const shown = (axis: ScreenAxis) => axis.across > 0.15;
 
-/** The handle of `mode` at (`x`, `y`), CSS pixels from the frame's center, or `null`. */
+/** The handle of `mode` at (`x`, `y`), CSS pixels from the viewport's center, or `null`. */
 export function handleAt(frame: GizmoFrame, mode: GizmoMode, x: number, y: number): Handle | null {
   let best: Handle | null = null;
   let nearest = REACH;
@@ -147,7 +164,8 @@ export function handleAt(frame: GizmoFrame, mode: GizmoMode, x: number, y: numbe
       distance =
         mode === 'move'
           ? toSegment(x, y, frame.x, frame.y, ex, ey)
-          : Math.max(Math.abs(x - ex), Math.abs(y - ey)) - 3;
+          : // Square distance to the box's center, the drawn box (5 px) mostly counting as on it.
+            Math.max(Math.abs(x - ex), Math.abs(y - ey)) - 3;
     }
     if (distance <= nearest) {
       nearest = distance;
@@ -157,7 +175,7 @@ export function handleAt(frame: GizmoFrame, mode: GizmoMode, x: number, y: numbe
   return best;
 }
 
-/** Draws the gizmo of `mode` on `ctx` (CSS pixels from the frame's center); `active` is lit. */
+/** Draws the gizmo of `mode` on `ctx` (CSS pixels from the viewport's center); `active` is lit. */
 export function drawGizmo(
   ctx: CanvasRenderingContext2D,
   frame: GizmoFrame,
@@ -165,7 +183,7 @@ export function drawGizmo(
   active: Handle | null,
 ): void {
   frame.axes.forEach((axis, i) => {
-    const lit = active?.axis === i;
+    const lit = active?.mode === mode && active.axis === i;
     ctx.strokeStyle = AXIS_COLORS[i] as string;
     ctx.fillStyle = AXIS_COLORS[i] as string;
     ctx.lineWidth = lit ? 4 : 2.5;
@@ -186,7 +204,6 @@ export function drawGizmo(
     ctx.lineTo(ex, ey);
     ctx.stroke();
     if (mode === 'move') {
-      // An arrow head.
       const size = lit ? 11 : 9;
       ctx.beginPath();
       ctx.moveTo(ex + axis.x * size, ey + axis.y * size);
@@ -205,26 +222,68 @@ export function drawGizmo(
   ctx.fill();
 }
 
-/** A node's transform as the document holds it (defaults filled in). */
+/** A node's transform as the document holds it, what it leaves out filled in. */
 export interface Transform {
   readonly position: Vec3;
   readonly rotation: Quat;
   readonly scale: Vec3;
 }
 
+/**
+ * The transform a document node's `props` give, what they leave out taken from `node` (the node
+ * built from it: a prefab instance's root may set its own), or `null` when a part of it is a
+ * parameter reference, which the gizmo cannot change.
+ */
+export function transformOf(
+  props: Readonly<Record<string, unknown>>,
+  node: Node,
+): Transform | null {
+  const vector = (value: unknown, built: Readonly<Vec3>) => {
+    if (value === undefined) return { x: built.x, y: built.y, z: built.z };
+    if (typeof value !== 'object' || value === null) return null;
+    const v = value as Record<string, unknown>;
+    // A whole-vector reference (`{ "param": … }`) has no x, y or z of its own.
+    if (Object.keys(v).some((key) => key !== 'x' && key !== 'y' && key !== 'z')) return null;
+    const part = (key: 'x' | 'y' | 'z') => (v[key] === undefined ? built[key] : v[key]);
+    const [x, y, z] = [part('x'), part('y'), part('z')];
+    return typeof x === 'number' && typeof y === 'number' && typeof z === 'number'
+      ? { x, y, z }
+      : null;
+  };
+  const position = vector(props.position, node.position);
+  const scale = vector(props.scale, node.scale);
+  const r = props.rotation ?? {
+    x: node.rotation.x,
+    y: node.rotation.y,
+    z: node.rotation.z,
+    w: node.rotation.w,
+  };
+  if (!position || !scale || typeof r !== 'object' || r === null) return null;
+  const { x, y, z, w } = r as Record<string, unknown>;
+  if (
+    typeof x !== 'number' ||
+    typeof y !== 'number' ||
+    typeof z !== 'number' ||
+    typeof w !== 'number'
+  ) {
+    return null;
+  }
+  return { position, scale, rotation: { x, y, z, w } };
+}
+
 const snapTo = (value: number, step: number) => Math.round(value / step) * step;
 
 /**
- * The property a drag of `handle` from (`fromX`, `fromY`) to (`x`, `y`) (CSS pixels from the
- * frame's center) gives, from the transform `start` the node had then: its name and value.
- * `parent` is the world matrix of the node's parent; `snap`, whether to snap to `SNAP`.
+ * The property that dragging `handle` from `from` to `to` (CSS pixels from the viewport's center)
+ * sets, as its name and value. `frame` and `start` are the node's gizmo and transform when the
+ * drag began (a scale needs a local `frame`); `parentInverse` is the inverse of the world matrix
+ * of the node's parent; `snap`, whether to snap to `SNAP`.
  */
 export function dragged(
   handle: Handle,
   frame: GizmoFrame,
-  space: GizmoSpace,
   start: Transform,
-  parent: Readonly<Mat3x4>,
+  parentInverse: Readonly<Mat3x4>,
   from: { x: number; y: number },
   to: { x: number; y: number },
   snap: boolean,
@@ -233,12 +292,13 @@ export function dragged(
   | { name: 'rotation'; value: Quat }
   | { name: 'scale'; value: Vec3 } {
   const axis = frame.axes[handle.axis];
-  const inverse = mat3x4.invert(mat3x4.create(), parent) ?? mat3x4.create();
+  const key = (['x', 'y', 'z'] as const)[handle.axis];
+  // Pixels dragged along the axis on screen.
+  const along = (to.x - from.x) * axis.x + (to.y - from.y) * axis.y;
   if (handle.mode === 'move') {
-    // Pixels along the axis on screen, as scene units along it.
-    let units = ((to.x - from.x) * axis.x + (to.y - from.y) * axis.y) / axis.pixels;
+    let units = along / axis.pixels;
     if (snap) units = snapTo(units, SNAP.move);
-    const delta = mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, inverse, {
+    const delta = mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, parentInverse, {
       x: axis.world.x * units,
       y: axis.world.y * units,
       z: axis.world.z * units,
@@ -254,14 +314,17 @@ export function dragged(
   }
   if (handle.mode === 'rotate') {
     // The angle swept about the center on screen; clockwise on screen (y down) turns an axis
-    // that points at the viewer the positive way.
+    // that points at the viewer the positive way. A mirroring parent, or a mirrored node along
+    // a local axis, turns the other way in the world: the angle is turned back for it.
     let angle =
       Math.atan2(to.y - frame.y, to.x - frame.x) - Math.atan2(from.y - frame.y, from.x - frame.x);
     if (!axis.toward) angle = -angle;
+    if (mat3x4.determinant(parentInverse) < 0) angle = -angle;
+    if (frame.space === 'local' && start.scale[key] < 0) angle = -angle;
     if (snap) angle = snapTo(angle, SNAP.rotate);
     const turn = quat.create();
     const rotation = quat.create();
-    if (space === 'local') {
+    if (frame.space === 'local') {
       const local = {
         x: handle.axis === 0 ? 1 : 0,
         y: handle.axis === 1 ? 1 : 0,
@@ -271,7 +334,7 @@ export function dragged(
       quat.multiply(rotation, start.rotation, turn);
     } else {
       const inParent = normalize(
-        mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, inverse, axis.world),
+        mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, parentInverse, axis.world),
       );
       quat.setAxisAngle(turn, inParent, angle);
       quat.multiply(rotation, turn, start.rotation);
@@ -279,10 +342,11 @@ export function dragged(
     quat.normalize(rotation, rotation);
     return { name: 'rotation', value: rotation };
   }
-  // Scale, along the node's own axis: the handle's end follows the pointer.
-  const factor = 1 + ((to.x - from.x) * axis.x + (to.y - from.y) * axis.y) / HANDLE_LENGTH;
-  const key = (['x', 'y', 'z'] as const)[handle.axis];
-  let value = start.scale[key] * factor;
-  if (snap) value = snapTo(value, SNAP.scale);
+  // Scale, along the node's own axis: dragging out by the handle's length doubles it, in toward
+  // the center shrinks it down to `MIN_SCALE` (keeping its sign), never through zero.
+  const was = start.scale[key];
+  let size = Math.abs(was) * Math.max(0, 1 + along / HANDLE_LENGTH);
+  if (snap) size = snapTo(size, SNAP.scale);
+  const value = (was < 0 ? -1 : 1) * Math.max(MIN_SCALE, size);
   return { name: 'scale', value: { ...start.scale, [key]: value } };
 }

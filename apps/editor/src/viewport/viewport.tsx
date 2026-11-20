@@ -12,6 +12,7 @@ import { type Mat3x4, mat3x4 } from '@mascotte/math';
 import { effect, signal } from '@preact/signals';
 import { useEffect, useRef } from 'preact/hooks';
 import { setProp } from '../model/commands.ts';
+import type { EditorDocument } from '../model/editor-document.ts';
 import { nodeAt, samePath } from '../model/paths.ts';
 import { editor, problem, state } from '../store.ts';
 import {
@@ -24,6 +25,7 @@ import {
   type Handle,
   handleAt,
   type Transform,
+  transformOf,
 } from './gizmo.ts';
 import { applyOrbit, type Orbit, orbitFrom, pan, turn, zoom } from './orbit.ts';
 import { type DebugView, drawOverlay } from './overlay.ts';
@@ -48,7 +50,7 @@ effect(() => {
 export const gizmoMode = signal<GizmoMode>('move');
 /** The axes it moves and turns along (scale always goes along the node's own). */
 export const gizmoSpace = signal<GizmoSpace>('local');
-/** Whether a drag snaps (also while Ctrl is held). */
+/** Whether a drag snaps; holding Ctrl snaps it too. */
 export const snapping = signal(false);
 
 /** What the debug view shows. */
@@ -113,29 +115,13 @@ function selectedNode(): Node | null {
 }
 
 /**
- * The transform of the document node at the selection as the document holds it, or `null` when
- * a part of it is not a plain value (a parameter or palette reference) the gizmo cannot change.
+ * The transform of the selected document node, what it leaves out taken from its built `node`,
+ * or `null` with nothing selected or when a part of it is a reference the gizmo cannot change.
  */
-function selectedTransform(): Transform | null {
+function selectedTransform(node: Node | null): Transform | null {
   const { document, selection } = state.peek();
-  const props = (selection && nodeAt(document, selection)?.props) || {};
-  const vector = (value: unknown, fallback: number) => {
-    if (value === undefined) return { x: fallback, y: fallback, z: fallback };
-    if (typeof value !== 'object' || value === null) return null;
-    const v = value as Record<string, unknown>;
-    const part = (key: string) => (v[key] === undefined ? fallback : v[key]);
-    const [x, y, z] = [part('x'), part('y'), part('z')];
-    return typeof x === 'number' && typeof y === 'number' && typeof z === 'number'
-      ? { x, y, z }
-      : null;
-  };
-  const position = vector(props.position, 0);
-  const scale = vector(props.scale, 1);
-  const r = props.rotation ?? { x: 0, y: 0, z: 0, w: 1 };
-  if (!position || !scale || typeof r !== 'object' || r === null) return null;
-  const { x, y, z, w } = r as unknown as Record<string, unknown>;
-  if (![x, y, z, w].every((part) => typeof part === 'number')) return null;
-  return { position, scale, rotation: { x, y, z, w } as Transform['rotation'] };
+  const source = selection && nodeAt(document, selection);
+  return node && source ? transformOf(source.props ?? {}, node) : null;
 }
 
 /** A few buttons, one pressed: the one whose option `value` holds. */
@@ -309,6 +295,8 @@ export function Viewport() {
         gizmoMode.value,
         gizmoSpace.value,
       ];
+      // No handle to take until a gizmo is drawn again.
+      gizmo = null;
       const width = canvas.clientWidth;
       const height = canvas.clientHeight;
       // Not laid out (or gone): nothing to draw on.
@@ -353,10 +341,11 @@ export function Viewport() {
       overlay.save();
       try {
         overlay.setTransform(ratio, 0, 0, ratio, (width / 2) * ratio, (height / 2) * ratio);
-        // The gizmo of the selection, when the gizmo can change its transform; else its axes.
+        // The gizmo of the selection when it can change its transform; otherwise the overlay
+        // draws its axes (when they are shown).
         const node = selectedNode();
         const mode = gizmoMode.value;
-        const movable = node !== null && selectedTransform() !== null;
+        const movable = selectedTransform(node) !== null;
         drawOverlay(
           overlay,
           {
@@ -371,16 +360,14 @@ export function Viewport() {
         );
         gizmo =
           node && movable
-            ? gizmoFrame(node, camera, mode === 'scale' ? 'local' : gizmoSpace.value, scale)
+            ? // Scale goes along the node's own axes.
+              gizmoFrame(node, camera, mode === 'scale' ? 'local' : gizmoSpace.value, scale)
             : null;
         if (gizmo) drawGizmo(overlay, gizmo, mode, grab?.handle ?? null);
       } catch (error) {
-        throw new Error(
-          `its debug view failed: ${error instanceof Error ? error.message : error}`,
-          {
-            cause: error,
-          },
-        );
+        throw new Error(`its overlay failed: ${error instanceof Error ? error.message : error}`, {
+          cause: error,
+        });
       } finally {
         // A failure halfway leaves no dashes or fonts behind for the next frame.
         overlay.restore();
@@ -392,27 +379,40 @@ export function Viewport() {
       id: number;
       handle: Handle;
       frame: GizmoFrame;
-      space: GizmoSpace;
       start: Transform;
-      parent: Mat3x4;
+      parentInverse: Mat3x4;
       path: NonNullable<typeof state.value.selection>;
       from: { x: number; y: number };
+      /** The editor it started in: another document opened meanwhile ends it. */
+      editor: EditorDocument;
     } | null = null;
-    // A pointer event's place in CSS pixels from the frame's center, as the gizmo is drawn.
+    // A pointer event's place in CSS pixels from the viewport's center, as the gizmo is drawn.
     const centered = (event: PointerEvent) => ({
       x: event.offsetX - canvas.clientWidth / 2,
       y: event.offsetY - canvas.clientHeight / 2,
     });
-    const endGrab = () => {
-      if (!grab) return;
+    // Ends the drag as one step to undo; `revert` puts the node back as it was first.
+    const endGrab = (revert = false) => {
+      const ended = grab;
+      if (!ended) return;
       grab = null;
-      // The drag is one step to undo.
-      editor.peek().commit();
-      fit();
+      try {
+        if (revert && ended.editor === editor.peek()) {
+          const name = { move: 'position', rotate: 'rotation', scale: 'scale' } as const;
+          const prop = name[ended.handle.mode];
+          ended.editor.execute(setProp(ended.path, prop, ended.start[prop]));
+        }
+      } catch (error) {
+        failed('Could not undo the drag', error);
+      } finally {
+        ended.editor.commit();
+        fit();
+      }
     };
     const stop = effect(fit);
 
-    // A drag of one pointer turns or pans the orbit; a primary press that does not move selects.
+    // A primary press on a gizmo handle drags it; otherwise a drag of one pointer turns or pans
+    // the orbit, and a primary press that does not move selects.
     let press: {
       id: number;
       x: number;
@@ -425,7 +425,11 @@ export function Viewport() {
     } | null = null;
     const onDown = (event: PointerEvent) => {
       // Another pointer while one drags is left out (a second finger).
-      if ((press && press.id !== event.pointerId) || (event.button !== 0 && event.button !== 1)) {
+      if (
+        (press && press.id !== event.pointerId) ||
+        (grab && grab.id !== event.pointerId) ||
+        (event.button !== 0 && event.button !== 1)
+      ) {
         return;
       }
       // The middle button pans here, not scrolls or pastes.
@@ -434,8 +438,15 @@ export function Viewport() {
       const handle =
         event.button === 0 && gizmo ? handleAt(gizmo, gizmoMode.peek(), at.x, at.y) : null;
       const node = handle ? selectedNode() : null;
-      const start = handle ? selectedTransform() : null;
+      const start = selectedTransform(node);
       const path = state.peek().selection;
+      // A parent flattened to nothing has no space to move or turn in.
+      const parentInverse =
+        node && mat3x4.invert(mat3x4.create(), node.parent?.worldMatrix ?? mat3x4.create());
+      if (handle && !parentInverse) {
+        failed('Could not drag', new Error("the node's parent has a scale of zero."));
+        return;
+      }
       // Kept while the drag leaves the canvas; a pointer the browser no longer tracks (an event
       // made up by a test) cannot be, and the drag ends at the canvas's edge.
       if (!canvas.hasPointerCapture(event.pointerId)) {
@@ -445,16 +456,16 @@ export function Viewport() {
           if (!(error instanceof DOMException && error.name === 'NotFoundError')) throw error;
         }
       }
-      if (handle && gizmo && start && path) {
+      if (handle && gizmo && start && path && parentInverse) {
         grab = {
           id: event.pointerId,
           handle,
           frame: gizmo,
-          space: handle.mode === 'scale' ? 'local' : gizmoSpace.peek(),
           start,
-          parent: mat3x4.clone(node?.parent?.worldMatrix ?? mat3x4.create()),
+          parentInverse,
           path,
           from: at,
+          editor: editor.peek(),
         };
         return;
       }
@@ -471,21 +482,25 @@ export function Viewport() {
     };
     const onMove = (event: PointerEvent) => {
       if (grab && event.pointerId === grab.id) {
-        if (event.buttons === 0) {
+        if (event.buttons === 0 || grab.editor !== editor.peek()) {
           endGrab();
           return;
         }
-        const { name, value } = dragged(
-          grab.handle,
-          grab.frame,
-          grab.space,
-          grab.start,
-          grab.parent,
-          grab.from,
-          centered(event),
-          snapping.peek() || event.ctrlKey,
-        );
-        editor.peek().execute(setProp(grab.path, name, value));
+        try {
+          const { name, value } = dragged(
+            grab.handle,
+            grab.frame,
+            grab.start,
+            grab.parentInverse,
+            grab.from,
+            centered(event),
+            snapping.peek() || event.ctrlKey,
+          );
+          grab.editor.execute(setProp(grab.path, name, value));
+        } catch (error) {
+          failed('Could not drag', error);
+          endGrab();
+        }
         return;
       }
       if (!press || event.pointerId !== press.id) return;
@@ -550,9 +565,10 @@ export function Viewport() {
     canvas.addEventListener('pointerdown', onDown);
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
+    // The browser took the pointer away: the drag is undone, not kept halfway.
     const onCancel = () => {
       press = null;
-      endGrab();
+      endGrab(true);
     };
     canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });
@@ -573,6 +589,7 @@ export function Viewport() {
     };
     watchRatio();
     return () => {
+      endGrab();
       stop();
       observer.disconnect();
       ratio?.removeEventListener('change', onRatio);

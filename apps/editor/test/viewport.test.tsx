@@ -110,7 +110,7 @@ function onCanvas(canvas: HTMLCanvasElement, node: Node, scale: number): { x: nu
   return { x: width / 2 + point.x * scale, y: height / 2 + point.y * scale };
 }
 
-/** How far apart a ring's points lie on screen. */
+/** The narrower of a ring's width and height on screen: an edge-on ring has almost none. */
 function spread(ring: readonly { x: number; y: number }[]): number {
   const xs = ring.map((p) => p.x);
   const ys = ring.map((p) => p.y);
@@ -165,21 +165,33 @@ describe('viewport', () => {
       x: width / 2 + point.x,
       y: height / 2 + point.y,
     });
-    const from = at(ring[0] as { x: number; y: number });
-    pointer(canvas, 'pointerdown', from.x, from.y);
     // Round the ring a quarter, in steps: one step to undo all the same.
-    for (const k of [4, 8, 12]) {
-      const to = at(ring[k] as { x: number; y: number });
-      pointer(canvas, 'pointermove', to.x, to.y);
-    }
-    const end = at(ring[12] as { x: number; y: number });
-    pointer(canvas, 'pointerup', end.x, end.y, 0);
+    const drag = (end: 'pointerup' | 'pointercancel') => {
+      const from = at(ring[0] as { x: number; y: number });
+      pointer(canvas, 'pointerdown', from.x, from.y);
+      for (const k of [4, 8, 12]) {
+        const to = at(ring[k] as { x: number; y: number });
+        pointer(canvas, 'pointermove', to.x, to.y);
+      }
+      const last = at(ring[12] as { x: number; y: number });
+      pointer(canvas, end, last.x, last.y, 0);
+    };
     const rotation = () => nodeAt(state.value.document, path)?.props?.rotation;
+    drag('pointerup');
+    const posed = state.value.document;
     expect(rotation()).not.toEqual(nodeAt(before, path)?.props?.rotation);
     // Not a click: the selection stays.
     expect(state.value.selection).toEqual(path);
+    // A second drag is a second step.
+    drag('pointerup');
+    expect(state.value.document).not.toBe(posed);
+    editor.value.undo();
+    expect(state.value.document).toBe(posed);
     editor.value.undo();
     expect(state.value.document).toBe(before);
+    // A drag the browser takes away is put back.
+    drag('pointercancel');
+    expect(rotation()).toEqual(nodeAt(before, path)?.props?.rotation);
   });
 
   it('pans the orbit by a shift-drag, without turning it', async () => {
