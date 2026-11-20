@@ -216,13 +216,26 @@ describe('inspector', () => {
     await change('diameter source', 'value');
     expect(props(path).diameter).toEqual({ param: 'gone' });
     expect(problem.value).toMatch(/unbind diameter/);
+    expect(control<HTMLSelectElement>('diameter source').value).toBe('param');
     await change('style.color source', 'value');
     expect(props(path)['style.color']).toEqual({ color: 'gone' });
     expect(problem.value).toMatch(/no palette has the role "gone"/);
+    expect(control<HTMLSelectElement>('style.color source').value).toBe('palette');
     // The missing parameter and role stay shown.
     expect(control<HTMLSelectElement>('diameter parameter').value).toBe('gone');
     expect(control<HTMLSelectElement>('style.color role').value).toBe('gone');
     problem.value = null;
+  });
+
+  it('binds a plus to a parameter, keeping what it added', async () => {
+    const path = await inspect({
+      type: 'Sphere',
+      id: 'it',
+      props: { diameter: { param: 'unit', plus: 5 } },
+    });
+    await change('diameter plus source', 'param');
+    expect(props(path).diameter).toEqual({ param: 'unit', plus: { param: 'unit', plus: 5 } });
+    valid();
   });
 
   it('offers no binding without parameters or palettes', async () => {
@@ -349,6 +362,33 @@ describe('inspector', () => {
     expect(document.querySelector('form[aria-label="Node"]')?.textContent).toMatch(
       /No prefab "nothing"/,
     );
+  });
+
+  it('shows nodes of malformed prefabs, palettes and props without breaking', async () => {
+    const node = { prefab: 'eye', id: 'it' };
+    const document = {
+      ...documentWith(node),
+      // Not a definition: the library's eye stands, as when the format expands it.
+      prefabs: { eye: {}, broken: { root: 5 } },
+      palettes: { base: null },
+    } as unknown as MascotDocument;
+    const path = await inspect(node, document);
+    expect(window.document.querySelector('form[aria-label="Node"] legend')?.textContent).toMatch(
+      /^eye \(Node\)/,
+    );
+    // Props that are no object are replaced by the first edit.
+    const odd = { ...nodeAt(state.value.document, path), props: 'abc' } as unknown as NodeDocument;
+    openDocument(
+      {
+        ...document,
+        root: { ...document.root, children: [...(document.root.children ?? []).slice(0, -1), odd] },
+      },
+      null,
+    );
+    editor.value.select(path);
+    await settle();
+    await change('position x', '2');
+    expect(props(path)).toEqual({ position: { x: 2, y: 0, z: 0 } });
   });
 
   it("shows an instance's properties by its prefab's root, and names a node", async () => {
