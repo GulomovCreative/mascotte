@@ -63,6 +63,11 @@ function normalize(v: Vec3): Vec3 {
   return { x: v.x / length, y: v.y / length, z: v.z / length };
 }
 
+/** The unit vector along axis `i`: x, y or z. */
+function basis(i: number): Vec3 {
+  return { x: i === 0 ? 1 : 0, y: i === 1 ? 1 : 0, z: i === 2 ? 1 : 0 };
+}
+
 /**
  * The gizmo of `node` seen from `camera`, along `space`'s axes; `unit` is CSS pixels per projected
  * unit (the scale the viewport fits the camera's view with). `null` when its center is behind
@@ -89,10 +94,9 @@ export function gizmoFrame(
             y: m[i * 3 + 1] as number,
             z: m[i * 3 + 2] as number,
           })
-        : { x: i === 0 ? 1 : 0, y: i === 1 ? 1 : 0, z: i === 2 ? 1 : 0 };
+        : basis(i);
     // Its direction in the camera's space: across the screen and toward the viewer.
     const along = mat3x4.transformDirection({ x: 0, y: 0, z: 0 }, view, world);
-    const pixels = Math.hypot(along.x, along.y) * across;
     const length = Math.hypot(along.x, along.y);
     // A ring in the plane square to the axis, `RING` CSS pixels in radius where that plane faces
     // the viewer.
@@ -124,7 +128,7 @@ export function gizmoFrame(
       world,
       x: length > 1e-9 ? along.x / length : 0,
       y: length > 1e-9 ? along.y / length : 0,
-      pixels,
+      pixels: length * across,
       across: length,
       toward: along.z > 0,
       ring,
@@ -325,12 +329,7 @@ export function dragged(
     const turn = quat.create();
     const rotation = quat.create();
     if (frame.space === 'local') {
-      const local = {
-        x: handle.axis === 0 ? 1 : 0,
-        y: handle.axis === 1 ? 1 : 0,
-        z: handle.axis === 2 ? 1 : 0,
-      };
-      quat.setAxisAngle(turn, local, angle);
+      quat.setAxisAngle(turn, basis(handle.axis), angle);
       quat.multiply(rotation, start.rotation, turn);
     } else {
       const inParent = normalize(

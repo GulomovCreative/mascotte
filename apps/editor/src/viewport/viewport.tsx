@@ -385,27 +385,26 @@ export function Viewport() {
       from: { x: number; y: number };
       /** The editor it started in: another document opened meanwhile ends it. */
       editor: EditorDocument;
+      /** Whether it has changed the document yet. */
+      changed: boolean;
     } | null = null;
     // A pointer event's place in CSS pixels from the viewport's center, as the gizmo is drawn.
     const centered = (event: PointerEvent) => ({
       x: event.offsetX - canvas.clientWidth / 2,
       y: event.offsetY - canvas.clientHeight / 2,
     });
-    // Ends the drag as one step to undo; `revert` puts the node back as it was first.
+    // Ends the drag as one step to undo; `revert` takes the step back (the document as it was,
+    // the drag left to redo).
     const endGrab = (revert = false) => {
       const ended = grab;
       if (!ended) return;
       grab = null;
       try {
-        if (revert && ended.editor === editor.peek()) {
-          const name = { move: 'position', rotate: 'rotation', scale: 'scale' } as const;
-          const prop = name[ended.handle.mode];
-          ended.editor.execute(setProp(ended.path, prop, ended.start[prop]));
-        }
+        ended.editor.commit();
+        if (revert && ended.changed) ended.editor.undo();
       } catch (error) {
         failed('Could not undo the drag', error);
       } finally {
-        ended.editor.commit();
         fit();
       }
     };
@@ -466,6 +465,7 @@ export function Viewport() {
           path,
           from: at,
           editor: editor.peek(),
+          changed: false,
         };
         return;
       }
@@ -497,6 +497,7 @@ export function Viewport() {
             snapping.peek() || event.ctrlKey,
           );
           grab.editor.execute(setProp(grab.path, name, value));
+          grab.changed = true;
         } catch (error) {
           failed('Could not drag', error);
           endGrab();
@@ -566,9 +567,9 @@ export function Viewport() {
     canvas.addEventListener('pointermove', onMove);
     canvas.addEventListener('pointerup', onUp);
     // The browser took the pointer away: the drag is undone, not kept halfway.
-    const onCancel = () => {
-      press = null;
-      endGrab(true);
+    const onCancel = (event: PointerEvent) => {
+      if (press?.id === event.pointerId) press = null;
+      if (grab?.id === event.pointerId) endGrab(true);
     };
     canvas.addEventListener('pointercancel', onCancel);
     canvas.addEventListener('wheel', onWheel, { passive: false });
