@@ -135,8 +135,8 @@ function ViewportBar() {
  * The viewport: the open document's scene (the last that built), drawn by the engine through the
  * viewport's orbit camera (drag to turn, shift-drag or the middle button to pan, the wheel to
  * zoom) or the document's camera fitted to its frame; a primary click selects the document node
- * under the pointer (not while the scene is stale); the debug view is drawn on an overlay. Redrawn when the document, the camera or
- * the debug view changes.
+ * under the pointer (not while the scene is stale); the debug view is drawn on an overlay.
+ * Redrawn when the document, the camera or the debug view changes.
  */
 export function Viewport() {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -154,7 +154,7 @@ export function Viewport() {
     const own = new Camera();
     // What the last frame was drawn with, for picking and panning: its camera, its size in its
     // own units, and how many CSS pixels a unit is.
-    let drawn = { camera: fallback as Camera, width: 1, height: 1, scale: 1 };
+    let drawn = { camera: fallback, width: 1, height: 1, scale: 1 };
 
     // A frame that fails to draw is reported, not thrown: the effect that draws it runs inside
     // whatever changed the state, the store's own updates included.
@@ -255,13 +255,13 @@ export function Viewport() {
       }
       press = {
         id: event.pointerId,
-        select: event.button === 0,
         x: event.offsetX,
         y: event.offsetY,
         lastX: event.offsetX,
         lastY: event.offsetY,
         moved: false,
         pan: event.button === 1 || event.shiftKey,
+        select: event.button === 0,
       };
     };
     const onMove = (event: PointerEvent) => {
@@ -282,8 +282,9 @@ export function Viewport() {
         return;
       }
       press.moved = true;
+      if (viewCamera.peek() !== 'orbit') return;
       const current = orbit.peek() ?? (state.peek().scene ? orbitFrom(drawn.camera) : null);
-      if (viewCamera.peek() !== 'orbit' || !current) return;
+      if (!current) return;
       orbit.value = press.pan ? pan(current, own, dx, dy) : turn(current, dx, dy);
     };
     const onUp = (event: PointerEvent) => {
