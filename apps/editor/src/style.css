@@ -406,3 +406,10 @@ body {
   color: var(--muted);
   font-size: 12px;
 }
+
+.document-issues {
+  margin: 0 0 10px;
+  padding-left: 16px;
+  color: #c0392b;
+  font-size: 12px;
+}

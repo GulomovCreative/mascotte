@@ -1,3 +1,4 @@
+import { DEFAULT_LIGHT } from '@mascotte/engine';
 import { type MascotDocument, type NodeDocument, readDocument } from '@mascotte/format';
 import { gloopDocument } from '@mascotte/reference';
 import { render } from 'preact';
@@ -56,7 +57,7 @@ function row(id: string): HTMLElement {
   return found;
 }
 
-/** Clicks the node `id`, which focuses it as a real click does. */
+/** Focuses and clicks the node `id`, as a real click does. */
 async function select(id: string): Promise<void> {
   row(id).focus();
   row(id).click();
@@ -209,8 +210,118 @@ describe('scene tree and document panel', () => {
     expect(row('body').getAttribute('aria-expanded')).toBe('false');
     await key('body', 'ArrowLeft');
     expect(state.value.selection).toEqual([]);
-    // A node cannot be dropped into itself.
+    // A node cannot be dropped into its own subtree, nor the root anywhere.
+    row('body').querySelector<HTMLButtonElement>('.tree-fold')?.click();
+    await settle();
+    const before = state.value.document;
+    await drag('body', 'eyes', 'inside');
     await drag('root', 'body', 'inside');
-    expect(state.value.document.root.id).toBe('root');
+    expect(state.value.document).toBe(before);
+  });
+
+  it('renames once, cancels with Escape or an empty id, and says when an id is taken', async () => {
+    mount();
+    await settle();
+    await select('eyes');
+    const steps = () => state.value.undoLabel;
+    await key('eyes', 'F2');
+    let input = document.querySelector<HTMLInputElement>('.tree-rename');
+    if (!input) throw new Error('no rename input');
+    input.value = 'x';
+    input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    await settle();
+    expect(() => row('eyes')).not.toThrow();
+    expect(steps()).toBeNull();
+
+    await rename('eyes', '');
+    expect(() => row('eyes')).not.toThrow();
+    expect(steps()).toBeNull();
+
+    await rename('eyes', 'look');
+    expect(state.value.canUndo).toBe(true);
+    editor.value.undo();
+    await settle();
+    expect(state.value.canUndo).toBe(false);
+    expect(() => row('eyes')).not.toThrow();
+
+    // Leaving the input renames too.
+    await key('eyes', 'F2');
+    input = document.querySelector<HTMLInputElement>('.tree-rename');
+    if (!input) throw new Error('no rename input');
+    input.value = 'gaze';
+    input.blur();
+    await settle();
+    expect(() => row('gaze')).not.toThrow();
+
+    await rename('gaze', 'lids');
+    expect(() => row('lids-2')).not.toThrow();
+    expect(problem.value).toContain('lids-2');
+  });
+
+  it('keeps the root and made nodes from being removed, duplicated or dropped on', async () => {
+    mount();
+    await settle();
+    await select('root');
+    const before = state.value.document;
+    await key('root', 'Delete');
+    await key('root', 'd', { ctrlKey: true });
+    expect(state.value.document).toBe(before);
+    const buttons = [...document.querySelectorAll<HTMLButtonElement>('.tree-bar button')];
+    expect(buttons.map((each) => each.disabled)).toEqual([true, true]);
+
+    row('eye-left').querySelector<HTMLButtonElement>('.tree-fold')?.click();
+    await settle();
+    const made = document.querySelector<HTMLElement>('[aria-disabled="true"]');
+    made?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Delete', bubbles: true }));
+    await settle();
+    expect(state.value.document).toBe(before);
+
+    // Dropped after a sibling it moves; dropped where it is, nothing changes.
+    await drag('eyes', 'lids', 'after');
+    expect(state.value.document.root.children?.[0]?.children?.map((each) => each.id)).toEqual([
+      'lids',
+      'eyes',
+    ]);
+    const moved = state.value.document;
+    await drag('eyes', 'lids', 'after');
+    expect(state.value.document).toBe(moved);
+    expect(problem.value).toBeNull();
+  });
+
+  it('shows the rows of a broken tree at their own paths', async () => {
+    const broken = newDocument('blob');
+    const root = { ...broken.root, children: ['oops', ...(broken.root.children ?? [])] };
+    openDocument({ ...broken, root } as unknown as MascotDocument, null);
+    mount();
+    await settle();
+    expect(row('body').dataset.key).toBe('root.children[1]');
+  });
+
+  it('edits the frame and camera, keeping what is required and showing the document issues', async () => {
+    openDocument(readDocument(gloopDocument) as MascotDocument, null);
+    mount();
+    await settle();
+    await setField('Width', '');
+    expect(state.value.document.view.width).toBe(240);
+    await setField('Zoom', '');
+    expect(state.value.document.camera).toBeUndefined();
+    const lightX = document.querySelector<HTMLInputElement>('input[aria-label="Light x"]');
+    if (!lightX) throw new Error('no light');
+    lightX.value = '0.5';
+    lightX.dispatchEvent(new Event('change', { bubbles: true }));
+    await settle();
+    expect(state.value.document.camera?.props?.light).toEqual({
+      x: 0.5,
+      y: DEFAULT_LIGHT.y,
+      z: DEFAULT_LIGHT.z,
+    });
+    [...document.querySelectorAll('button')].find((each) => each.textContent === 'Reset')?.click();
+    await settle();
+    expect(state.value.document.camera).toBeUndefined();
+
+    await setField('Archetype', 'bird');
+    expect(document.querySelector('.document-issues')?.textContent).toContain('archetype');
+    await setField('Archetype', '');
+    expect(state.value.document.archetype).toBeUndefined();
   });
 });

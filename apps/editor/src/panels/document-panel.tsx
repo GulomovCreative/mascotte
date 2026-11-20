@@ -1,10 +1,11 @@
 import { DEFAULT_LIGHT, PROJECTIONS } from '@mascotte/engine';
+import type { PlainValue } from '@mascotte/format';
 import { ARCHETYPES } from '@mascotte/library';
 import type { Vec3 } from '@mascotte/math';
 import { type DocumentField, setDocumentField } from '../model/commands.ts';
 import { attempt, editor, state } from '../store.ts';
 
-function set(field: DocumentField, value: unknown): void {
+function set(field: DocumentField, value: PlainValue | undefined): void {
   attempt('Could not change the document', () =>
     editor.value.execute(setDocumentField(field, value)),
   );
@@ -12,6 +13,8 @@ function set(field: DocumentField, value: unknown): void {
 
 /** The input's number, or `undefined` for an empty input; `null` for one that is not a number. */
 function numberOf(input: HTMLInputElement): number | undefined | null {
+  // Text a number input cannot read ("1e", "-") reads as empty: it is not a number, not a removal.
+  if (input.validity.badInput) return null;
   if (input.value.trim() === '') return undefined;
   return Number.isFinite(input.valueAsNumber) ? input.valueAsNumber : null;
 }
@@ -53,7 +56,7 @@ function NumberField(props: {
   );
 }
 
-/** A CSS color: a picker for the `#rrggbb` it is, and its text for any other. */
+/** A CSS color: its text, and a picker that shows it when it is `#rrggbb` (white otherwise). */
 function ColorField(props: { label: string; field: DocumentField; value: unknown }) {
   const value = typeof props.value === 'string' ? props.value : '';
   const hex = /^#[0-9a-f]{6}$/i.test(value) ? value : '#ffffff';
@@ -84,7 +87,9 @@ function ColorField(props: { label: string; field: DocumentField; value: unknown
  * zoom, distance, light) and the archetype. Each change is a command, undone as one step.
  */
 export function DocumentPanel() {
-  const { document } = state.value;
+  const { document, issues } = state.value;
+  // The document's issues outside its tree (`view.width`, `archetype`): the tree shows the rest.
+  const own = issues.filter((issue) => !/^root(\.|$)/.test(issue.path));
   const meta = document.meta ?? { name: '' };
   const camera = document.camera?.props ?? {};
   const light = (camera.light as Vec3 | undefined) ?? undefined;
@@ -104,6 +109,15 @@ export function DocumentPanel() {
   };
   return (
     <form class="document-panel" aria-label="Document" onSubmit={(event) => event.preventDefault()}>
+      {own.length > 0 ? (
+        <ul class="document-issues" role="alert">
+          {own.map((issue) => (
+            <li key={`${issue.path} ${issue.message}`}>
+              <code>{issue.path}</code> {issue.message}
+            </li>
+          ))}
+        </ul>
+      ) : null}
       <fieldset>
         <legend>Document</legend>
         <label>
