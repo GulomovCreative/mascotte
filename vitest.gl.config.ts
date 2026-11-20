@@ -17,8 +17,8 @@ const browser = () => ({
 
 /*
  * Tests in a real browser: WebGL2 frames and the editor's interface. Run with `pnpm test:gl`.
- * The editor's test files run one at a time: they share the page's origin, so its storage (the
- * editor's draft) too.
+ * The editor's test files run one at a time: they share the page's origin, and so
+ * the storage that keeps the editor's draft.
  */
 export default defineConfig({
   test: {
