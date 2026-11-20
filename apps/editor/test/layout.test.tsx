@@ -73,8 +73,9 @@ describe('editor layout', () => {
   it('fits the viewport canvas to its panel, also when the panel resizes', async () => {
     const root = mount();
     const canvas = viewportCanvas(root);
-    const area = root.querySelector<HTMLElement>('main[aria-label=Viewport]');
-    if (!area) throw new Error('no viewport area');
+    // The stage under the viewport's bar.
+    const area = root.querySelector<HTMLElement>('.viewport-stage');
+    if (!area) throw new Error('no viewport stage');
     const ratio = devicePixelRatio || 1;
     // The panel's size, not the canvas default of 300 × 150.
     await expect.poll(() => canvas.width).toBe(Math.round(area.clientWidth * ratio));

@@ -1,7 +1,7 @@
 import { signal } from '@preact/signals';
 import type { ComponentChildren } from 'preact';
 import { DraftBanner, MenuBar } from './menu.tsx';
-import { Viewport } from './viewport.tsx';
+import { Viewport } from './viewport/viewport.tsx';
 
 /** The tabs of the bottom panel. */
 export const BOTTOM_TABS = ['Timeline', 'State machines'] as const;
