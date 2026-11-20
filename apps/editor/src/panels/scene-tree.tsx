@@ -68,13 +68,13 @@ export function treeRows(document: MascotDocument, folds: ReadonlySet<string>): 
   ) => {
     // An instance's own children come first in what it builds, at their places.
     const own = made ? [] : childrenOf(node);
-    const makes = childrenOf(built).slice(own.length);
+    const builds = childrenOf(built);
+    const makes = builds.slice(own.length);
     const count = [...own, ...makes].filter(Boolean).length;
     const closed = !made && node.prefab !== undefined;
     const open = count === 0 ? null : closed === folds.has(key);
     rows.push({ key, path, made, node, built, depth, open });
     if (!open) return;
-    const builds = childrenOf(built);
     own.forEach((child, i) => {
       if (child) walk(child, builds[i], `${key}.children[${i}]`, [...path, i], depth + 1, false);
     });
