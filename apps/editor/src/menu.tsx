@@ -8,9 +8,11 @@ import {
   editor,
   fileName,
   isUnsaved,
+  leavePrefab,
   markSaved,
   offeredDraft,
   openDocument,
+  prefabMode,
   problem,
   state,
 } from './store.ts';
@@ -43,11 +45,13 @@ async function save(as: boolean): Promise<void> {
 function Choice(props: {
   label: string;
   options: readonly string[];
+  disabled?: boolean;
   choose: (value: string) => void;
 }) {
   return (
     <select
       aria-label={props.label}
+      disabled={props.disabled}
       value=""
       onChange={(event) => {
         const select = event.currentTarget as HTMLSelectElement;
@@ -72,6 +76,8 @@ function Choice(props: {
  */
 export function MenuBar() {
   const current = state.value;
+  // While a prefab is edited, the file waits: its edits reach the document when its mode ends.
+  const busy = prefabMode.value !== null;
   const unsaved = isUnsaved();
   const issues = current.issues.length;
   return (
@@ -81,6 +87,7 @@ export function MenuBar() {
         <Choice
           label="New"
           options={[...ARCHETYPES.keys()]}
+          disabled={busy}
           choose={(archetype) =>
             mayReplace() &&
             attempt('Could not make it', () => openDocument(newDocument(archetype), null))
@@ -88,6 +95,7 @@ export function MenuBar() {
         />
         <button
           type="button"
+          disabled={busy}
           onClick={() =>
             mayReplace() &&
             attempt('Could not open the file', async () => {
@@ -101,6 +109,7 @@ export function MenuBar() {
         <Choice
           label="Reference"
           options={[...REFERENCE_DOCUMENTS.keys()]}
+          disabled={busy}
           choose={(name) => {
             const make = REFERENCE_DOCUMENTS.get(name);
             if (make && mayReplace()) {
@@ -108,10 +117,18 @@ export function MenuBar() {
             }
           }}
         />
-        <button type="button" onClick={() => attempt('Could not save', () => save(false))}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => attempt('Could not save', () => save(false))}
+        >
           Save
         </button>
-        <button type="button" onClick={() => attempt('Could not save', () => save(true))}>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => attempt('Could not save', () => save(true))}
+        >
           Save as…
         </button>
         <button
@@ -130,7 +147,7 @@ export function MenuBar() {
         </button>
       </nav>
       <span class="document-title">
-        {current.document.meta?.name}
+        {busy ? prefabMode.value?.outer.state.document.meta?.name : current.document.meta?.name}
         {fileName.value ? ` — ${fileName.value}` : ''}
         {unsaved ? ' •' : ''}
       </span>
@@ -155,7 +172,8 @@ export function MenuBar() {
 /** Offers back a draft kept by an earlier visit, until it is restored or discarded. */
 export function DraftBanner() {
   const draft = offeredDraft.value;
-  if (!draft) return null;
+  // Its place shows the prefab's mode meanwhile; it is offered again when the mode ends.
+  if (!draft || prefabMode.value) return null;
   const when = new Date(draft.savedAt).toLocaleString();
   return (
     <section class="draft" aria-label="Draft">
@@ -174,6 +192,34 @@ export function DraftBanner() {
       </button>
       <button type="button" onClick={discardDraft}>
         Discard
+      </button>
+    </section>
+  );
+}
+
+/** While a prefab is edited in its own mode: its name, and the way back to the document. */
+export function PrefabBanner() {
+  const mode = prefabMode.value;
+  if (!mode) return null;
+  return (
+    <section class="draft prefab-mode" aria-label="Prefab">
+      <span>
+        Editing the prefab <strong>{mode.name}</strong>: its tree and parameters. Its colors take
+        the document's palette roles.
+      </span>
+      <button
+        type="button"
+        onClick={() => attempt('Could not apply the prefab', () => leavePrefab(true))}
+      >
+        Done
+      </button>
+      <button
+        type="button"
+        onClick={() =>
+          (!state.value.canUndo || confirm("Drop the prefab's changes?")) && leavePrefab(false)
+        }
+      >
+        Cancel
       </button>
     </section>
   );

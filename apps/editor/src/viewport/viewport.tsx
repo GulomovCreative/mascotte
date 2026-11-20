@@ -168,7 +168,37 @@ function DebugToggle(props: { name: keyof DebugView; label: string }) {
   );
 }
 
-/** The viewport's bar: the camera to look through and the debug view's toggles. */
+/**
+ * The palette the viewport shows the document in (the base by default), without changing the
+ * document; only when it has more than one.
+ */
+function PaletteSwitcher() {
+  const { document, preview } = state.value;
+  const palettes = Object.keys(document.palettes ?? {});
+  if (palettes.length < 2) return null;
+  return (
+    <label>
+      Palette
+      <select
+        value={preview.palette ?? palettes[0]}
+        onChange={(event) => {
+          const palette = (event.currentTarget as HTMLSelectElement).value;
+          const { palette: _, ...rest } = preview;
+          // The base is no preview: it is what the document shows anyway.
+          editor.value.setPreview(palette === palettes[0] ? rest : { ...rest, palette });
+        }}
+      >
+        {palettes.map((name) => (
+          <option key={name} value={name}>
+            {name}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/** The viewport's bar: the camera to look through, the palette, and the debug view's toggles. */
 function ViewportBar() {
   return (
     <div class="viewport-bar">
@@ -207,6 +237,7 @@ function ViewportBar() {
         />
         Snap
       </label>
+      <PaletteSwitcher />
       <fieldset class="debug-toggles">
         <legend class="visually-hidden">Debug view</legend>
         <DebugToggle name="axes" label="Axes" />

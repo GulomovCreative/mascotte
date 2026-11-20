@@ -131,11 +131,19 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   enums cannot. Path points can be bound as vectors.
 - **Palettes and parameters.** The document's palettes (roles, colors, the base) with a palette
   switcher for the viewport; shape parameters with their defaults and ranges, and sliders that
-  set them for the viewport without changing the document.
+  set them for the viewport without changing the document. Both are in the document panel; the
+  viewport's palette and parameter values stay through edits, as far as the document has them.
 - **Prefabs.** The library's and the document's. An instance shows its parameters, each a number
-  or bound to a document parameter, and its `props` over the prefab root's. A **prefab definition**
-  is edited in its own mode (its tree, parameters and bindings, as for a document), and a subtree
-  can be **extracted** into a new prefab.
+  or bound to a document parameter, and its `props` over the prefab root's (the root's values as
+  its parameters make them). A **prefab definition** is edited in its own mode (its tree,
+  parameters and bindings, as for a document): the tree, the inspector and the viewport show the
+  prefab as a document of its own, in the document's frame, camera and palettes, and its edits
+  reach the document as one step when the mode ends (Done; Cancel drops them). Meanwhile the file
+  waits (no new, open or save). A library prefab edited becomes the document's own, which
+  replaces it. A subtree can be **extracted** into a new prefab: an instance takes its place with
+  its id, name and transform, ids under it lose the instance's prefix (or are renamed to the
+  prefixed id everywhere), and the document parameters it uses become the prefab's, bound to the
+  document's, so the expanded tree stays as it was.
 - **Rig.** The archetype, its slots and the nodes they bind; problems the format reports (an
   unbound slot, a library motion on the wrong kind of layer) are shown here.
 

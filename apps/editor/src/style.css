@@ -478,3 +478,17 @@ body {
 .prop-head select {
   width: auto;
 }
+
+.form-panel fieldset.group {
+  gap: 4px;
+  padding: 6px 0 6px 8px;
+  border-left: 2px solid var(--border);
+}
+
+.form-panel .field-row > label {
+  min-width: 0;
+}
+
+.prefab-mode {
+  border-bottom-color: var(--accent);
+}

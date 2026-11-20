@@ -16,7 +16,7 @@ import {
   renameNode,
 } from '../model/commands.ts';
 import { type DocPath, isWithin, nodeAt, pathString } from '../model/paths.ts';
-import { attempt, editor, problem, state } from '../store.ts';
+import { attempt, editor, prefabMode, problem, state } from '../store.ts';
 
 /** One row of the tree: a node of the document, or one a prefab instance makes (read-only). */
 export interface TreeRow {
@@ -160,7 +160,8 @@ const SHAPES = [...NODE_TYPES.keys()];
 /** The menu that adds a shape or a prefab instance under the selected node (or the root). */
 function AddMenu(props: { document: MascotDocument; parent: DocPath }) {
   const own = isNode(props.document.prefabs) ? Object.keys(props.document.prefabs) : [];
-  const prefabs = [...new Set([...PREFABS.keys(), ...own])];
+  // A prefab holds no prefabs: in a prefab's mode, none is offered.
+  const prefabs = prefabMode.value ? [] : [...new Set([...PREFABS.keys(), ...own])];
   return (
     <select
       aria-label="Add"
@@ -182,13 +183,15 @@ function AddMenu(props: { document: MascotDocument; parent: DocPath }) {
           </option>
         ))}
       </optgroup>
-      <optgroup label="Prefabs">
-        {prefabs.map((name) => (
-          <option key={name} value={`prefab:${name}`}>
-            {name}
-          </option>
-        ))}
-      </optgroup>
+      {prefabs.length === 0 ? null : (
+        <optgroup label="Prefabs">
+          {prefabs.map((name) => (
+            <option key={name} value={`prefab:${name}`}>
+              {name}
+            </option>
+          ))}
+        </optgroup>
+      )}
     </select>
   );
 }

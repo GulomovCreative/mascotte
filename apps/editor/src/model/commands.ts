@@ -1,4 +1,12 @@
-import type { MascotDocument, NodeDocument, PlainValue, PropertyValue } from '@mascotte/format';
+import type {
+  MascotDocument,
+  NodeDocument,
+  PlainValue,
+  PrefabDocument,
+  PropertyValue,
+  ShapeParam,
+} from '@mascotte/format';
+import { PREFABS } from '@mascotte/library';
 import { expandedIds, madeSuffixes, uniqueId, withUniqueIds } from './ids.ts';
 import { type DocPath, isWithin, nodeAt, pathString, samePath, updateNode } from './paths.ts';
 import { renameReferences } from './references.ts';
@@ -59,10 +67,11 @@ export function setProp(path: DocPath, name: string, value: PropertyValue | unde
 }
 
 /**
- * Sets the node's `path` (a PathShape's commands) or `faces` (a Box's face settings), or removes
- * it with `undefined`; the value it has already is no change.
+ * Sets the node's `path` (a PathShape's commands), `faces` (a Box's face settings) or `params` (a
+ * prefab instance's parameter values), or removes it with `undefined`; the value it has already
+ * is no change.
  */
-export function setNodeField<K extends 'path' | 'faces'>(
+export function setNodeField<K extends 'path' | 'faces' | 'params'>(
   path: DocPath,
   key: K,
   value: NodeDocument[K] | undefined,
@@ -281,7 +290,22 @@ export type DocumentField =
   | readonly ['meta', 'name' | 'description']
   | readonly ['archetype']
   | readonly ['view', 'width' | 'height' | 'background']
-  | readonly ['camera', 'props', string];
+  | readonly ['camera', 'props', string]
+  | readonly ['params', string]
+  | readonly ['palettes', string]
+  | readonly ['palettes', string, string]
+  | readonly ['prefabs', string]
+  | readonly ['rig', 'slots', string];
+
+/**
+ * A value `setDocumentField` sets: a plain one, a shape parameter, a palette (colors by role) or
+ * a prefab.
+ */
+export type FieldValue =
+  | PlainValue
+  | ShapeParam
+  | Readonly<Record<string, string>>
+  | PrefabDocument;
 
 /**
  * Sets the document's field at `field` (`['view', 'width']`, `['camera', 'props', 'zoom']`), or
@@ -289,7 +313,7 @@ export type DocumentField =
  * then `camera`). The value it has already is no change. The fields the format requires
  * (`meta.name`, `view.width`, `view.height`) cannot be removed.
  */
-export function setDocumentField(field: DocumentField, value: PlainValue | undefined): Command {
+export function setDocumentField(field: DocumentField, value: FieldValue | undefined): Command {
   const required =
     field[0] === 'meta' ? field[1] === 'name' : field[0] === 'view' && field[1] !== 'background';
   const name = field.join('.');
@@ -316,6 +340,100 @@ export function setDocumentField(field: DocumentField, value: PlainValue | undef
       );
       if (same(before, value)) return { document };
       return { document: set({ ...document }, 0) as unknown as MascotDocument };
+    },
+  };
+}
+
+const TRANSFORM = ['position', 'rotation', 'scale', 'pivot'];
+
+/** The names of the parameters the references in `value` name, at any depth. */
+function paramsIn(value: unknown, names = new Set<string>()): Set<string> {
+  if (Array.isArray(value)) for (const item of value) paramsIn(item, names);
+  else if (typeof value === 'object' && value !== null) {
+    const { param } = value as { param?: unknown };
+    if (typeof param === 'string') names.add(param);
+    for (const item of Object.values(value)) paramsIn(item, names);
+  }
+  return names;
+}
+
+/** Whether `node` or a node under it is a prefab instance. */
+function hasInstance(node: NodeDocument): boolean {
+  return node.prefab !== undefined || (node.children ?? []).some(hasInstance);
+}
+
+/**
+ * Makes the node at `path` and its subtree the document's new prefab `name`, and puts an instance
+ * of it in its place; the expanded tree stays as it was:
+ * - the instance keeps the node's id and name, and its place (its transform props); the prefab's
+ *   root has the rest;
+ * - an id under it that its id prefixes loses the prefix (the instance gives it back); another
+ *   is renamed to the prefixed id everywhere, as the instance names it;
+ * - a document parameter its values refer to becomes a parameter of the prefab, as the document
+ *   has it, and the instance binds it to the document's.
+ * A prefab holds no prefabs, so a subtree with an instance cannot become one. Selects the instance.
+ */
+export function extractPrefab(path: DocPath, name: string): Command {
+  return {
+    label: 'Make prefab',
+    run: (document) => {
+      if (path.length === 0) throw new RangeError('The root cannot become a prefab.');
+      const node = existing(document, path);
+      if (hasInstance(node)) {
+        throw new RangeError('A prefab holds no prefab instances, and this subtree has some.');
+      }
+      const wanted = name.trim();
+      if (wanted === '') throw new RangeError('A prefab needs a name.');
+      if (Object.hasOwn(document.prefabs ?? {}, wanted) || PREFABS.has(wanted)) {
+        throw new RangeError(`The prefab name "${wanted}" is taken.`);
+      }
+      const id = node.id ?? uniqueId(wanted, expandedIds(document));
+      const names = new Map<string, string>();
+      const strip = (current: NodeDocument): NodeDocument => {
+        const { id: own, children, ...rest } = current;
+        let kept = own;
+        if (own?.startsWith(`${id}-`)) kept = own.slice(id.length + 1);
+        else if (own !== undefined) names.set(own, `${id}-${own}`);
+        return {
+          ...rest,
+          ...(kept === undefined ? {} : { id: kept }),
+          ...(children === undefined ? {} : { children: children.map(strip) }),
+        };
+      };
+      const { id: _, name: label, props, children, ...rest } = node;
+      const entries = Object.entries(props ?? {});
+      const place = entries.filter(([key]) => TRANSFORM.includes(key));
+      const shape = entries.filter(([key]) => !TRANSFORM.includes(key));
+      const root: NodeDocument = {
+        ...rest,
+        ...(shape.length === 0 ? {} : { props: Object.fromEntries(shape) }),
+        ...(children === undefined ? {} : { children: children.map(strip) }),
+      };
+      const params = document.params ?? {};
+      const used = [...paramsIn(root)].filter((param) => Object.hasOwn(params, param));
+      const prefab: PrefabDocument = {
+        ...(used.length === 0
+          ? {}
+          : {
+              params: Object.fromEntries(used.map((param) => [param, params[param] as ShapeParam])),
+            }),
+        root,
+      };
+      const instance: NodeDocument = {
+        prefab: wanted,
+        id,
+        ...(label === undefined ? {} : { name: label }),
+        ...(used.length === 0
+          ? {}
+          : { params: Object.fromEntries(used.map((param) => [param, { param }])) }),
+        ...(place.length === 0 ? {} : { props: Object.fromEntries(place) }),
+      };
+      const replaced = updateNode(document, path, () => instance);
+      const next: MascotDocument = {
+        ...replaced,
+        prefabs: { ...replaced.prefabs, [wanted]: prefab },
+      };
+      return { document: renameReferences(next, names), selection: path };
     },
   };
 }
