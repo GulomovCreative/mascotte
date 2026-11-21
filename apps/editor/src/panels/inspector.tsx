@@ -651,15 +651,17 @@ function PropertyField(props: {
 }) {
   const { path, property, inherited, context } = props;
   const name = property.name;
-  // With auto-key on and a clip open, an edit keys the clip at the playhead, and the field shows
-  // the value the node has there, so an edit of one axis keeps the others.
-  const live = liveNode(state.value.scene, path);
-  const keying = autoKey.value && property.animatable && openClip() !== null && live !== null;
-  const value = keying && live ? (liveValue(property, live) as PropertyValue) : props.value;
+  // With auto-key on and a clip open, an edit of an animatable property keys the clip at the
+  // playhead, and the field shows the value the node has there, so an edit of one axis keeps the
+  // others. What a key cannot hold (no value, a binding) is refused, not set as a rest value.
+  const keying = autoKey.value && property.animatable && openClip() !== null;
+  const live = keying ? liveNode(path) : null;
+  const value = live ? (liveValue(property, live) as PropertyValue) : props.value;
   const set = (next: PropertyValue | undefined) => {
-    if (keying && next !== undefined && !isRef(next) && !isColorRef(next))
-      keyNode(path, property, next);
-    else run(setProp(path, name, next));
+    if (!keying) run(setProp(path, name, next));
+    else if (next === undefined || isRef(next) || isColorRef(next)) {
+      problem.value = `Auto-key keys values: turn it off to clear or bind ${name}.`;
+    } else keyNode(path, property, next);
   };
   let source: ComponentChildren = null;
   let body: ComponentChildren;
@@ -748,7 +750,7 @@ function PropertyField(props: {
       label={name}
       invalid={props.invalid}
       source={source}
-      reset={value === undefined ? null : () => set(undefined)}
+      reset={value === undefined || keying ? null : () => set(undefined)}
     >
       {body}
     </Field>
