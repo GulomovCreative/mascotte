@@ -287,8 +287,7 @@ describe('timeline', () => {
     editor.value.seek(0.85);
     await settle();
     await click('Play');
-    await new Promise((resolve) => setTimeout(resolve, 150));
-    expect(state.value.preview.solo?.time).toBe(0.9);
+    await expect.poll(() => state.value.preview.solo?.time, { timeout: 3000 }).toBe(0.9);
     expect(control('Play').getAttribute('aria-label')).toBe('Play');
     await click('Play');
     await settle();
@@ -402,5 +401,7 @@ describe('timeline', () => {
     remove?.click();
     await settle();
     expect(state.value.document.layers).toBeUndefined();
+    // The clip's issue is said, though no layer plays it (once the layers no longer hide it).
+    expect(state.value.issues.map((issue) => issue.path)).toContain('motions.broken');
   });
 });
