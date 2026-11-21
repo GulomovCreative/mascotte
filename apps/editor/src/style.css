@@ -579,3 +579,21 @@ body {
   margin: 0;
   padding: 0;
 }
+
+.motion-form {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.motion-form legend {
+  font-weight: 600;
+}
+
+.motion-form .field-row {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}

@@ -29,6 +29,7 @@ import { clipOf, isClip } from '../model/editor-document.ts';
 import { type DocPath, nodeAt, samePath } from '../model/paths.ts';
 import { attempt, editor, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
+import { formKind, MotionForm, newMotion } from './motions.tsx';
 
 /** Whether an edit in the inspector sets a key at the playhead of the clip open, not a rest value. */
 export const autoKey = signal(false);
@@ -39,6 +40,16 @@ export const autoKey = signal(false);
 const selectedKey = signal<{ readonly track: number; readonly time: number } | null>(null);
 /** Whether the clip open plays. */
 const playing = signal(false);
+/** A motion open in its form (a behavior set, a blend or a library motion), or `null`. */
+const openForm = signal<string | null>(null);
+/** The kind of motion "New" makes. */
+const newKind = signal<'clip' | 'behaviors' | 'blend' | 'library'>('clip');
+const NEW_LABELS = {
+  clip: 'New clip',
+  behaviors: 'New behaviors',
+  blend: 'New blend',
+  library: 'New library motion',
+} as const;
 
 function run(command: Command): void {
   attempt(`Could not ${command.label.toLowerCase()}`, () => {
@@ -177,6 +188,7 @@ function show(name: string | null, time = 0): void {
   const { solo: _, ...rest } = preview;
   playing.value = false;
   selectedKey.value = null;
+  openForm.value = null;
   attempt('Could not show the clip', () =>
     editor.value.setPreview(name === null ? rest : { ...rest, solo: { motion: name, time } }),
   );
@@ -749,43 +761,77 @@ export function Timeline() {
   const { document } = state.value;
   const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
   const open = openClip();
+  // A motion open in its form while it still is one (a removal or an undo closes it).
+  const form =
+    openForm.value !== null &&
+    Object.hasOwn(motions, openForm.value) &&
+    formKind(motions[openForm.value]) !== null
+      ? openForm.value
+      : null;
+  const openName = open ? open.name : form;
+  const kind = newKind.value;
   return (
     <div class="timeline">
       <div class="field-row timeline-bar">
         <select
           aria-label="Motion"
-          value={open ? open.name : ''}
+          value={openName ?? ''}
           onChange={(event) => {
             const value = (event.currentTarget as HTMLSelectElement).value;
-            show(value === '' ? null : value);
+            if (value !== '' && formKind(motions[value]) !== null) {
+              show(null);
+              openForm.value = value;
+            } else show(value === '' ? null : value);
           }}
         >
           <option value="">the document playing</option>
-          {Object.entries(motions).map(([name, motion]) => (
-            <option key={name} value={name} disabled={kindOf(motion) !== 'clip'}>
-              {`${name} (${kindOf(motion)})`}
+          {Object.entries(motions).map(([name, motion]) => {
+            const what = kindOf(motion);
+            const opens = what === 'clip' || formKind(motion) !== null;
+            return (
+              <option key={name} value={name} disabled={!opens}>
+                {`${name} (${what})`}
+              </option>
+            );
+          })}
+        </select>
+        <select
+          aria-label="New motion kind"
+          value={kind}
+          onChange={(event) => {
+            newKind.value = (event.currentTarget as HTMLSelectElement).value as typeof kind;
+          }}
+        >
+          {(['clip', 'behaviors', 'blend', 'library'] as const).map((each) => (
+            <option key={each} value={each}>
+              {each}
             </option>
           ))}
         </select>
         <NewName
-          label="New clip"
+          label={NEW_LABELS[kind]}
           add={(name) => {
             if (Object.hasOwn(motions, name)) {
               problem.value = `There is a motion "${name}" already.`;
               return;
             }
-            run(setDocumentField(['motions', name], { duration: 1, loop: 'once', tracks: [] }));
-            show(name);
+            if (kind === 'clip') {
+              run(setDocumentField(['motions', name], { duration: 1, loop: 'once', tracks: [] }));
+              show(name);
+            } else {
+              run(setDocumentField(['motions', name], newMotion(kind, document)));
+              show(null);
+              openForm.value = name;
+            }
           }}
         />
-        {open ? (
+        {openName !== null ? (
           <button
             type="button"
-            aria-label={`Remove motion ${open.name}`}
+            aria-label={`Remove motion ${openName}`}
             onClick={() => {
-              const name = open.name;
               show(null);
-              run(setDocumentField(['motions', name], undefined));
+              run(setDocumentField(['motions', openName], undefined));
             }}
           >
             Remove
@@ -794,10 +840,12 @@ export function Timeline() {
       </div>
       {open ? (
         <ClipEditor name={open.name} clip={open.clip} time={open.time} local={open.local} />
+      ) : form !== null ? (
+        <MotionForm name={form} />
       ) : (
         <p class="empty">
-          Open a clip to edit it here; behaviors, blends and library motions are edited in their
-          forms.
+          Open a motion to edit it here: a clip on the timeline, behaviors, blends and library
+          motions in their forms.
         </p>
       )}
       <Layers />
