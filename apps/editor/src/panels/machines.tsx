@@ -1,8 +1,9 @@
 import { CONDITION_OPS, INPUT_NAME_PATTERN, INPUT_TYPES, type InputType } from '@mascotte/engine';
 import type { MachineDocument, MascotDocument } from '@mascotte/format';
 import { signal } from '@preact/signals';
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import { setDocumentField } from '../model/commands.ts';
+import type { EditorDocument } from '../model/editor-document.ts';
 import { attempt, editor, frame, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
 
@@ -20,10 +21,11 @@ const opened = signal<{ editor: unknown; machine: number; transition: number | n
   machine: 0,
   transition: null,
 });
-/** Whether the preview plays: the document's animator stepped, its machines driven by the inputs. */
-export const previewing = signal(false);
-/** How many previews are open (none once the State machines tab closes). */
-let openPreviews = 0;
+/**
+ * The editor whose document the preview plays (its animator stepped, its machines driven by the
+ * inputs), or `null`. Another editor shown (another document, a prefab's mode) stops it.
+ */
+export const previewing = signal<EditorDocument | null>(null);
 
 function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -40,22 +42,24 @@ function open(machine: number, transition: number | null): void {
 }
 
 /** Stores the document's machines as `make` gives them, as a step; what goes wrong is said. */
-function setMachines(make: () => readonly MachineDocument[]): void {
+function setMachines(make: () => readonly unknown[]): void {
   attempt('Could not change the machines', () => {
     const current = editor.value;
     const next = make();
-    current.execute(setDocumentField(['machines'], next.length === 0 ? undefined : next));
+    const machines = next as readonly MachineDocument[];
+    current.execute(setDocumentField(['machines'], next.length === 0 ? undefined : machines));
     current.commit();
   });
 }
 
-/** The machines of a document whose machines are a list of objects; `null` when they are not. */
-function machinesOf(document: MascotDocument): readonly MachineDocument[] | null {
+/**
+ * The machines of a document (each entry as stored: one that is no object is the format's to
+ * report), or `null` when they are not a list.
+ */
+function machinesOf(document: MascotDocument): readonly unknown[] | null {
   const stored: unknown = document.machines;
   if (stored === undefined) return [];
-  return Array.isArray(stored) && stored.every(isObject)
-    ? (stored as unknown as MachineDocument[])
-    : null;
+  return Array.isArray(stored) ? stored : null;
 }
 
 /** A list the document stores (its entries unchecked), or none when it is not one. */
@@ -75,13 +79,14 @@ function conditionFor(input: string, type: unknown): Condition {
 }
 
 /**
- * Stops the preview, and builds the scene again at rest (the animator stepped it into a pose).
- * A failure to build is said in the menu bar.
+ * Stops the preview, and builds the scene it played again at rest (the animator stepped it into a
+ * pose), in the editor it played in. A failure to build is said in the menu bar.
  */
 function stopPreview(): void {
-  if (!previewing.peek()) return;
-  previewing.value = false;
-  attempt('Could not stop it', () => editor.value.setPreview(state.peek().preview));
+  const played = previewing.peek();
+  if (!played) return;
+  previewing.value = null;
+  attempt('Could not stop it', () => played.rest());
 }
 
 /**
@@ -177,7 +182,8 @@ function Choice<V extends string>(props: {
 /** The engine's machine for the document's machine `index` (in document order), while playing. */
 function playingMachine(index: number) {
   const { scene, stale } = state.value;
-  return previewing.value && scene && !stale ? scene.animator.stateMachines[index] : undefined;
+  const playing = previewing.value === editor.value;
+  return playing && scene && !stale ? scene.animator.stateMachines[index] : undefined;
 }
 
 /**
@@ -225,7 +231,8 @@ function Graph(props: { machine: MachineDocument; index: number; selected: numbe
       {transitions.map((transition, i) => {
         if (!isObject(transition)) return null;
         const from = x(transition.from);
-        const to = x(transition.to);
+        // Nothing goes into the any-state: one that says so is the transition's issue.
+        const to = transition.to === '*' ? null : x(transition.to);
         // A transition naming a state the machine lacks is its issue: it has nowhere to go.
         if (from === null || to === null) return null;
         const startX = from + box.width / 2;
@@ -443,8 +450,12 @@ function TransitionForm(props: {
 }
 
 /** The open machine: its name, layer and first state, inputs, states and transitions, and its graph. */
-function MachineEditor(props: { machines: readonly MachineDocument[]; index: number }) {
-  const { machines, index } = props;
+function MachineEditor(props: {
+  machines: readonly unknown[];
+  index: number;
+  selected: number | null;
+}) {
+  const { machines, index, selected } = props;
   const machine = machines[index] as MachineDocument;
   const { document } = state.value;
   const set = (next: MachineDocument) =>
@@ -457,10 +468,13 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
     .filter(isObject)
     .map((layer) => String(layer.name));
   const motions = Object.keys(isObject(document.motions) ? document.motions : {});
-  const selected = openNow().transition;
+  // Lists that are no lists are the format's to report: edits leave them as they are.
+  const malformed = (list: unknown) => list !== undefined && !Array.isArray(list);
   /** The machine with `rest` as its transitions, the key gone when none is left. */
   const withTransitions = (base: MachineDocument, rest: readonly unknown[]) =>
-    withKey(base, 'transitions', rest.length === 0 ? undefined : rest);
+    malformed(machine.transitions)
+      ? base
+      : withKey(base, 'transitions', rest.length === 0 ? undefined : rest);
   /** The machine with a state renamed, and every transition and the first state following it. */
   const renamed = (from: string, to: string): MachineDocument => ({
     ...machine,
@@ -468,7 +482,7 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
     states: states.map((each) =>
       isObject(each) && each.name === from ? { ...each, name: to } : each,
     ) as State[],
-    ...(machine.transitions
+    ...(Array.isArray(machine.transitions)
       ? {
           transitions: transitions.map((each) =>
             isObject(each)
@@ -595,6 +609,10 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
         <NewName
           label="Add input"
           add={(name) => {
+            if (malformed(machine.inputs)) {
+              problem.value = 'The inputs are not a list (see the issues).';
+              return;
+            }
             if (!INPUT_NAME_PATTERN.test(name)) {
               problem.value = `"${name}" is no input name: letters, digits, "." and "_".`;
               return;
@@ -614,10 +632,13 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
           const remove = () => {
             // Its transitions go with it, and it is no longer the first state.
             open(index, null);
+            // A state that is no state has no name its transitions could give.
             const gone = isObject(each) ? each.name : undefined;
             const rest = transitions.filter(
               (transition) =>
-                !isObject(transition) || (transition.from !== gone && transition.to !== gone),
+                gone === undefined ||
+                !isObject(transition) ||
+                (transition.from !== gone && transition.to !== gone),
             );
             const base =
               machine.initial === gone ? withKey(machine, 'initial', undefined) : machine;
@@ -695,6 +716,10 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
         <NewName
           label="Add state"
           add={(name) => {
+            if (malformed(machine.states)) {
+              problem.value = 'The states are not a list (see the issues).';
+              return;
+            }
             if (name === '*' || names.includes(name)) {
               problem.value = `A state needs a name of its own, not "${name}".`;
               return;
@@ -720,7 +745,7 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
           ))}
           <button
             type="button"
-            disabled={names.length === 0}
+            disabled={names.length === 0 || malformed(machine.transitions)}
             onClick={() => {
               // A transition fires on a condition: it starts with one on the first input.
               const [first, second] = names;
@@ -769,7 +794,7 @@ function MachineEditor(props: { machines: readonly MachineDocument[]; index: num
 function ActiveStates() {
   frame.value;
   const { scene, stale } = state.value;
-  if (!previewing.value || !scene || stale) return null;
+  if (previewing.value !== editor.value || !scene || stale) return null;
   return (
     <>
       {scene.animator.stateMachines.map((machine, i) => (
@@ -787,19 +812,27 @@ function ActiveStates() {
  * springs), its machines' inputs driven here, and each machine's state. It stops, and the scene is
  * built again at rest, on Stop, when the panel closes, and when the document has issues.
  */
-function Preview(props: { machines: readonly MachineDocument[] }) {
+function Preview(props: { machines: readonly unknown[] }) {
   const { scene, stale, preview } = state.value;
-  const on = previewing.value;
+  const played = previewing.value;
+  const on = played !== null && played === editor.value;
+  // The inputs panel shows what the engine holds: it renders again after each change of one.
+  const [, redraw] = useState(0);
   useEffect(() => {
-    if (!on) return;
+    if (!played) return;
     let last = performance.now();
     let id = requestAnimationFrame(function step(now) {
-      if (!previewing.peek()) return;
-      // Each frame steps the animator of the scene shown: a new one after an edit starts over.
-      const shown = state.peek();
-      if (!shown.scene || shown.stale) {
+      if (previewing.peek() !== played) return;
+      // Another document, or a prefab's mode: what it played goes back to rest.
+      if (editor.peek() !== played) {
         stopPreview();
+        return;
+      }
+      // Each frame steps the animator of the scene shown: a new one after an edit starts over.
+      const shown = played.state;
+      if (!shown.scene || shown.stale) {
         problem.value = 'The document has issues: fix them to play it.';
+        stopPreview();
         return;
       }
       try {
@@ -807,8 +840,8 @@ function Preview(props: { machines: readonly MachineDocument[] }) {
         shown.scene.animator.update(Math.min(Math.max(0, (now - last) / 1000), 0.1));
       } catch (error) {
         console.error(error);
-        stopPreview();
         problem.value = `Could not play it: ${error instanceof Error ? error.message : String(error)}`;
+        stopPreview();
         return;
       }
       last = now;
@@ -816,20 +849,20 @@ function Preview(props: { machines: readonly MachineDocument[] }) {
       id = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(id);
-  }, [on]);
-  // Closed while playing (another tab), the preview stops: the scene goes back to rest. Effects
-  // are cleaned up after a paint, so a panel closed and opened again at once is still open.
-  useEffect(() => {
-    openPreviews += 1;
-    return () => {
-      openPreviews -= 1;
-      if (openPreviews === 0) stopPreview();
-    };
-  }, []);
+  }, [played]);
+  // Closed while playing (another tab), the preview it started stops: the scene goes back to rest.
+  // Another panel's preview is not this one's to stop (a panel's cleanup may come late).
+  const started = useRef<EditorDocument | null>(null);
+  useEffect(
+    () => () => {
+      if (started.current !== null && previewing.peek() === started.current) stopPreview();
+    },
+    [],
+  );
   const inputs = scene && !stale ? scene.animator.inputs : null;
   const names = [
     ...new Set(
-      props.machines.flatMap((machine) =>
+      props.machines.filter(isObject).flatMap((machine) =>
         listOf<unknown>(machine.inputs)
           .filter(isObject)
           .map((input) => String(input.name)),
@@ -852,8 +885,10 @@ function Preview(props: { machines: readonly MachineDocument[] }) {
             // The machines play the document as it is: a clip open solo closes first.
             const { solo: _, ...rest } = preview;
             attempt('Could not play it', () => {
-              if (preview.solo) editor.value.setPreview(rest);
-              previewing.value = true;
+              const current = editor.value;
+              if (preview.solo) current.setPreview(rest);
+              started.current = current;
+              previewing.value = current;
             });
           }}
         >
@@ -879,9 +914,10 @@ function Preview(props: { machines: readonly MachineDocument[] }) {
                       type="checkbox"
                       aria-label={`Input ${name}`}
                       checked={inputs.get(name) === true}
-                      onChange={(event) =>
-                        inputs.set(name, (event.currentTarget as HTMLInputElement).checked)
-                      }
+                      onChange={(event) => {
+                        inputs.set(name, (event.currentTarget as HTMLInputElement).checked);
+                        redraw((n) => n + 1);
+                      }}
                     />
                     {name}
                   </label>
@@ -895,6 +931,7 @@ function Preview(props: { machines: readonly MachineDocument[] }) {
                     value={inputs.get(name)}
                     onValue={(next) => {
                       if (next !== undefined) inputs.set(name, next);
+                      redraw((n) => n + 1);
                     }}
                   />
                 );
@@ -924,8 +961,16 @@ export function Machines() {
       </div>
     );
   }
-  const index = Math.min(openNow().machine, machines.length - 1);
+  // The machine open, or the last there is (one removed by an undo); its transition only if it
+  // is still the one that was open.
+  const now = openNow();
+  const index = Math.min(now.machine, machines.length - 1);
   const machine = index >= 0 ? machines[index] : undefined;
+  const selected = index === now.machine ? now.transition : null;
+  const removeMachine = (i: number) => {
+    open(0, null);
+    setMachines(() => machines.filter((_, j) => j !== i));
+  };
   return (
     <div class="machines">
       <div class="field-row">
@@ -937,19 +982,23 @@ export function Machines() {
           {machines.length === 0 ? <option value="-1">no machine</option> : null}
           {machines.map((each, i) => (
             <option key={i} value={String(i)}>
-              {typeof each.name === 'string' ? each.name : `machine ${i + 1}`}
+              {isObject(each) && typeof each.name === 'string'
+                ? each.name
+                : isObject(each)
+                  ? `machine ${i + 1}`
+                  : `${i + 1}: not a machine`}
             </option>
           ))}
         </select>
         <NewName
           label="New machine"
           add={(name) => {
-            if (machines.some((each) => each.name === name)) {
+            if (machines.some((each) => isObject(each) && each.name === name)) {
               problem.value = `There is a machine "${name}" already.`;
               return;
             }
             // It drives the first layer no machine drives yet (one machine per layer).
-            const used = new Set(machines.map((each) => each.layer));
+            const used = new Set(machines.filter(isObject).map((each) => each.layer));
             const layer = listOf<unknown>(document.layers)
               .filter(isObject)
               .map((each) => String(each.name))
@@ -965,10 +1014,17 @@ export function Machines() {
           }}
         />
       </div>
-      {machine ? (
-        <MachineEditor key={index} machines={machines} index={index} />
-      ) : (
+      {machine === undefined ? (
         <p class="empty">No machine: make one to drive a layer by its inputs.</p>
+      ) : isObject(machine) ? (
+        <MachineEditor key={index} machines={machines} index={index} selected={selected} />
+      ) : (
+        <div class="field-row">
+          <span class="empty">{`Machine ${index + 1} is not a machine (see the issues).`}</span>
+          <button type="button" onClick={() => removeMachine(index)}>
+            Remove machine
+          </button>
+        </div>
       )}
       <Preview machines={machines} />
     </div>

@@ -15,7 +15,7 @@ afterEach(() => {
     host.remove();
     host = null;
   }
-  previewing.value = false;
+  previewing.value = null;
   bottomTab.value = 'Timeline';
   offeredDraft.value = null;
   problem.value = null;
@@ -137,7 +137,7 @@ describe('state machine editor', () => {
     // Stopped, the scene is built again at rest.
     const played = state.value.scene;
     await press('Stop');
-    expect(previewing.value).toBe(false);
+    expect(previewing.value).toBeNull();
     expect(state.value.scene).not.toBe(played);
     expect(document.querySelector('.machine-state.active')).toBeNull();
   });
@@ -210,11 +210,11 @@ describe('state machine editor', () => {
   it('stops the preview when the panel closes, at rest', async () => {
     await mount(readDocument(gloopDocument));
     await press('Play');
-    expect(previewing.value).toBe(true);
+    expect(previewing.value).not.toBeNull();
     const played = state.value.scene;
     bottomTab.value = 'Timeline';
     // Effects are cleaned up after the next paint.
-    await expect.poll(() => previewing.value).toBe(false);
+    await expect.poll(() => previewing.value).toBeNull();
     expect(state.value.scene).not.toBe(played);
   });
 
@@ -238,5 +238,40 @@ describe('state machine editor', () => {
     expect(document.body.textContent).toMatch(/The machines are malformed/);
     await press('Remove the machines');
     expect(state.value.document.machines).toBeUndefined();
+  });
+
+  it('stops playing a document that gets issues, its last scene at rest', async () => {
+    await mount(readDocument(gloopDocument));
+    await press('Play');
+    await press('Fire poke');
+    const played = state.value.scene;
+    // A layer the machine does not have: the document has an issue, the scene goes stale.
+    await change('Layer', 'blink');
+    await expect.poll(() => previewing.value).toBeNull();
+    expect(problem.value).toMatch(/issues/);
+    expect(state.value.stale).toBe(true);
+    expect(state.value.scene).not.toBe(played);
+  });
+
+  it('keeps malformed machines and lists apart, each removable on its own', async () => {
+    const gloop = readDocument(gloopDocument);
+    const [react] = gloop.machines ?? [];
+    await mount({
+      ...gloop,
+      machines: [7, { ...react, transitions: 'soon' }],
+    } as unknown as MascotDocument);
+    await change('Machine', '0');
+    expect(document.body.textContent).toMatch(/Machine 1 is not a machine/);
+    await change('Machine', '1');
+    // Its transitions are no list: removing an input leaves them as they are.
+    await press('Remove input poke');
+    expect(state.value.document.machines?.[1]).toMatchObject({ transitions: 'soon' });
+    const add = [...document.querySelectorAll('button')].find(
+      (each) => each.textContent === 'Add transition',
+    );
+    expect(add?.disabled).toBe(true);
+    await change('Machine', '0');
+    await press('Remove machine');
+    expect(state.value.document.machines).toHaveLength(1);
   });
 });
