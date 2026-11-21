@@ -661,6 +661,9 @@ function PropertyField(props: {
     if (!keying) run(setProp(path, name, next));
     else if (next === undefined || isRef(next) || isColorRef(next)) {
       problem.value = `Auto-key keys values: turn it off to clear or bind ${name}.`;
+    } else if (!live) {
+      // The value at the playhead is not shown: an edit of one axis would key the others wrong.
+      problem.value = `The document has issues: fix them to key ${name}.`;
     } else keyNode(path, property, next);
   };
   let source: ComponentChildren = null;

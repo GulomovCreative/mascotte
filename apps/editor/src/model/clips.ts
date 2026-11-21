@@ -32,11 +32,15 @@ export function clipTimeOf(clip: Clip, time: number): number {
   return Math.min(Math.round(within * 1000) / 1000, clip.duration);
 }
 
-/** `keys` with `key` in its place by time; one already at its time is replaced. */
+/**
+ * `keys` with `key` in its place by time; the first key already at its time is replaced (a step,
+ * two keys at one time, keeps its other key).
+ */
 function placed(keys: readonly Key[], key: Key): Key[] {
-  const rest = keys.filter((each) => each.time !== key.time);
-  const at = rest.findIndex((each) => each.time > key.time);
-  return at < 0 ? [...rest, key] : [...rest.slice(0, at), key, ...rest.slice(at)];
+  const same = keys.findIndex((each) => each.time === key.time);
+  if (same >= 0) return keys.map((each, i) => (i === same ? key : each));
+  const at = keys.findIndex((each) => each.time > key.time);
+  return at < 0 ? [...keys, key] : [...keys.slice(0, at), key, ...keys.slice(at)];
 }
 
 /** `clip` with `tracks` (those left with no keys dropped). */

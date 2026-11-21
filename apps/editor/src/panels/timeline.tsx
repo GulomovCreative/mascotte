@@ -32,8 +32,8 @@ import { numberOf } from './document-panel.tsx';
 /** Whether an edit in the inspector sets a key at the playhead of the clip open, not a rest value. */
 export const autoKey = signal(false);
 /**
- * The key selected on the timeline: its track, and its time there (key times are unique within a
- * track, so the key stays the same one when others are added or go).
+ * The key selected on the timeline: its track, and its time there, so the key stays the same one
+ * when others are added or go (of two keys at one time, a step, the first).
  */
 const selectedKey = signal<{ readonly track: number; readonly time: number } | null>(null);
 /** Whether the clip open plays. */
@@ -47,13 +47,21 @@ function run(command: Command): void {
   });
 }
 
-/** Stores the clip `edit` makes as the motion `name`, as a step; an edit that throws is said. */
-function store(name: string, edit: () => Clip): void {
-  attempt('Could not change the clip', () => {
+/**
+ * Stores the clip `edit` makes as the motion `name`, as a step; whether it could (an edit that
+ * throws is said in the menu bar).
+ */
+function store(name: string, edit: () => Clip): boolean {
+  try {
     const current = editor.value;
     current.execute(setDocumentField(['motions', name], edit()));
     current.commit();
-  });
+    return true;
+  } catch (error) {
+    console.error(error);
+    problem.value = `Could not change the clip: ${error instanceof Error ? error.message : String(error)}`;
+    return false;
+  }
 }
 
 /**
@@ -76,7 +84,13 @@ export function openClip(): { name: string; clip: Clip; time: number; local: num
 /** The rig's slots, as node ids by slot (none when the rig has none, or no object of them). */
 function slotsOf(document: MascotDocument): Readonly<Record<string, string>> {
   const slots: unknown = document.rig?.slots;
-  return typeof slots === 'object' && slots !== null ? (slots as Record<string, string>) : {};
+  if (typeof slots !== 'object' || slots === null) return {};
+  // A slot bound to something that is no id is the format's to report: it binds nothing here.
+  return Object.fromEntries(
+    Object.entries(slots).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 /**
@@ -221,8 +235,13 @@ function usePlayback(clip: Clip | null, time: number): void {
       // The playhead stays within one round of the loop.
       const round = clip.loop === 'pingpong' ? 2 * clip.duration : clip.duration;
       if (round > 0) at %= round;
-      if (!seek(at) || state.peek().stale) {
+      if (!seek(at)) {
         playing.value = false;
+        return;
+      }
+      if (state.peek().stale) {
+        playing.value = false;
+        problem.value = 'The document has issues: fix them to play the clip.';
         return;
       }
       frame = requestAnimationFrame(step);
@@ -303,8 +322,9 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
               input.value = String(key.time);
               return;
             }
-            store(name, () => retimed(clip, selected.track, index, next));
-            selectedKey.value = { track: selected.track, time: clipTimeOf(clip, next) };
+            if (store(name, () => retimed(clip, selected.track, index, next))) {
+              selectedKey.value = { track: selected.track, time: clipTimeOf(clip, next) };
+            }
           }}
         />
       </label>
@@ -483,12 +503,15 @@ function ClipEditor(props: { name: string; clip: Clip; time: number; local: numb
               </span>
               <span class="track-lane">
                 <span class="playhead" style={{ left: at(local) }} />
-                {track.keys.map((key) => {
+                {track.keys.map((key, k) => {
+                  // Of two keys at one time (a step), the first is the one selected.
                   const chosen =
-                    selectedKey.value?.track === t && selectedKey.value.time === key.time;
+                    selectedKey.value?.track === t &&
+                    selectedKey.value.time === key.time &&
+                    track.keys.findIndex((each) => each.time === key.time) === k;
                   return (
                     <button
-                      key={key.time}
+                      key={k}
                       type="button"
                       class={chosen ? 'key selected' : 'key'}
                       style={{ left: at(key.time) }}
@@ -510,7 +533,11 @@ function ClipEditor(props: { name: string; clip: Clip; time: number; local: numb
       {node && selection !== null && keyable.length > 0 ? (
         <KeySelected path={selection} label={node.id ?? 'the node'} keyable={keyable} />
       ) : (
-        <p class="empty">Select a node to key it at the playhead.</p>
+        <p class="empty">
+          {state.value.stale
+            ? 'The document has issues: fix them to key what the clip shows.'
+            : 'Select a node to key it at the playhead.'}
+        </p>
       )}
     </div>
   );
@@ -589,7 +616,11 @@ function Layers() {
       {layers.map((layer, i) => {
         // Option values carry a kind, so a motion named like the others cannot be taken for them.
         const play =
-          typeof layer.play === 'string' ? `motion:${layer.play}` : layer.play ? 'inline' : '';
+          typeof layer.play === 'string'
+            ? `motion:${layer.play}`
+            : typeof layer.play === 'object' && layer.play !== null
+              ? 'inline'
+              : '';
         const mask = maskValue(layer.mask);
         return (
           <fieldset key={`${i} ${layer.name}`} class="field-row" aria-label={`Layer ${layer.name}`}>
@@ -604,6 +635,10 @@ function Layers() {
                 change(i, { ...layer, mode });
               }}
             >
+              {/* A mode the engine does not have stays listed (the format reports it). */}
+              {layer.mode !== undefined && !BLEND_MODES.includes(layer.mode) ? (
+                <option value={layer.mode}>{String(layer.mode)}</option>
+              ) : null}
               {BLEND_MODES.map((mode) => (
                 <option key={mode} value={mode}>
                   {mode}

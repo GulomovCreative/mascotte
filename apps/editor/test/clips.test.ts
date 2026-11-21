@@ -40,6 +40,27 @@ describe('clip edits', () => {
     expect(eased(clip, 0, 1, undefined).tracks[0]?.keys[1]).toEqual({ time: 0.5, value: 0.9 });
   });
 
+  it('replaces one key of a step, keeping the other', () => {
+    const step: Clip = {
+      duration: 1,
+      loop: 'once',
+      tracks: [
+        {
+          target: slot,
+          property: 'opacity',
+          keys: [
+            { time: 0.5, value: 0 },
+            { time: 0.5, value: 1 },
+          ],
+        },
+      ],
+    };
+    expect(keyed(step, slot, 'opacity', 0.5, 0.3).tracks[0]?.keys).toEqual([
+      { time: 0.5, value: 0.3 },
+      { time: 0.5, value: 1 },
+    ]);
+  });
+
   it('keeps times within the clip, to the millisecond', () => {
     expect(clipTimeOf(empty, 2)).toBe(1);
     expect(clipTimeOf(empty, -1)).toBe(0);
@@ -205,5 +226,15 @@ describe('solo preview', () => {
     ]) {
       expect(isClip(bad), JSON.stringify(bad)).toBe(false);
     }
+  });
+
+  it('reports a clip the editor cannot open, though no layer plays it', () => {
+    const editor = new EditorDocument(readDocument(pipDocument()));
+    editor.execute(
+      setDocumentField(['motions', 'odd'], { duration: 1, tracks: [] } as unknown as Clip),
+    );
+    expect(editor.state.issues).toEqual([
+      { path: 'motions.odd', message: 'the clip: its loop is not one of once, loop, pingpong.' },
+    ]);
   });
 });

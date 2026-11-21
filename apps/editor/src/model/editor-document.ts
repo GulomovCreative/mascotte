@@ -62,24 +62,38 @@ function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 /**
- * Whether `value` is a clip the editor can show and edit: a finite duration, a loop mode, and
- * tracks with a target, a property and keys with times. Values and easings are the engine's to
- * check (it reports them as the clip's issues).
+ * What keeps a motion with tracks from being a clip the editor can show and edit (a finite
+ * duration, a loop mode, tracks with a target, a property and keys with times), or `null` for
+ * none. Values and easings are the engine's to check (it reports them as the clip's issues).
  */
+export function clipProblem(value: Readonly<Record<string, unknown>>): string | null {
+  const { duration, loop, tracks } = value;
+  if (!(typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)) {
+    return 'its duration is not a finite time of at least 0.';
+  }
+  if (!(LOOP_MODES as readonly unknown[]).includes(loop)) {
+    return `its loop is not one of ${LOOP_MODES.join(', ')}.`;
+  }
+  if (!Array.isArray(tracks)) return 'its tracks are not a list.';
+  for (const [i, track] of tracks.entries()) {
+    const at = `track ${i + 1}`;
+    if (!isObject(track)) return `${at} is not a track.`;
+    if (typeof track.property !== 'string') return `${at} names no property.`;
+    const target = track.target;
+    if (!(typeof target === 'string' || (isObject(target) && typeof target.slot === 'string'))) {
+      return `${at} names no node or slot.`;
+    }
+    if (!Array.isArray(track.keys)) return `${at} has no list of keys.`;
+    if (!track.keys.every((key: unknown) => isObject(key) && Number.isFinite(key.time))) {
+      return `${at} has a key with no time.`;
+    }
+  }
+  return null;
+}
+
+/** Whether `value` is a clip the editor can show and edit (see `clipProblem`). */
 export function isClip(value: unknown): value is Clip {
-  if (!isObject(value) || !Array.isArray(value.tracks)) return false;
-  const { duration, loop } = value;
-  if (!(typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)) return false;
-  if (!(LOOP_MODES as readonly unknown[]).includes(loop)) return false;
-  return value.tracks.every(
-    (track: unknown) =>
-      isObject(track) &&
-      typeof track.property === 'string' &&
-      (typeof track.target === 'string' ||
-        (isObject(track.target) && typeof track.target.slot === 'string')) &&
-      Array.isArray(track.keys) &&
-      track.keys.every((key: unknown) => isObject(key) && Number.isFinite(key.time)),
-  );
+  return isObject(value) && Array.isArray(value.tracks) && clipProblem(value) === null;
 }
 
 /** The clip `name` of the document's motions, or `undefined` for none, another kind of motion, or a malformed clip. */
@@ -151,6 +165,19 @@ export function check(document: MascotDocument, preview: Preview = {}): Checked 
       return { issues: error.issues as [Issue, ...Issue[]], scene: null };
     }
     throw error;
+  }
+  // Clips are checked by the engine only where they are played: one the editor cannot open is an
+  // issue of its own, so it is not passed over in silence.
+  const malformed = Object.entries(isObject(document.motions) ? document.motions : {}).flatMap(
+    ([name, motion]): Issue[] => {
+      if (!isObject(motion) || !('tracks' in motion)) return [];
+      const problem = clipProblem(motion);
+      return problem === null ? [] : [{ path: `motions.${name}`, message: `the clip: ${problem}` }];
+    },
+  );
+  if (malformed.length > 0) {
+    scene.destroy();
+    return { issues: malformed as [Issue, ...Issue[]], scene: null };
   }
   if (shown) {
     // Checked with its layers above; shown on a scene of its own, at rest but for the clip.
