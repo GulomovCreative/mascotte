@@ -16,14 +16,15 @@ export function sameTarget(
   b: Target,
   slots: Readonly<Record<string, string>> = {},
 ): boolean {
-  const reach = (target: Target) =>
-    typeof target === 'string'
-      ? target
-      : Object.hasOwn(slots, target.slot)
-        ? slots[target.slot]
-        : `\u0000${target.slot}`;
   if (typeof a !== 'string' && typeof b !== 'string' && a.slot === b.slot) return true;
-  return reach(a) === reach(b);
+  const id = idOf(a, slots);
+  return id !== undefined && id === idOf(b, slots);
+}
+
+/** The id of the node `target` reaches: its own, or the one `slots` binds its slot to. */
+export function idOf(target: Target, slots: Readonly<Record<string, string>>): string | undefined {
+  if (typeof target === 'string') return target;
+  return Object.hasOwn(slots, target.slot) ? slots[target.slot] : undefined;
 }
 
 /** A time in the clip: within it, to the millisecond (times typed or scrubbed stay readable). */
@@ -46,6 +47,14 @@ function placed(keys: readonly Key[], key: Key): Key[] {
 /** `clip` with `tracks` (those left with no keys dropped). */
 function withTracks(clip: Clip, tracks: readonly Track[]): Clip {
   return { ...clip, tracks: tracks.filter((track) => track.keys.length > 0) };
+}
+
+/** `clip` with `keys` as the keys of track `trackIndex`. */
+function withKeys(clip: Clip, trackIndex: number, keys: readonly Key[]): Clip {
+  return {
+    ...clip,
+    tracks: clip.tracks.map((each, i) => (i === trackIndex ? { ...each, keys } : each)),
+  };
 }
 
 function track(clip: Clip, index: number): Track {
@@ -84,46 +93,34 @@ export function keyed(
   const found = track(clip, index);
   const easing = found.keys.find((each) => each.time === at)?.easing;
   const next: Key = easing === undefined ? { time: at, value } : { time: at, value, easing };
-  const tracks = clip.tracks.map((each, i) =>
-    i === index ? { ...each, keys: placed(each.keys, next) } : each,
-  );
-  return { ...clip, tracks };
+  return withKeys(clip, index, placed(found.keys, next));
 }
 
 /** `clip` without key `keyIndex` of track `trackIndex` (and without the track, if it was its last). */
 export function unkeyed(clip: Clip, trackIndex: number, keyIndex: number): Clip {
   const found = track(clip, trackIndex);
   key(found, keyIndex);
-  const keys = found.keys.filter((_, i) => i !== keyIndex);
-  return withTracks(
+  const next = withKeys(
     clip,
-    clip.tracks.map((each, i) => (i === trackIndex ? { ...each, keys } : each)),
+    trackIndex,
+    found.keys.filter((_, i) => i !== keyIndex),
   );
+  return withTracks(next, next.tracks);
 }
 
 /** `clip` with key `keyIndex` of track `trackIndex` moved to `time` (replacing a key there). */
 export function retimed(clip: Clip, trackIndex: number, keyIndex: number, time: number): Clip {
   const found = track(clip, trackIndex);
   const moved = { ...key(found, keyIndex), time: clipTimeOf(clip, time) };
-  const keys = placed(
-    found.keys.filter((_, i) => i !== keyIndex),
-    moved,
-  );
-  return {
-    ...clip,
-    tracks: clip.tracks.map((each, i) => (i === trackIndex ? { ...each, keys } : each)),
-  };
+  const rest = found.keys.filter((_, i) => i !== keyIndex);
+  return withKeys(clip, trackIndex, placed(rest, moved));
 }
 
 /** `clip` with a copy of key `keyIndex` of track `trackIndex` at `time` (replacing a key there). */
 export function copiedKey(clip: Clip, trackIndex: number, keyIndex: number, time: number): Clip {
   const found = track(clip, trackIndex);
   const copy = { ...key(found, keyIndex), time: clipTimeOf(clip, time) };
-  const keys = placed(found.keys, copy);
-  return {
-    ...clip,
-    tracks: clip.tracks.map((each, i) => (i === trackIndex ? { ...each, keys } : each)),
-  };
+  return withKeys(clip, trackIndex, placed(found.keys, copy));
 }
 
 /** `clip` with the easing out of key `keyIndex` of track `trackIndex` (linear for `undefined`). */
@@ -136,11 +133,11 @@ export function eased(
   const found = track(clip, trackIndex);
   const { easing: _, ...plain } = key(found, keyIndex);
   const next: Key = easing === undefined ? plain : { ...plain, easing };
-  const keys = found.keys.map((each, i) => (i === keyIndex ? next : each));
-  return {
-    ...clip,
-    tracks: clip.tracks.map((each, i) => (i === trackIndex ? { ...each, keys } : each)),
-  };
+  return withKeys(
+    clip,
+    trackIndex,
+    found.keys.map((each, i) => (i === keyIndex ? next : each)),
+  );
 }
 
 /**
