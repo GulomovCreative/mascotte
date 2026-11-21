@@ -16,6 +16,8 @@ import {
   type NodeDocument,
 } from '@mascotte/format';
 import { MOTIONS, slotsOf, usesSize } from '@mascotte/library';
+import type { ComponentChildren } from 'preact';
+import { boundSlots, idOf } from '../model/clips.ts';
 import { setDocumentField } from '../model/commands.ts';
 import { expandedIds } from '../model/ids.ts';
 import { attempt, editor, problem, state } from '../store.ts';
@@ -35,6 +37,16 @@ function save(name: string, make: () => MotionDocument): void {
   });
 }
 
+/** The frame of a motion's form, titled by its name and kind. */
+function FormFrame(props: { name: string; kind: string; children: ComponentChildren }) {
+  return (
+    <fieldset class="motion-form" aria-label={`Motion ${props.name}`}>
+      <legend>{`${props.name}: ${props.kind}`}</legend>
+      {props.children}
+    </fieldset>
+  );
+}
+
 /** The kinds of motion the forms edit. */
 export type FormKind = 'behaviors' | 'blend' | 'library';
 
@@ -50,24 +62,12 @@ export function formKind(motion: unknown): FormKind | null {
   return null;
 }
 
-/** The rig's slots that bind a node (by name). */
-function boundSlots(document: MascotDocument): Set<string> {
-  const slots: unknown = document.rig?.slots;
-  return new Set(
-    isObject(slots)
-      ? Object.entries(slots)
-          .filter(([, id]) => typeof id === 'string')
-          .map(([slot]) => slot)
-      : [],
-  );
-}
-
 /** Why `document` cannot play the library motion `name` (slots its rig lacks, no archetype), or `null`. */
 function unplayable(document: MascotDocument, name: string): string | null {
   const entry = MOTIONS.get(name);
   if (!entry) return null;
   const bound = boundSlots(document);
-  const missing = slotsOf(entry.motion).filter((slot) => !bound.has(slot));
+  const missing = slotsOf(entry.motion).filter((slot) => !Object.hasOwn(bound, slot));
   if (missing.length > 0) return `needs the slots ${missing.join(', ')}`;
   if (usesSize(entry.motion) && typeof document.archetype !== 'string') {
     return 'needs an archetype';
@@ -153,11 +153,10 @@ function NumberField(props: {
 function LibraryForm(props: { name: string; motion: LibraryMotionRef; document: MascotDocument }) {
   const { name, motion, document } = props;
   const names = [...MOTIONS.keys()];
-  const library = typeof motion.library === 'string' ? motion.library : String(motion.library);
+  const library = String(motion.library);
   const entry = MOTIONS.get(library);
   return (
-    <fieldset class="motion-form" aria-label={`Motion ${name}`}>
-      <legend>{`${name}: library motion`}</legend>
+    <FormFrame name={name} kind="library motion">
       <label>
         Library motion
         <select
@@ -180,7 +179,7 @@ function LibraryForm(props: { name: string; motion: LibraryMotionRef; document: 
         </select>
       </label>
       {entry ? <p class="empty">{`${entry.description} For ${entry.layer} layers.`}</p> : null}
-    </fieldset>
+    </FormFrame>
   );
 }
 
@@ -189,21 +188,12 @@ function isTarget(value: unknown): value is Target {
   return typeof value === 'string' || (isObject(value) && typeof value.slot === 'string');
 }
 
-/** The node id a target reaches through the rig's slots, if any. */
-function idOf(target: Target, document: MascotDocument): string | undefined {
-  if (typeof target === 'string') return target;
-  const slots: unknown = document.rig?.slots;
-  const id = isObject(slots) && Object.hasOwn(slots, target.slot) ? slots[target.slot] : undefined;
-  return typeof id === 'string' ? id : undefined;
-}
-
 /**
- * The node built for `target` in the scene shown, if it is the document's (a stale scene is an
+ * The node `id` built in the scene shown, if it is the document's (a stale scene is an
  * older document's: its nodes may be gone or other).
  */
-function nodeFor(target: Target, document: MascotDocument) {
+function nodeFor(id: string | undefined) {
   const { scene, stale } = state.value;
-  const id = idOf(target, document);
   return id === undefined || !scene || stale ? null : scene.built.root.findById(id);
 }
 
@@ -259,12 +249,14 @@ function BehaviorFields(props: {
 }) {
   const { index, behavior, document, set } = props;
   const label = `Behavior ${index + 1}`;
-  const slots = [...boundSlots(document)];
+  const bound = boundSlots(document);
+  const slots = Object.keys(bound);
   const ids = [...expandedIds(document)].sort();
   const target = behavior.target;
   const targetValue = typeof target === 'string' ? `id:${target}` : `slot:${target.slot}`;
   const listed = typeof target === 'string' ? ids.includes(target) : slots.includes(target.slot);
-  const node = nodeFor(target, document);
+  const id = idOf(target, bound);
+  const node = nodeFor(id);
   const properties: readonly Property[] = node
     ? propertiesOf(node).filter((property) => property.animatable)
     : [];
@@ -336,7 +328,7 @@ function BehaviorFields(props: {
             const next = properties.find((each) => each.name === name);
             if (!next) return;
             // Its ends start at the node's rest value: the neutral end of most behaviors.
-            const rest = restValue(document, idOf(target, document), next);
+            const rest = restValue(document, id, next);
             set({ ...behavior, property: name, from: rest, to: rest });
           }}
         >
@@ -410,20 +402,18 @@ function BehaviorsForm(props: { name: string; motion: BehaviorSet; document: Mas
   const stored: unknown = motion.behaviors;
   if (!Array.isArray(stored)) {
     return (
-      <fieldset class="motion-form" aria-label={`Motion ${name}`}>
-        <legend>{`${name}: behaviors`}</legend>
+      <FormFrame name={name} kind="behaviors">
         <p class="empty">Its behaviors are not a list (see the issues).</p>
-      </fieldset>
+      </FormFrame>
     );
   }
   const behaviors: readonly Behavior[] = stored;
   const set = (next: readonly Behavior[]) => save(name, () => ({ ...motion, behaviors: next }));
   const remove = (i: number) => set(behaviors.filter((_, j) => j !== i));
-  const slots = [...boundSlots(document)];
+  const slots = Object.keys(boundSlots(document));
   const rootId = document.root.id;
   return (
-    <fieldset class="motion-form" aria-label={`Motion ${name}`}>
-      <legend>{`${name}: behaviors`}</legend>
+    <FormFrame name={name} kind="behaviors">
       {behaviors.map((behavior, i) =>
         isObject(behavior) && isTarget(behavior.target) && typeof behavior.property === 'string' ? (
           <BehaviorFields
@@ -461,7 +451,7 @@ function BehaviorsForm(props: { name: string; motion: BehaviorSet; document: Mas
       >
         Add behavior
       </button>
-    </fieldset>
+    </FormFrame>
   );
 }
 
@@ -485,8 +475,7 @@ function BlendForm(props: { name: string; motion: BlendDocument; document: Masco
     .filter(([other, each]) => other !== name && formKind(each) !== 'blend')
     .map(([other]) => other);
   return (
-    <fieldset class="motion-form" aria-label={`Motion ${name}`}>
-      <legend>{`${name}: blend`}</legend>
+    <FormFrame name={name} kind="blend">
       <label>
         Input
         <input
@@ -581,7 +570,7 @@ function BlendForm(props: { name: string; motion: BlendDocument; document: Masco
       >
         Add point
       </button>
-    </fieldset>
+    </FormFrame>
   );
 }
 
@@ -591,20 +580,19 @@ function BlendForm(props: { name: string; motion: BlendDocument; document: Masco
  * format's `layerKindProblem`).
  */
 export function MotionForm(props: { name: string }) {
+  const { name } = props;
   const { document } = state.value;
   const motions: Readonly<Record<string, unknown>> = isObject(document.motions)
     ? document.motions
     : {};
-  const motion = Object.hasOwn(motions, props.name) ? motions[props.name] : undefined;
+  const motion = Object.hasOwn(motions, name) ? motions[name] : undefined;
   switch (formKind(motion)) {
     case 'library':
-      return (
-        <LibraryForm name={props.name} motion={motion as LibraryMotionRef} document={document} />
-      );
+      return <LibraryForm name={name} motion={motion as LibraryMotionRef} document={document} />;
     case 'behaviors':
-      return <BehaviorsForm name={props.name} motion={motion as BehaviorSet} document={document} />;
+      return <BehaviorsForm name={name} motion={motion as BehaviorSet} document={document} />;
     case 'blend':
-      return <BlendForm name={props.name} motion={motion as BlendDocument} document={document} />;
+      return <BlendForm name={name} motion={motion as BlendDocument} document={document} />;
     default:
       return null;
   }

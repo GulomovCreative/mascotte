@@ -1,4 +1,5 @@
 import type { Clip, Key, Target, Track } from '@mascotte/engine';
+import type { MascotDocument } from '@mascotte/format';
 import type { EasingSpec } from '@mascotte/math';
 
 /*
@@ -25,6 +26,18 @@ export function sameTarget(
 export function idOf(target: Target, slots: Readonly<Record<string, string>>): string | undefined {
   if (typeof target === 'string') return target;
   return Object.hasOwn(slots, target.slot) ? slots[target.slot] : undefined;
+}
+
+/** The rig's slots, as node ids by slot (none when the rig has none, or no object of them). */
+export function boundSlots(document: MascotDocument): Readonly<Record<string, string>> {
+  const slots: unknown = document.rig?.slots;
+  if (typeof slots !== 'object' || slots === null) return {};
+  // A slot bound to something that is no id is the format's to report: it binds nothing here.
+  return Object.fromEntries(
+    Object.entries(slots).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  );
 }
 
 /** A time in the clip: within it, to the millisecond (times typed or scrubbed stay readable). */
