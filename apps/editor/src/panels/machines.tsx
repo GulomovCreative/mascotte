@@ -45,9 +45,8 @@ function open(machine: number, transition: number | null): void {
 function setMachines(make: () => readonly unknown[]): void {
   attempt('Could not change the machines', () => {
     const current = editor.value;
-    const next = make();
-    const machines = next as readonly MachineDocument[];
-    current.execute(setDocumentField(['machines'], next.length === 0 ? undefined : machines));
+    const next = make() as readonly MachineDocument[];
+    current.execute(setDocumentField(['machines'], next.length === 0 ? undefined : next));
     current.commit();
   });
 }
@@ -71,6 +70,31 @@ function listOf<T>(value: unknown): readonly T[] {
 function withKey<T extends object>(object: T, key: string, value: unknown): T {
   const { [key]: _, ...rest } = object as Record<string, unknown>;
   return (value === undefined ? rest : { ...rest, [key]: value }) as T;
+}
+
+/** The names of the document's layers that are objects. */
+function layerNamesOf(document: MascotDocument): string[] {
+  return listOf<unknown>(document.layers)
+    .filter(isObject)
+    .map((layer) => String(layer.name));
+}
+
+/** What a state plays, as its state shows it: a motion's name, `inline`, or nothing. */
+function motionLabel(motion: unknown): string {
+  if (typeof motion === 'string') return motion;
+  return motion ? 'inline' : '';
+}
+
+/** The machine's name in the machines' select. */
+function machineLabel(machine: unknown, index: number): string {
+  if (!isObject(machine)) return `${index + 1}: not a machine`;
+  return typeof machine.name === 'string' ? machine.name : `machine ${index + 1}`;
+}
+
+/** Removes the document's machine `index`, and opens the first. */
+function removeMachine(machines: readonly unknown[], index: number): void {
+  open(0, null);
+  setMachines(() => machines.filter((_, i) => i !== index));
 }
 
 /** A condition on `input` of `type`, at its kind's default: a number `> 0`, a bool true, a trigger fired. */
@@ -179,11 +203,10 @@ function Choice<V extends string>(props: {
   );
 }
 
-/** The engine's machine for the document's machine `index` (in document order), while playing. */
-function playingMachine(index: number) {
+/** The scene the preview plays in the editor shown, or `undefined` when it plays none. */
+function playingScene() {
   const { scene, stale } = state.value;
-  const playing = previewing.value === editor.value;
-  return playing && scene && !stale ? scene.animator.stateMachines[index] : undefined;
+  return previewing.value === editor.value && scene && !stale ? scene : undefined;
 }
 
 /**
@@ -194,7 +217,7 @@ function playingMachine(index: number) {
 function Graph(props: { machine: MachineDocument; index: number; selected: number | null }) {
   const { machine, index, selected } = props;
   frame.value;
-  const active = playingMachine(index)?.state ?? null;
+  const active = playingScene()?.animator.stateMachines[index]?.state ?? null;
   const states = listOf<State>(machine.states).filter(isObject);
   const transitions = listOf<Transition>(machine.transitions);
   const box = { width: 110, height: 40, gap: 50 };
@@ -256,8 +279,7 @@ function Graph(props: { machine: MachineDocument; index: number; selected: numbe
       })}
       {names.map((name) => {
         const state = states.find((each) => String(each.name) === name);
-        const motion =
-          typeof state?.motion === 'string' ? state.motion : state?.motion ? 'inline' : '';
+        const motion = motionLabel(state?.motion);
         const left = x(name) as number;
         const classes = [
           'machine-state',
@@ -368,6 +390,7 @@ function TransitionForm(props: {
             </div>
           );
         }
+        const stored = condition as unknown as Condition;
         const name = String(condition.input);
         const type = typeOf(name);
         const setCondition = (next: Condition) =>
@@ -393,11 +416,7 @@ function TransitionForm(props: {
                 options={ops.map((each) => [each, each] as const)}
                 onValue={(next) =>
                   setCondition(
-                    withKey(
-                      condition as unknown as Condition,
-                      'op',
-                      type === 'bool' && next === '==' ? undefined : next,
-                    ),
+                    withKey(stored, 'op', type === 'bool' && next === '==' ? undefined : next),
                   )
                 }
               />
@@ -411,7 +430,7 @@ function TransitionForm(props: {
                   onChange={(event) =>
                     setCondition(
                       withKey(
-                        condition as unknown as Condition,
+                        stored,
                         'value',
                         (event.currentTarget as HTMLInputElement).checked ? undefined : false,
                       ),
@@ -425,9 +444,7 @@ function TransitionForm(props: {
               <NumberField
                 label={`${label} value`}
                 value={condition.value}
-                onValue={(next) =>
-                  setCondition({ ...(condition as unknown as Condition), value: next as number })
-                }
+                onValue={(next) => setCondition({ ...stored, value: next as number })}
               />
             ) : null}
             {remove}
@@ -464,9 +481,7 @@ function MachineEditor(props: {
   const inputs = listOf<unknown>(machine.inputs);
   const transitions = listOf<unknown>(machine.transitions);
   const names = states.filter(isObject).map((each) => String(each.name));
-  const layers = listOf<unknown>(document.layers)
-    .filter(isObject)
-    .map((layer) => String(layer.name));
+  const layers = layerNamesOf(document);
   const motions = Object.keys(isObject(document.motions) ? document.motions : {});
   // Lists that are no lists are the format's to report: edits leave them as they are.
   const malformed = (list: unknown) => list !== undefined && !Array.isArray(list);
@@ -529,21 +544,13 @@ function MachineEditor(props: {
         />
         <Choice
           label="First state"
-          value={
-            typeof machine.initial === 'string' ? machine.initial : String(machine.initial ?? '')
-          }
+          value={String(machine.initial ?? '')}
           options={[['', 'the first one'], ...names.map((each) => [each, each] as const)]}
           onValue={(initial) =>
             set(withKey(machine, 'initial', initial === '' ? undefined : initial))
           }
         />
-        <button
-          type="button"
-          onClick={() => {
-            open(0, null);
-            setMachines(() => machines.filter((_, i) => i !== index));
-          }}
-        >
+        <button type="button" onClick={() => removeMachine(machines, index)}>
           Remove machine
         </button>
       </div>
@@ -690,7 +697,7 @@ function MachineEditor(props: {
               />
               <Choice
                 label={`${own} plays`}
-                value={typeof each.motion === 'string' ? each.motion : each.motion ? 'inline' : ''}
+                value={motionLabel(each.motion)}
                 options={[['', 'nothing'], ...motions.map((motion) => [motion, motion] as const)]}
                 onValue={(motion) =>
                   set({
@@ -749,7 +756,7 @@ function MachineEditor(props: {
             onClick={() => {
               // A transition fires on a condition: it starts with one on the first input.
               const [first, second] = names;
-              const input = listOf<unknown>(machine.inputs).find(isObject);
+              const input = inputs.find(isObject);
               const transition: Transition = {
                 from: first as string,
                 to: (second ?? first) as string,
@@ -793,8 +800,8 @@ function MachineEditor(props: {
 /** The state each machine is in while playing; it alone of the preview renders again on each step. */
 function ActiveStates() {
   frame.value;
-  const { scene, stale } = state.value;
-  if (previewing.value !== editor.value || !scene || stale) return null;
+  const scene = playingScene();
+  if (!scene) return null;
   return (
     <>
       {scene.animator.stateMachines.map((machine, i) => (
@@ -815,7 +822,7 @@ function ActiveStates() {
 function Preview(props: { machines: readonly unknown[] }) {
   const { scene, stale, preview } = state.value;
   const played = previewing.value;
-  const on = played !== null && played === editor.value;
+  const on = played === editor.value;
   // The inputs panel shows what the engine holds: it renders again after each change of one.
   const [, redraw] = useState(0);
   useEffect(() => {
@@ -967,10 +974,6 @@ export function Machines() {
   const index = Math.min(now.machine, machines.length - 1);
   const machine = index >= 0 ? machines[index] : undefined;
   const selected = index === now.machine ? now.transition : null;
-  const removeMachine = (i: number) => {
-    open(0, null);
-    setMachines(() => machines.filter((_, j) => j !== i));
-  };
   return (
     <div class="machines">
       <div class="field-row">
@@ -982,11 +985,7 @@ export function Machines() {
           {machines.length === 0 ? <option value="-1">no machine</option> : null}
           {machines.map((each, i) => (
             <option key={i} value={String(i)}>
-              {isObject(each) && typeof each.name === 'string'
-                ? each.name
-                : isObject(each)
-                  ? `machine ${i + 1}`
-                  : `${i + 1}: not a machine`}
+              {machineLabel(each, i)}
             </option>
           ))}
         </select>
@@ -999,10 +998,7 @@ export function Machines() {
             }
             // It drives the first layer no machine drives yet (one machine per layer).
             const used = new Set(machines.filter(isObject).map((each) => each.layer));
-            const layer = listOf<unknown>(document.layers)
-              .filter(isObject)
-              .map((each) => String(each.name))
-              .find((each) => !used.has(each));
+            const layer = layerNamesOf(document).find((each) => !used.has(each));
             if (layer === undefined) {
               problem.value = 'Every layer has a machine: add a layer for this one to drive.';
             }
@@ -1021,7 +1017,7 @@ export function Machines() {
       ) : (
         <div class="field-row">
           <span class="empty">{`Machine ${index + 1} is not a machine (see the issues).`}</span>
-          <button type="button" onClick={() => removeMachine(index)}>
+          <button type="button" onClick={() => removeMachine(machines, index)}>
             Remove machine
           </button>
         </div>

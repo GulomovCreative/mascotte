@@ -52,14 +52,22 @@ async function change(label: string, value: string, within?: string): Promise<vo
   await settle();
 }
 
-async function press(text: string): Promise<void> {
-  const button = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
+/** The button labelled or reading `text`. */
+function button(text: string): HTMLButtonElement {
+  const found = [...document.querySelectorAll<HTMLButtonElement>('button')].find(
     (each) => each.getAttribute('aria-label') === text || each.textContent === text,
   );
-  if (!button) throw new Error(`no button ${text}`);
-  button.click();
+  if (!found) throw new Error(`no button ${text}`);
+  return found;
+}
+
+async function press(text: string): Promise<void> {
+  button(text).click();
   await settle();
 }
+
+/** The state each machine is in, as the preview shows it. */
+const active = () => document.querySelector('.machine-active')?.textContent;
 
 async function addNamed(label: string, name: string): Promise<void> {
   const input = control(`${label} name`);
@@ -126,7 +134,6 @@ describe('state machine editor', () => {
     expect(problem.value).toBeNull();
     // Tried: it starts calm, turns happy on hover, and surprised on a poke.
     await press('Play');
-    const active = () => document.querySelector('.machine-active')?.textContent;
     await expect.poll(active).toBe('emotion: calm');
     control('Input hover').click();
     await expect.poll(active, { timeout: 3000 }).toBe('emotion: happy');
@@ -153,7 +160,6 @@ describe('state machine editor', () => {
       expect(state.value.document.machines).toEqual(original.machines);
       expect(state.value.issues).toEqual([]);
       await press('Play');
-      const active = () => document.querySelector('.machine-active')?.textContent;
       await expect.poll(active).toBe('react: rest');
       await press('Fire poke');
       await expect.poll(active, { timeout: 3000 }).toBe('react: hop');
@@ -266,10 +272,7 @@ describe('state machine editor', () => {
     // Its transitions are no list: removing an input leaves them as they are.
     await press('Remove input poke');
     expect(state.value.document.machines?.[1]).toMatchObject({ transitions: 'soon' });
-    const add = [...document.querySelectorAll('button')].find(
-      (each) => each.textContent === 'Add transition',
-    );
-    expect(add?.disabled).toBe(true);
+    expect(button('Add transition').disabled).toBe(true);
     await change('Machine', '0');
     await press('Remove machine');
     expect(state.value.document.machines).toHaveLength(1);
