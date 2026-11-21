@@ -42,14 +42,15 @@ const selectedKey = signal<{ readonly track: number; readonly time: number } | n
 const playing = signal(false);
 /** A motion open in its form (a behavior set, a blend or a library motion), or `null`. */
 const openForm = signal<string | null>(null);
-/** The kind of motion "New" makes. */
-const newKind = signal<'clip' | 'behaviors' | 'blend' | 'library'>('clip');
+/** The label of "New" for each kind of motion it makes. */
 const NEW_LABELS = {
   clip: 'New clip',
   behaviors: 'New behaviors',
   blend: 'New blend',
   library: 'New library motion',
 } as const;
+/** The kind of motion "New" makes. */
+const newKind = signal<keyof typeof NEW_LABELS>('clip');
 
 function run(command: Command): void {
   attempt(`Could not ${command.label.toLowerCase()}`, () => {
@@ -182,7 +183,10 @@ export function keyNode(path: DocPath, property: Property, value?: unknown): voi
   store(open.name, () => keyed(open.clip, target, property.name, open.local, shown, slots));
 }
 
-/** Shows the clip `name` solo at `time`, or no clip (the document as it plays) for `null`. */
+/**
+ * Shows the clip `name` solo at `time`, or no clip (the document as it plays) for `null`; a motion
+ * form open closes.
+ */
 function show(name: string | null, time = 0): void {
   const { preview } = state.peek();
   const { solo: _, ...rest } = preview;
@@ -199,14 +203,12 @@ function seek(time: number): boolean {
   return tried('Could not seek the clip', () => editor.value.seek(Math.max(0, time)));
 }
 
-/** What kind of motion a stored motion is, for the list (`clip` only for one the editor can open). */
+/** What kind of motion a stored motion is, for the list (`clip` only for a clip the timeline can open). */
 function kindOf(motion: unknown): string {
-  if (typeof motion !== 'object' || motion === null) return 'not a motion';
-  if ('tracks' in motion) return isClip(motion) ? 'clip' : 'clip with issues';
-  if ('behaviors' in motion) return 'behaviors';
-  if ('blend' in motion) return 'blend';
-  if ('library' in motion) return 'library';
-  return 'not a motion';
+  if (typeof motion === 'object' && motion !== null && 'tracks' in motion) {
+    return isClip(motion) ? 'clip' : 'clip with issues';
+  }
+  return formKind(motion) ?? 'not a motion';
 }
 
 function targetLabel(target: Target): string {
@@ -761,7 +763,7 @@ export function Timeline() {
   const { document } = state.value;
   const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
   const open = openClip();
-  // A motion open in its form while it still is one (a removal or an undo closes it).
+  // A motion form is shown only while that motion exists and is one the forms edit.
   const form =
     openForm.value !== null &&
     Object.hasOwn(motions, openForm.value) &&
@@ -802,7 +804,7 @@ export function Timeline() {
             newKind.value = (event.currentTarget as HTMLSelectElement).value as typeof kind;
           }}
         >
-          {(['clip', 'behaviors', 'blend', 'library'] as const).map((each) => (
+          {(Object.keys(NEW_LABELS) as (keyof typeof NEW_LABELS)[]).map((each) => (
             <option key={each} value={each}>
               {each}
             </option>

@@ -74,7 +74,8 @@ describe('motion forms', () => {
   ] as const) {
     it(`sets up ${title}'s idle and reactions on their layers`, async () => {
       const original = make();
-      const { motions: _, layers: __, machines: ___, ...rest } = original;
+      // Its machine stays: it plays the reaction (hop) on its layer, once both are made.
+      const { motions: _, layers: __, ...rest } = original;
       await mount(rest);
       // Its motions, from the library.
       await change('New motion kind', 'library');
@@ -115,8 +116,8 @@ describe('motion forms', () => {
     await change('Behavior 1 target', 'slot:body');
     await change('Behavior 1 property', 'scale');
     await change('Behavior 1 to y', '1.05');
-    await change('period', '2.8');
-    await change('phase', '0.25');
+    await change('Behavior 1 period', '2.8');
+    await change('Behavior 1 phase', '0.25');
     expect(idle().behaviors[0]).toEqual({
       kind: 'oscillate',
       target: { slot: 'body' },
@@ -128,7 +129,7 @@ describe('motion forms', () => {
     });
     // Another kind takes its own numbers, and keeps the ends.
     await change('Behavior 1 kind', 'blink');
-    expect(idle().behaviors[0]).toEqual({
+    expect(idle().behaviors[0]).toStrictEqual({
       kind: 'blink',
       target: { slot: 'body' },
       property: 'scale',
@@ -138,8 +139,13 @@ describe('motion forms', () => {
       minInterval: 2,
       maxInterval: 5,
     });
-    await change('seed', '7');
+    await change('Behavior 1 seed', '7');
     expect(idle().behaviors[0]).toMatchObject({ seed: 7 });
+    // A seed both kinds take stays; emptied, it goes.
+    await change('Behavior 1 kind', 'noise');
+    expect(idle().behaviors[0]).toMatchObject({ kind: 'noise', frequency: 1, seed: 7 });
+    await change('Behavior 1 seed', '');
+    expect(idle().behaviors[0]).not.toHaveProperty('seed');
     // On an additive layer, it plays: the engine takes it.
     await addNamed('Add layer', 'idle');
     await change('idle mode', 'additive');
@@ -174,8 +180,94 @@ describe('motion forms', () => {
         { at: 5, motion: 'calm' },
       ],
     });
+    // An `at` another point has is refused: the engine takes strictly increasing points.
+    await change('Point 1 at', '5');
+    expect(problem.value).toMatch(/Another point is at 5/);
+    expect(state.value.document.motions?.mix).toMatchObject({ blend: [{ at: 1 }, { at: 5 }] });
+    problem.value = null;
+    // A point names no blend: not this one, nor another.
+    await change('New motion kind', 'blend');
+    await addNamed('New blend', 'other');
+    await change('Motion', 'mix');
+    const options = [...control<HTMLSelectElement>('Point 1 motion').options].map((o) => o.value);
+    expect(options).not.toContain('mix');
+    expect(options).not.toContain('other');
     await addNamed('Add layer', 'mood');
     await change('mood plays', 'motion:mix');
+    expect(state.value.issues).toEqual([]);
+  });
+
+  it('edits a rotation behavior aimed at a node by id, and refuses an emptied color', async () => {
+    await mount(readDocument(gloopDocument));
+    await change('New motion kind', 'behaviors');
+    await addNamed('New behaviors', 'turn');
+    await press('Add behavior');
+    await change('Behavior 1 target', 'id:blob');
+    await change('Behavior 1 property', 'rotation');
+    const turn = () =>
+      (state.value.document.motions?.turn as BehaviorSet | undefined)?.behaviors[0];
+    expect(turn()).toMatchObject({ target: 'blob', from: { x: 0, y: 0, z: 0, w: 1 } });
+    await change('Behavior 1 to z', '90');
+    const to = turn()?.to as Record<'x' | 'y' | 'z' | 'w', number>;
+    expect(to.z).toBeCloseTo(Math.SQRT1_2);
+    expect(to.w).toBeCloseTo(Math.SQRT1_2);
+    // A color the property cannot leave out: emptied, it stays.
+    await change('Behavior 1 property', 'style.color');
+    const color = turn()?.to;
+    await change('Behavior 1 to', '');
+    expect(turn()?.to).toBe(color);
+    expect(state.value.issues).toEqual([]);
+  });
+
+  it('shows malformed behaviors, points and library motions without breaking', async () => {
+    const base = newDocument('blob');
+    await mount({
+      ...base,
+      motions: {
+        odd: {
+          behaviors: [
+            { kind: 'oscillate', property: 'opacity', from: 1, to: 0, period: 1 },
+            { kind: 'constructor', target: { slot: 'gone' }, property: 'opacity', from: 1, to: 0 },
+          ],
+        },
+        mix: { input: 'x', blend: [null, { at: 'soon', motion: 7 }] },
+        far: { library: 'nope' },
+      },
+    } as unknown as MascotDocument);
+    await change('Motion', 'odd');
+    expect(document.body.textContent).toMatch(/Behavior 1 is not a behavior/);
+    expect(control<HTMLSelectElement>('Behavior 2 kind').value).toBe('constructor');
+    expect(control<HTMLSelectElement>('Behavior 2 target').value).toBe('slot:gone');
+    expect(document.body.textContent).toMatch(/Its target is not shown/);
+    await press('Remove Behavior 1');
+    expect(state.value.document.motions?.odd).toMatchObject({
+      behaviors: [{ kind: 'constructor' }],
+    });
+    await change('Motion', 'mix');
+    expect(document.body.textContent).toMatch(/Point 1 is not a point/);
+    await press('Remove Point 1');
+    expect(state.value.document.motions?.mix).toEqual({
+      input: 'x',
+      blend: [{ at: 'soon', motion: 7 }],
+    });
+    await change('Motion', 'far');
+    expect(control<HTMLSelectElement>('Library motion').value).toBe('nope');
+  });
+
+  it('marks the library motions the rig cannot play, and starts from one it can', async () => {
+    const gloop = readDocument(gloopDocument);
+    const { motions: _, layers: __, machines: ___, ...rest } = gloop;
+    await mount(rest);
+    await change('New motion kind', 'library');
+    await addNamed('New library motion', 'first');
+    const options = [...control<HTMLSelectElement>('Library motion').options].map(
+      (option) => option.textContent,
+    );
+    // Gloop is a blob: no tail to wag.
+    expect(options.find((option) => option?.startsWith('wag'))).toMatch(/needs the slots tail/);
+    const chosen = (state.value.document.motions?.first as { library: string } | undefined)
+      ?.library;
+    expect(options).toContain(chosen);
     expect(state.value.issues).toEqual([]);
   });
 
