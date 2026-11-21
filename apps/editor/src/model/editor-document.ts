@@ -338,6 +338,20 @@ export class EditorDocument {
     } else this.setPreview(this.#preview);
   }
 
+  /**
+   * Builds the scene shown again, at rest, from the document it was built for: the document's, or
+   * the last that built while the document has issues (an animator stepped it into a pose). No
+   * step.
+   */
+  rest(): void {
+    const { document, selection, issues, scene } = this.#state;
+    if (!scene) return;
+    const checked = check(scene.document, this.#preview);
+    if (!checked.scene) return;
+    scene.scene.destroy();
+    this.#changed(document, selection, issues, checked.scene);
+  }
+
   /** Ends a gesture: the next command starts a new step even with the same merge key. */
   commit(): void {
     this.#open = undefined;

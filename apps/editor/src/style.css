@@ -597,3 +597,64 @@ body {
   padding: 0;
   border: 0;
 }
+
+.machines,
+.machine-editor {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.machine-graph {
+  max-width: 100%;
+  overflow: visible;
+}
+
+.machine-state rect {
+  fill: var(--panel);
+  stroke: var(--border);
+}
+
+.machine-state.any rect {
+  stroke-dasharray: 4 3;
+}
+
+.machine-state.active rect {
+  fill: var(--accent);
+  stroke: var(--accent);
+}
+
+.machine-state text {
+  fill: var(--text);
+  font-size: 12px;
+}
+
+.machine-state .machine-motion {
+  fill: var(--muted);
+  font-size: 10px;
+}
+
+.machine-edge {
+  fill: none;
+  stroke: var(--muted);
+}
+
+.machine-edge.selected {
+  stroke: var(--accent);
+  stroke-width: 2;
+}
+
+.machine-arrow-head {
+  fill: var(--muted);
+}
+
+.machine-active {
+  padding: 0 6px;
+  border: 1px solid var(--accent);
+  border-radius: 3px;
+}
+
+.transition-form,
+.machine-preview {
+  margin: 0;
+}

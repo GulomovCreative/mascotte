@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { setProp } from '../model/commands.ts';
 import type { EditorDocument } from '../model/editor-document.ts';
 import { nodeAt, samePath } from '../model/paths.ts';
-import { attempt, editor, problem, state } from '../store.ts';
+import { attempt, editor, frame, problem, state } from '../store.ts';
 import {
   dragged,
   drawGizmo,
@@ -322,6 +322,8 @@ export function Viewport() {
       // Read first, so the effect keeps watching them even when this frame draws nothing.
       void [
         state.value,
+        // A scene stepped in place (the machines' preview) is drawn again on each step.
+        frame.value,
         viewCamera.value,
         orbit.value,
         debugView.value,

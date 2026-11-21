@@ -496,7 +496,7 @@ Status: **in progress** · [milestone](https://github.com/GulomovCreative/mascot
 - [x] Editor palettes, parameters, prefabs and rig ([#92](https://github.com/GulomovCreative/mascotte/issues/92))
 - [x] Editor timeline ([#93](https://github.com/GulomovCreative/mascotte/issues/93))
 - [x] Editor behaviors, blends and library motions ([#94](https://github.com/GulomovCreative/mascotte/issues/94))
-- [ ] Editor state machine editor ([#95](https://github.com/GulomovCreative/mascotte/issues/95))
+- [x] Editor state machine editor ([#95](https://github.com/GulomovCreative/mascotte/issues/95))
 - [ ] Editor constraints and springs ([#96](https://github.com/GulomovCreative/mascotte/issues/96))
 - [ ] Editor preview and export ([#97](https://github.com/GulomovCreative/mascotte/issues/97))
 
