@@ -1224,7 +1224,10 @@ export function ValueField(props: {
             const text = input.value.trim();
             if (text !== '') onValue(text);
             else if (property.nullable) onValue(null);
-            else input.value = typeof value === 'string' ? value : '';
+            else {
+              input.value = typeof value === 'string' ? value : '';
+              problem.value = `${label} takes a color: it cannot be empty.`;
+            }
           }}
         />
       );

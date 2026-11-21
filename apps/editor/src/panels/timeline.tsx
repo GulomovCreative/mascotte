@@ -41,7 +41,7 @@ const selectedKey = signal<{ readonly track: number; readonly time: number } | n
 /** Whether the clip open plays. */
 const playing = signal(false);
 /** A motion open in its form (a behavior set, a blend or a library motion), or `null`. */
-const openForm = signal<string | null>(null);
+const openForm = signal<{ readonly editor: unknown; readonly name: string } | null>(null);
 /** The label of "New" for each kind of motion it makes. */
 const NEW_LABELS = {
   clip: 'New clip',
@@ -765,10 +765,12 @@ export function Timeline() {
   const open = openClip();
   // A motion form is shown only while that motion exists and is one the forms edit.
   const form =
+    // It belongs to the document it was opened in: another document opened closes it.
     openForm.value !== null &&
-    Object.hasOwn(motions, openForm.value) &&
-    formKind(motions[openForm.value]) !== null
-      ? openForm.value
+    openForm.value.editor === editor.value &&
+    Object.hasOwn(motions, openForm.value.name) &&
+    formKind(motions[openForm.value.name]) !== null
+      ? openForm.value.name
       : null;
   const openName = open ? open.name : form;
   const kind = newKind.value;
@@ -782,7 +784,7 @@ export function Timeline() {
             const value = (event.currentTarget as HTMLSelectElement).value;
             if (value !== '' && formKind(motions[value]) !== null) {
               show(null);
-              openForm.value = value;
+              openForm.value = { editor: editor.value, name: value };
             } else show(value === '' ? null : value);
           }}
         >
@@ -823,7 +825,7 @@ export function Timeline() {
             } else {
               run(setDocumentField(['motions', name], newMotion(kind, document)));
               show(null);
-              openForm.value = name;
+              openForm.value = { editor: editor.value, name };
             }
           }}
         />
