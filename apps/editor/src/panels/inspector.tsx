@@ -1212,12 +1212,13 @@ export function ValueField(props: {
       return (
         <EulerInputs label={label} value={value} fallback={property.default} onValue={onValue} />
       );
-    case 'color':
+    case 'color': {
+      const shown = typeof value === 'string' ? value : '';
       return (
         <input
           type="text"
           aria-label={label}
-          value={typeof value === 'string' ? value : ''}
+          value={shown}
           placeholder={property.default ?? 'none'}
           onChange={(event) => {
             const input = event.currentTarget as HTMLInputElement;
@@ -1225,12 +1226,13 @@ export function ValueField(props: {
             if (text !== '') onValue(text);
             else if (property.nullable) onValue(null);
             else {
-              input.value = typeof value === 'string' ? value : '';
+              input.value = shown;
               problem.value = `${label} takes a color: it cannot be empty.`;
             }
           }}
         />
       );
+    }
     case 'bool':
       return (
         <input

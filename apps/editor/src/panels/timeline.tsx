@@ -13,6 +13,7 @@ import { type EasingSpec, easing } from '@mascotte/math';
 import { signal } from '@preact/signals';
 import { useEffect, useState } from 'preact/hooks';
 import {
+  boundSlots,
   clipTimeOf,
   copiedKey,
   eased,
@@ -101,25 +102,13 @@ export function openClip(): { name: string; clip: Clip; time: number; local: num
   };
 }
 
-/** The rig's slots, as node ids by slot (none when the rig has none, or no object of them). */
-function slotsOf(document: MascotDocument): Readonly<Record<string, string>> {
-  const slots: unknown = document.rig?.slots;
-  if (typeof slots !== 'object' || slots === null) return {};
-  // A slot bound to something that is no id is the format's to report: it binds nothing here.
-  return Object.fromEntries(
-    Object.entries(slots).filter(
-      (entry): entry is [string, string] => typeof entry[1] === 'string',
-    ),
-  );
-}
-
 /**
  * How a track names `node`: by the rig slot that binds it (as the library's and the reference
  * clips do), else by its id; `null` for a node with no id.
  */
 export function targetOf(document: MascotDocument, node: NodeDocument): Target | null {
   if (node.id === undefined) return null;
-  const slot = Object.entries(slotsOf(document)).find(([, id]) => id === node.id)?.[0];
+  const slot = Object.entries(boundSlots(document)).find(([, id]) => id === node.id)?.[0];
   return slot === undefined ? node.id : { slot };
 }
 
@@ -179,7 +168,7 @@ export function keyNode(path: DocPath, property: Property, value?: unknown): voi
     problem.value = 'The node is not shown (see the issues) to key what it shows.';
     return;
   }
-  const slots = slotsOf(document);
+  const slots = boundSlots(document);
   store(open.name, () => keyed(open.clip, target, property.name, open.local, shown, slots));
 }
 
@@ -196,6 +185,12 @@ function show(name: string | null, time = 0): void {
   attempt('Could not show the clip', () =>
     editor.value.setPreview(name === null ? rest : { ...rest, solo: { motion: name, time } }),
   );
+}
+
+/** Opens the motion `name` in its form, the document playing behind it. */
+function showForm(name: string): void {
+  show(null);
+  openForm.value = { editor: editor.value, name };
 }
 
 /** Seeks the clip open to `time`; whether it could (what went wrong is said in the menu bar). */
@@ -391,7 +386,7 @@ function ClipEditor(props: { name: string; clip: Clip; time: number; local: numb
   const { document, selection } = state.value;
   usePlayback(clip, time);
   const at = (t: number) => (clip.duration > 0 ? `${(t / clip.duration) * 100}%` : '0%');
-  const slots = slotsOf(document);
+  const slots = boundSlots(document);
   // What the selected node can be keyed by: its animatable properties.
   const node = selection === null ? null : nodeAt(document, selection);
   const live = selection === null ? null : liveNode(selection);
@@ -603,7 +598,7 @@ function Layers() {
   }
   const layers = document.layers ?? [];
   const motions = Object.keys(document.motions ?? {});
-  const slots = Object.keys(slotsOf(document));
+  const slots = Object.keys(boundSlots(document));
   const set = (next: readonly LayerDocument[]) =>
     run(setDocumentField(['layers'], next.length === 0 ? undefined : next));
   const change = (i: number, layer: LayerDocument) =>
@@ -763,14 +758,15 @@ export function Timeline() {
   const { document } = state.value;
   const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
   const open = openClip();
-  // A motion form is shown only while that motion exists and is one the forms edit.
+  // A motion form shows while its motion exists and is one the forms edit, in the document it was
+  // opened in: another document opened closes it.
+  const opened = openForm.value;
   const form =
-    // It belongs to the document it was opened in: another document opened closes it.
-    openForm.value !== null &&
-    openForm.value.editor === editor.value &&
-    Object.hasOwn(motions, openForm.value.name) &&
-    formKind(motions[openForm.value.name]) !== null
-      ? openForm.value.name
+    opened !== null &&
+    opened.editor === editor.value &&
+    Object.hasOwn(motions, opened.name) &&
+    formKind(motions[opened.name]) !== null
+      ? opened.name
       : null;
   const openName = open ? open.name : form;
   const kind = newKind.value;
@@ -782,10 +778,8 @@ export function Timeline() {
           value={openName ?? ''}
           onChange={(event) => {
             const value = (event.currentTarget as HTMLSelectElement).value;
-            if (value !== '' && formKind(motions[value]) !== null) {
-              show(null);
-              openForm.value = { editor: editor.value, name: value };
-            } else show(value === '' ? null : value);
+            if (value !== '' && formKind(motions[value]) !== null) showForm(value);
+            else show(value === '' ? null : value);
           }}
         >
           <option value="">the document playing</option>
@@ -824,8 +818,7 @@ export function Timeline() {
               show(name);
             } else {
               run(setDocumentField(['motions', name], newMotion(kind, document)));
-              show(null);
-              openForm.value = { editor: editor.value, name };
+              showForm(name);
             }
           }}
         />
