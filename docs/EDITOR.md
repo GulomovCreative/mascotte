@@ -177,6 +177,12 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   copied onto another key, it replaces it); a track names a slot or the node's id, switched
   either way. A key's value is set by keying again. Keys take literal values: a color keyed while
   a palette is previewed is that palette's.
+- **Motion forms** (beside the timeline, in the same tab): a behavior set's behaviors (kind,
+  target, property, its two ends edited as the inspector edits values, and the numbers each kind
+  takes); a blend's number input (from the machines' inputs) and its points, kept in increasing
+  order, each naming a motion that is no blend; a library motion, with what it does and the kind
+  of layer it is written for (a layer of the other kind is the layer's issue). They are not
+  previewed solo: behaviors and blends play in the preview.
 
 ### 3.6. State machine editor
 

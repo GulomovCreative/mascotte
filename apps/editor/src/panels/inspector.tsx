@@ -1172,3 +1172,80 @@ export function Inspector(props: { path: DocPath }) {
     </form>
   );
 }
+
+/**
+ * A plain value of `property` (no binding), as a behavior's ends hold it: a number, a vector, a
+ * rotation in Euler angles, a CSS color, a boolean or one of an enum's values. `value` that is
+ * not of the property's kind shows as its default.
+ */
+export function ValueField(props: {
+  label: string;
+  property: Property;
+  value: unknown;
+  onValue(next: PropertyValue): void;
+}) {
+  const { label, property, value, onValue } = props;
+  switch (property.type) {
+    case 'number':
+      return (
+        <NumberInput
+          label={label}
+          value={typeof value === 'number' ? value : undefined}
+          placeholder={String(property.default)}
+          min={property.min}
+          max={property.max}
+          step={property.integer ? 1 : undefined}
+          onValue={(next) => onValue(next as number)}
+        />
+      );
+    case 'vec3':
+      return (
+        <VectorInputs
+          label={label}
+          value={coordinates(value)}
+          fallback={property.default}
+          onValue={(next) => onValue({ ...property.default, ...next } as Vec3)}
+        />
+      );
+    case 'quat':
+      return (
+        <EulerInputs label={label} value={value} fallback={property.default} onValue={onValue} />
+      );
+    case 'color':
+      return (
+        <input
+          type="text"
+          aria-label={label}
+          value={typeof value === 'string' ? value : ''}
+          placeholder={property.default ?? 'none'}
+          onChange={(event) => {
+            const text = (event.currentTarget as HTMLInputElement).value.trim();
+            onValue(text === '' ? null : text);
+          }}
+        />
+      );
+    case 'bool':
+      return (
+        <input
+          type="checkbox"
+          aria-label={label}
+          checked={typeof value === 'boolean' ? value : property.default}
+          onChange={(event) => onValue((event.currentTarget as HTMLInputElement).checked)}
+        />
+      );
+    case 'enum':
+      return (
+        <select
+          aria-label={label}
+          value={typeof value === 'string' ? value : property.default}
+          onChange={(event) => onValue((event.currentTarget as HTMLSelectElement).value)}
+        >
+          {property.values.map((each) => (
+            <option key={each} value={each}>
+              {each}
+            </option>
+          ))}
+        </select>
+      );
+  }
+}
