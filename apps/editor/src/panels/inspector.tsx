@@ -1175,8 +1175,9 @@ export function Inspector(props: { path: DocPath }) {
 
 /**
  * A plain value of `property` (no binding), as a behavior's ends hold it: a number, a vector, a
- * rotation in Euler angles, a CSS color, a boolean or one of an enum's values. `value` that is
- * not of the property's kind shows as its default.
+ * rotation (a quaternion, edited as Euler angles), a CSS color (emptied, `null` where the property
+ * takes it, otherwise no change), a boolean or one of an enum's values. A `value` not of the
+ * property's kind shows as its default; an enum value it does not list stays listed.
  */
 export function ValueField(props: {
   label: string;
@@ -1219,8 +1220,11 @@ export function ValueField(props: {
           value={typeof value === 'string' ? value : ''}
           placeholder={property.default ?? 'none'}
           onChange={(event) => {
-            const text = (event.currentTarget as HTMLInputElement).value.trim();
-            onValue(text === '' ? null : text);
+            const input = event.currentTarget as HTMLInputElement;
+            const text = input.value.trim();
+            if (text !== '') onValue(text);
+            else if (property.nullable) onValue(null);
+            else input.value = typeof value === 'string' ? value : '';
           }}
         />
       );
@@ -1240,6 +1244,9 @@ export function ValueField(props: {
           value={typeof value === 'string' ? value : property.default}
           onChange={(event) => onValue((event.currentTarget as HTMLSelectElement).value)}
         >
+          {typeof value === 'string' && !property.values.includes(value) ? (
+            <option value={value}>{value}</option>
+          ) : null}
           {property.values.map((each) => (
             <option key={each} value={each}>
               {each}

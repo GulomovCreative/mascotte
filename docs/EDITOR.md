@@ -177,12 +177,14 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   copied onto another key, it replaces it); a track names a slot or the node's id, switched
   either way. A key's value is set by keying again. Keys take literal values: a color keyed while
   a palette is previewed is that palette's.
-- **Motion forms** (beside the timeline, in the same tab): a behavior set's behaviors (kind,
-  target, property, its two ends edited as the inspector edits values, and the numbers each kind
-  takes); a blend's number input (from the machines' inputs) and its points, kept in increasing
-  order, each naming a motion that is no blend; a library motion, with what it does and the kind
-  of layer it is written for (a layer of the other kind is the layer's issue). They are not
-  previewed solo: behaviors and blends play in the preview.
+- **Motion forms** (in the Timeline tab, in place of a clip's timeline): a behavior set's
+  behaviors (kind, target, property, its two ends edited as the inspector edits values, starting
+  at the node's rest value, and the numbers each kind takes); a blend's number input (the
+  machines' number inputs are suggested) and its points, kept in strictly increasing order of
+  `at` (an `at` another point has is refused), each naming a motion that is no blend; a library
+  motion, with what it does and the kind of layer it is written for (a layer of the other kind is
+  the layer's issue), the ones the rig cannot play marked. None is previewed solo: they play in
+  the preview, on the layers that play them.
 
 ### 3.6. State machine editor
 
