@@ -183,6 +183,8 @@ describe('motion forms', () => {
     // An `at` another point has is refused: the engine takes strictly increasing points.
     await change('Point 1 at', '5');
     expect(problem.value).toMatch(/Another point is at 5/);
+    // The field shows the stored value again.
+    expect(control('Point 1 at').value).toBe('1');
     expect(state.value.document.motions?.mix).toMatchObject({ blend: [{ at: 1 }, { at: 5 }] });
     problem.value = null;
     // A point names no blend: not this one, nor another.
@@ -238,7 +240,7 @@ describe('motion forms', () => {
     expect(document.body.textContent).toMatch(/Behavior 1 is not a behavior/);
     expect(control<HTMLSelectElement>('Behavior 2 kind').value).toBe('constructor');
     expect(control<HTMLSelectElement>('Behavior 2 target').value).toBe('slot:gone');
-    expect(document.body.textContent).toMatch(/Its target is not shown/);
+    expect(document.body.textContent).toMatch(/The document has issues: its ends/);
     await press('Remove Behavior 1');
     expect(state.value.document.motions?.odd).toMatchObject({
       behaviors: [{ kind: 'constructor' }],
@@ -278,6 +280,38 @@ describe('motion forms', () => {
     expect(document.body.textContent).toMatch(/For additive layers/);
     await press('Remove motion breathe');
     expect(state.value.document.motions?.breathe).toBeUndefined();
+    expect(document.querySelector('[aria-label="Motion breathe"]')).toBeNull();
+  });
+
+  it("starts a behavior's ends at a prefab node's rest value, as the document builds", async () => {
+    const gloop = readDocument(gloopDocument);
+    await mount(gloop);
+    await change('New motion kind', 'behaviors');
+    await addNamed('New behaviors', 'look');
+    await press('Add behavior');
+    // A node the eye prefab makes, away from its instance's origin.
+    const positionOf = (id: string) => {
+      const node = state.value.scene?.built.root.findById(id);
+      return { x: node?.position.x, y: node?.position.y, z: node?.position.z };
+    };
+    const made = ['eye-left-white', 'eye-left-iris', 'eye-left-pupil', 'eye-left-highlight'].find(
+      (id) => JSON.stringify(positionOf(id)) !== JSON.stringify({ x: 0, y: 0, z: 0 }),
+    );
+    if (!made) throw new Error('no made node away from its origin');
+    await change('Behavior 1 target', `id:${made}`);
+    await change('Behavior 1 property', 'position');
+    const behavior = (state.value.document.motions?.look as BehaviorSet | undefined)?.behaviors[0];
+    const rest = positionOf(made);
+    expect(behavior?.from).toEqual(rest);
+    expect(behavior?.to).toEqual(rest);
+  });
+
+  it('closes a motion form when another document opens', async () => {
+    await mount(readDocument(gloopDocument));
+    await change('Motion', 'breathe');
+    expect(document.querySelector('[aria-label="Motion breathe"]')).not.toBeNull();
+    openDocument(readDocument(misoDocument), null);
+    await settle();
     expect(document.querySelector('[aria-label="Motion breathe"]')).toBeNull();
   });
 });

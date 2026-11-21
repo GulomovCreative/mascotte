@@ -7,12 +7,13 @@ import {
   propertiesOf,
   type Target,
 } from '@mascotte/engine';
-import type {
-  BlendDocument,
-  LibraryMotionRef,
-  MascotDocument,
-  MotionDocument,
-  NodeDocument,
+import {
+  type BlendDocument,
+  expandDocument,
+  type LibraryMotionRef,
+  type MascotDocument,
+  type MotionDocument,
+  type NodeDocument,
 } from '@mascotte/format';
 import { MOTIONS, slotsOf, usesSize } from '@mascotte/library';
 import { setDocumentField } from '../model/commands.ts';
@@ -120,7 +121,8 @@ function NumberField(props: {
   value: unknown;
   placeholder?: string;
   optional?: boolean;
-  onValue(next: number | undefined): void;
+  /** Takes the number; `false` refuses it, and the stored value shows again. */
+  onValue(next: number | undefined): boolean | undefined;
 }) {
   const value = typeof props.value === 'number' ? props.value : undefined;
   return (
@@ -134,11 +136,10 @@ function NumberField(props: {
         onChange={(event) => {
           const input = event.currentTarget as HTMLInputElement;
           const next = numberOf(input);
-          if (next === null || (next === undefined && !props.optional)) {
+          const refused = next === null || (next === undefined && !props.optional);
+          if (refused || props.onValue(next) === false) {
             input.value = value === undefined ? '' : String(value);
-            return;
           }
-          props.onValue(next);
         }}
       />
     </label>
@@ -206,15 +207,25 @@ function nodeFor(target: Target, document: MascotDocument) {
   return id === undefined || !scene || stale ? null : scene.built.root.findById(id);
 }
 
-/** The rest value of `property` on the node `id`: what its document node stores, or the default. */
+/**
+ * The rest value of `property` on the node `id`, as the document builds: its tree expanded (the
+ * nodes prefabs make, parameters at their defaults). A palette color, or no value, starts at the
+ * property's default.
+ */
 function restValue(document: MascotDocument, id: string | undefined, property: Property): unknown {
-  const find = (node: NodeDocument): NodeDocument | undefined =>
-    node.id === id ? node : (node.children ?? []).map(find).find((each) => each !== undefined);
-  const stored = id === undefined ? undefined : find(document.root)?.props?.[property.name];
-  // A stored binding is the document's to resolve: the ends start at the plain default instead.
-  const plain =
-    stored === undefined || (isObject(stored) && ('param' in stored || 'color' in stored));
-  return plain ? property.default : stored;
+  const find = (node: unknown): NodeDocument | undefined => {
+    if (!isObject(node)) return undefined;
+    if (node.id === id) return node as NodeDocument;
+    const children: unknown = node.children;
+    return Array.isArray(children)
+      ? children.map(find).find((each) => each !== undefined)
+      : undefined;
+  };
+  const expanded = expandDocument(document).document as MascotDocument;
+  const stored = id === undefined ? undefined : find(expanded.root)?.props?.[property.name];
+  return stored === undefined || (isObject(stored) && 'color' in stored)
+    ? property.default
+    : stored;
 }
 
 /** The numbers each kind of behavior takes besides its target, property and ends: their starting values. */
@@ -365,7 +376,9 @@ function BehaviorFields(props: {
         <p class="empty">
           {node
             ? `Pick a property its target animates: it has no ${behavior.property}.`
-            : 'Its target is not shown (see the issues): its ends cannot be edited.'}
+            : state.value.stale || !state.value.scene
+              ? 'The document has issues: its ends can be edited once they are fixed.'
+              : 'Its target is not in the mascot (an unbound slot, or an id no node has).'}
         </p>
       )}
       <div class="field-row">
@@ -379,6 +392,7 @@ function BehaviorFields(props: {
             onValue={(next) => {
               const { [field]: _, ...rest } = numbers;
               set((next === undefined ? rest : { ...rest, [field]: next }) as unknown as Behavior);
+              return true;
             }}
           />
         ))}
@@ -518,9 +532,10 @@ function BlendForm(props: { name: string; motion: BlendDocument; document: Masco
               onValue={(at) => {
                 if (points.some((other, j) => j !== i && atOf(other) === at)) {
                   problem.value = `Another point is at ${at}: a blend's points are at different values.`;
-                  return;
+                  return false;
                 }
                 set(points.map((each, j) => (j === i ? { ...point, at } : each)));
+                return true;
               }}
             />
             <label>
@@ -553,6 +568,11 @@ function BlendForm(props: { name: string; motion: BlendDocument; document: Masco
       <button
         type="button"
         disabled={motions.length === 0}
+        title={
+          motions.length === 0
+            ? 'A point names a motion: make a clip or behaviors first.'
+            : undefined
+        }
         onClick={() => {
           const ats = points.map(atOf).filter(Number.isFinite);
           const at = ats.length === 0 ? 0 : Math.max(...ats) + 1;

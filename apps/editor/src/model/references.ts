@@ -22,7 +22,7 @@ function renameMotion(motion: MotionRef, names: ReadonlyMap<string, string>): Mo
       })),
     };
   }
-  if ('behaviors' in motion) {
+  if ('behaviors' in motion && Array.isArray(motion.behaviors)) {
     return {
       ...motion,
       behaviors: motion.behaviors.map((behavior) => ({
