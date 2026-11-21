@@ -7,16 +7,29 @@ import type { EasingSpec } from '@mascotte/math';
  * a track whose last key goes goes with it.
  */
 
-/** Whether two targets name the same node or slot. */
-export function sameTarget(a: Target, b: Target): boolean {
-  if (typeof a === 'string' || typeof b === 'string') return a === b;
-  return a.slot === b.slot;
+/**
+ * Whether two targets reach the same node: the same id or slot, or an id and a slot of `slots`
+ * (the rig's) that binds it.
+ */
+export function sameTarget(
+  a: Target,
+  b: Target,
+  slots: Readonly<Record<string, string>> = {},
+): boolean {
+  const reach = (target: Target) =>
+    typeof target === 'string'
+      ? target
+      : Object.hasOwn(slots, target.slot)
+        ? slots[target.slot]
+        : `\u0000${target.slot}`;
+  if (typeof a !== 'string' && typeof b !== 'string' && a.slot === b.slot) return true;
+  return reach(a) === reach(b);
 }
 
-/** A time in the clip: within it, to the millisecond (keys typed or dragged stay readable). */
+/** A time in the clip: within it, to the millisecond (times typed or scrubbed stay readable). */
 export function clipTimeOf(clip: Clip, time: number): number {
   const within = Math.min(Math.max(time, 0), clip.duration);
-  return Math.round(within * 1000) / 1000;
+  return Math.min(Math.round(within * 1000) / 1000, clip.duration);
 }
 
 /** `keys` with `key` in its place by time; one already at its time is replaced. */
@@ -44,8 +57,10 @@ function key(found: Track, index: number): Key {
 }
 
 /**
- * `clip` with a key of `property` on `target` at `time` set to `value`: in its track (made at the
- * end if the clip has none for them), replacing a key at that time but keeping its easing.
+ * `clip` with a key of `property` on `target` at `time` set to `value`: in the track of that
+ * property on the node `target` reaches (by its id or a slot of `slots` that binds it, however the
+ * track names it), made at the end if the clip has none; a key at that time is replaced, keeping
+ * its easing.
  */
 export function keyed(
   clip: Clip,
@@ -53,10 +68,11 @@ export function keyed(
   property: string,
   time: number,
   value: unknown,
+  slots: Readonly<Record<string, string>> = {},
 ): Clip {
   const at = clipTimeOf(clip, time);
   const index = clip.tracks.findIndex(
-    (each) => sameTarget(each.target, target) && each.property === property,
+    (each) => sameTarget(each.target, target, slots) && each.property === property,
   );
   if (index < 0) {
     return { ...clip, tracks: [...clip.tracks, { target, property, keys: [{ time: at, value }] }] };
@@ -95,7 +111,7 @@ export function retimed(clip: Clip, trackIndex: number, keyIndex: number, time: 
   };
 }
 
-/** `clip` with a copy of key `keyIndex` of track `trackIndex` at `time`. */
+/** `clip` with a copy of key `keyIndex` of track `trackIndex` at `time` (replacing a key there). */
 export function copiedKey(clip: Clip, trackIndex: number, keyIndex: number, time: number): Clip {
   const found = track(clip, trackIndex);
   const copy = { ...key(found, keyIndex), time: clipTimeOf(clip, time) };
@@ -123,9 +139,17 @@ export function eased(
   };
 }
 
-/** `clip` with track `trackIndex` aimed at `target` (a node's id, or its rig slot). */
+/**
+ * `clip` with track `trackIndex` aimed at `target` (a node's id, or its rig slot); refused when
+ * another track already sets that property with that target, which would override it.
+ */
 export function retargeted(clip: Clip, trackIndex: number, target: Target): Clip {
-  track(clip, trackIndex);
+  const found = track(clip, trackIndex);
+  const twin = clip.tracks.some(
+    (each, i) =>
+      i !== trackIndex && each.property === found.property && sameTarget(each.target, target),
+  );
+  if (twin) throw new RangeError(`Another track already sets ${found.property} there.`);
   return {
     ...clip,
     tracks: clip.tracks.map((each, i) => (i === trackIndex ? { ...each, target } : each)),
@@ -140,6 +164,9 @@ export function untracked(clip: Clip, trackIndex: number): Clip {
 
 /** `clip` lasting `duration`: keys past it go (and tracks left with none). */
 export function lasting(clip: Clip, duration: number): Clip {
+  if (!(Number.isFinite(duration) && duration >= 0)) {
+    throw new RangeError(`A clip lasts a finite time of at least 0, not ${duration}.`);
+  }
   return withTracks(
     { ...clip, duration },
     clip.tracks.map((each) => ({ ...each, keys: each.keys.filter((k) => k.time <= duration) })),

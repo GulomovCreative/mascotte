@@ -1,4 +1,11 @@
-import { type AnimationLayer, Animator, type Clip, type Node, Scene } from '@mascotte/engine';
+import {
+  type AnimationLayer,
+  Animator,
+  type Clip,
+  LOOP_MODES,
+  type Node,
+  Scene,
+} from '@mascotte/engine';
 import {
   type BuiltMascot,
   buildDocument,
@@ -24,6 +31,8 @@ export interface BuiltScene {
   readonly sources: ReadonlyMap<Node, DocPath>;
   /** The layer that plays the clip previewed solo (see `Preview.solo`), or `null`. */
   readonly solo: AnimationLayer | null;
+  /** The clip that layer plays (the document's own object), or `null`. */
+  readonly soloClip: Clip | null;
 }
 
 /** The result of `check`: a scene for a document that builds, its issues for one that does not. */
@@ -40,23 +49,50 @@ export interface Preview {
   readonly palette?: string;
   readonly params?: Readonly<Record<string, number>>;
   /**
-   * A clip of the document's `motions` shown solo at `time` (seconds): on a layer of its own,
-   * without the document's layers, machines and springs, so a frame is the same however it is
-   * reached (docs/EDITOR.md, Timeline).
+   * A clip of the document's `motions` shown solo at `time`, the layer's time in seconds (which
+   * the clip's loop mode maps into the clip): on a layer of its own, without anything the
+   * document's animation sets up (layers, machines, constraints, springs), so a frame is the
+   * same however it is reached (docs/EDITOR.md, Timeline).
    */
   readonly solo?: { readonly motion: string; readonly time: number };
 }
 
-/** The clip `name` of the document's motions, or `undefined` for none or another kind of motion. */
+function isObject(value: unknown): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Whether `value` is a clip the editor can show and edit: a finite duration, a loop mode, and
+ * tracks with a target, a property and keys with times. Values and easings are the engine's to
+ * check (it reports them as the clip's issues).
+ */
+export function isClip(value: unknown): value is Clip {
+  if (!isObject(value) || !Array.isArray(value.tracks)) return false;
+  const { duration, loop } = value;
+  if (!(typeof duration === 'number' && Number.isFinite(duration) && duration >= 0)) return false;
+  if (!(LOOP_MODES as readonly unknown[]).includes(loop)) return false;
+  return value.tracks.every(
+    (track: unknown) =>
+      isObject(track) &&
+      typeof track.property === 'string' &&
+      (typeof track.target === 'string' ||
+        (isObject(track.target) && typeof track.target.slot === 'string')) &&
+      Array.isArray(track.keys) &&
+      track.keys.every((key: unknown) => isObject(key) && Number.isFinite(key.time)),
+  );
+}
+
+/** The clip `name` of the document's motions, or `undefined` for none, another kind of motion, or a malformed clip. */
 export function clipOf(document: MascotDocument, name: string): Clip | undefined {
   const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
   const motion = Object.hasOwn(motions, name) ? motions[name] : undefined;
-  return typeof motion === 'object' && motion !== null && Array.isArray((motion as Clip).tracks)
-    ? (motion as Clip)
-    : undefined;
+  return isClip(motion) ? motion : undefined;
 }
 
-/** `preview` without the palette and parameters `document` does not have. */
+/**
+ * `preview` without what `document` cannot show: a palette or parameter it lacks (or a value out
+ * of its range), a solo motion that is not one of its clips.
+ */
 function previewOf(document: MascotDocument, preview: Preview): Preview {
   const palette =
     preview.palette !== undefined && Object.hasOwn(document.palettes ?? {}, preview.palette)
@@ -79,6 +115,7 @@ function previewOf(document: MascotDocument, preview: Preview): Preview {
   const solo =
     preview.solo !== undefined &&
     clipOf(document, preview.solo.motion) !== undefined &&
+    Number.isFinite(preview.solo.time) &&
     preview.solo.time >= 0
       ? preview.solo
       : undefined;
@@ -100,6 +137,7 @@ export function check(document: MascotDocument, preview: Preview = {}): Checked 
   let scene: Scene;
   let animator: Animator;
   let solo: AnimationLayer | null = null;
+  let soloClip: Clip | null = null;
   const { palette, params, solo: shown } = previewOf(document, preview);
   const options = { ...(palette === undefined ? {} : { palette }), ...(params ? { params } : {}) };
   try {
@@ -120,20 +158,30 @@ export function check(document: MascotDocument, preview: Preview = {}): Checked 
     built = buildDocument(document, options);
     scene = new Scene(built.root);
     animator = new Animator(scene, { rig: built.rig });
+    soloClip = clipOf(document, shown.motion) ?? null;
     solo = animator.addLayer({ name: 'solo' });
     try {
-      solo.play(clipOf(document, shown.motion) as Clip, { time: shown.time });
+      solo.play(soloClip as Clip, { time: shown.time });
+      animator.evaluate();
     } catch (error) {
-      // A clip no layer plays is checked only here: what the engine refuses is the clip's issue.
+      // A clip no layer plays is checked only here: what the engine refuses (its errors name the
+      // track and key) is the clip's issue.
       scene.destroy();
       if (!(error instanceof Error)) throw error;
       return { issues: [{ path: `motions.${shown.motion}`, message: error.message }], scene: null };
     }
-    animator.evaluate();
   }
   return {
     issues: [],
-    scene: { document, built, scene, animator, sources: sourceMap(built.root, document), solo },
+    scene: {
+      document,
+      built,
+      scene,
+      animator,
+      sources: sourceMap(built.root, document),
+      solo,
+      soloClip,
+    },
   };
 }
 
@@ -146,7 +194,10 @@ export interface EditorState {
   readonly issues: readonly Issue[];
   /** The last scene that built: the document's, or an older one while it has issues. */
   readonly scene: BuiltScene | null;
-  /** Whether the scene is older than the document (which has issues now). */
+  /**
+   * Whether the scene is not the document as previewed: older than it (it has issues now), or
+   * playing another clip than the one previewed solo.
+   */
   readonly stale: boolean;
   readonly canUndo: boolean;
   readonly canRedo: boolean;
@@ -237,15 +288,23 @@ export class EditorDocument {
   }
 
   /**
-   * Moves the clip previewed solo to `time`: the same scene, its layer sought and evaluated (no
-   * rebuild, no step). Without a clip previewed, nothing happens.
+   * Moves the clip previewed solo to `time` (a layer time, see `Preview.solo`), no step: while the
+   * scene shown plays that clip, its layer is sought and evaluated without a rebuild; otherwise
+   * the preview is set again. Without a clip previewed, nothing happens.
    */
   seek(time: number): void {
+    if (!(Number.isFinite(time) && time >= 0)) {
+      throw new RangeError(`A clip is sought to a finite time of at least 0, not ${time}.`);
+    }
     const solo = this.#preview.solo;
     if (!solo) return;
     this.#preview = { ...this.#preview, solo: { ...solo, time } };
     const { document, selection, issues, scene } = this.#state;
-    if (scene?.solo && scene.document === document) {
+    if (
+      scene?.solo &&
+      scene.document === document &&
+      scene.soloClip === clipOf(document, solo.motion)
+    ) {
       scene.solo.time = time;
       scene.animator.evaluate();
       this.#changed(document, selection, issues, scene);
@@ -302,16 +361,20 @@ export class EditorDocument {
     issues: readonly Issue[],
     scene: BuiltScene | null,
   ): EditorState {
+    const preview = previewOf(document, this.#preview);
+    // The scene shown is stale too when it plays another clip than the one previewed (one the
+    // engine refused leaves the last scene that built).
+    const clip = preview.solo ? (clipOf(document, preview.solo.motion) ?? null) : null;
     return {
       document,
       selection,
       issues,
       scene,
-      stale: scene !== null && scene.document !== document,
+      stale: scene !== null && (scene.document !== document || scene.soloClip !== clip),
       canUndo: this.#undo.length > 0,
       canRedo: this.#redo.length > 0,
       undoLabel: this.#undo.at(-1)?.label ?? null,
-      preview: previewOf(document, this.#preview),
+      preview,
     };
   }
 

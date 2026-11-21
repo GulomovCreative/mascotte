@@ -24,15 +24,18 @@ import {
   untracked,
 } from '../model/clips.ts';
 import { type Command, setDocumentField } from '../model/commands.ts';
-import { type BuiltScene, clipOf } from '../model/editor-document.ts';
+import { clipOf, isClip } from '../model/editor-document.ts';
 import { type DocPath, nodeAt, samePath } from '../model/paths.ts';
 import { attempt, editor, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
 
 /** Whether an edit in the inspector sets a key at the playhead of the clip open, not a rest value. */
 export const autoKey = signal(false);
-/** The key selected on the timeline: its track and its index there. */
-const selectedKey = signal<{ readonly track: number; readonly key: number } | null>(null);
+/**
+ * The key selected on the timeline: its track, and its time there (key times are unique within a
+ * track, so the key stays the same one when others are added or go).
+ */
+const selectedKey = signal<{ readonly track: number; readonly time: number } | null>(null);
 /** Whether the clip open plays. */
 const playing = signal(false);
 
@@ -44,17 +47,36 @@ function run(command: Command): void {
   });
 }
 
-/** Stores `clip` as the motion `name`, as a step. */
-function store(name: string, clip: Clip): void {
-  run(setDocumentField(['motions', name], clip));
+/** Stores the clip `edit` makes as the motion `name`, as a step; an edit that throws is said. */
+function store(name: string, edit: () => Clip): void {
+  attempt('Could not change the clip', () => {
+    const current = editor.value;
+    current.execute(setDocumentField(['motions', name], edit()));
+    current.commit();
+  });
 }
 
-/** The clip open on the timeline (the one previewed solo), with its name and the playhead. */
-export function openClip(): { name: string; clip: Clip; time: number } | null {
+/**
+ * The clip open on the timeline (the one previewed solo), with its name, the layer time and the
+ * time in the clip it shows (`local`, after the loop mode: the playhead).
+ */
+export function openClip(): { name: string; clip: Clip; time: number; local: number } | null {
   const { document, preview } = state.value;
   const solo = preview.solo;
   const clip = solo ? clipOf(document, solo.motion) : undefined;
-  return solo && clip ? { name: solo.motion, clip, time: solo.time } : null;
+  if (!solo || !clip) return null;
+  return {
+    name: solo.motion,
+    clip,
+    time: solo.time,
+    local: clipTime(clip.duration, clip.loop, solo.time),
+  };
+}
+
+/** The rig's slots, as node ids by slot (none when the rig has none, or no object of them). */
+function slotsOf(document: MascotDocument): Readonly<Record<string, string>> {
+  const slots: unknown = document.rig?.slots;
+  return typeof slots === 'object' && slots !== null ? (slots as Record<string, string>) : {};
 }
 
 /**
@@ -63,14 +85,18 @@ export function openClip(): { name: string; clip: Clip; time: number } | null {
  */
 export function targetOf(document: MascotDocument, node: NodeDocument): Target | null {
   if (node.id === undefined) return null;
-  const slots = Object.entries(document.rig?.slots ?? {});
-  const slot = slots.find(([, id]) => id === node.id)?.[0];
+  const slot = Object.entries(slotsOf(document)).find(([, id]) => id === node.id)?.[0];
   return slot === undefined ? node.id : { slot };
 }
 
-/** The node built for the document node at `path` (a prefab instance's root, a solid itself). */
-export function liveNode(scene: BuiltScene | null, path: DocPath): Node | null {
-  if (!scene) return null;
+/**
+ * The first node built for the document node at `path` (a prefab instance's root, not its
+ * prefab's nodes; a solid, not its parts), in the scene shown; none while that scene is stale,
+ * as its nodes are then another document's or another clip's.
+ */
+export function liveNode(path: DocPath): Node | null {
+  const { scene, stale } = state.value;
+  if (!scene || stale) return null;
   for (const [node, from] of scene.sources) if (samePath(from, path)) return node;
   return null;
 }
@@ -92,15 +118,20 @@ export function liveValue(property: Property, node: Node): unknown {
 }
 
 /**
- * Sets a key of `property` on the node at `path` at the playhead of the clip open: `value`, or the
- * value the node shows now. Says why when it cannot (no clip open, a node with no id).
+ * Sets a key of `property` on the node at `path` at the playhead of the clip open (in its track,
+ * however that names the node): `value`, or the value the node shows now. Says why when it
+ * cannot: no clip open, no node there, a node with no id, or one not shown.
  */
 export function keyNode(path: DocPath, property: Property, value?: unknown): void {
   const open = openClip();
-  const { document, scene } = state.value;
+  const { document } = state.value;
   const node = nodeAt(document, path);
-  if (!open || !node) {
+  if (!open) {
     problem.value = 'Open a clip on the timeline to key it.';
+    return;
+  }
+  if (!node) {
+    problem.value = 'There is no node there to key.';
     return;
   }
   const target = targetOf(document, node);
@@ -108,13 +139,14 @@ export function keyNode(path: DocPath, property: Property, value?: unknown): voi
     problem.value = 'Give the node an id to key it.';
     return;
   }
-  const live = liveNode(scene, path);
+  const live = liveNode(path);
   const shown = value === undefined ? (live ? liveValue(property, live) : undefined) : value;
   if (shown === undefined) {
     problem.value = 'The node is not shown (see the issues) to key what it shows.';
     return;
   }
-  store(open.name, keyed(open.clip, target, property.name, open.time, shown));
+  const slots = slotsOf(document);
+  store(open.name, () => keyed(open.clip, target, property.name, open.local, shown, slots));
 }
 
 /** Shows the clip `name` solo at `time`, or no clip (the document as it plays) for `null`. */
@@ -128,14 +160,22 @@ function show(name: string | null, time = 0): void {
   );
 }
 
-function seek(time: number): void {
-  attempt('Could not seek the clip', () => editor.value.seek(Math.max(0, time)));
+/** Seeks the clip open to `time`; whether it could (what went wrong is said in the menu bar). */
+function seek(time: number): boolean {
+  try {
+    editor.value.seek(Math.max(0, time));
+    return true;
+  } catch (error) {
+    console.error(error);
+    problem.value = `Could not seek the clip: ${error instanceof Error ? error.message : String(error)}`;
+    return false;
+  }
 }
 
-/** What kind of motion a stored motion is, for the list. */
+/** What kind of motion a stored motion is, for the list (`clip` only for one the editor can open). */
 function kindOf(motion: unknown): string {
   if (typeof motion !== 'object' || motion === null) return 'not a motion';
-  if (Array.isArray((motion as Clip).tracks)) return 'clip';
+  if ('tracks' in motion) return isClip(motion) ? 'clip' : 'clip with issues';
   if ('behaviors' in motion) return 'behaviors';
   if ('blend' in motion) return 'blend';
   if ('library' in motion) return 'library';
@@ -157,7 +197,11 @@ function valueLabel(value: unknown): string {
   return String(value);
 }
 
-/** Plays the clip open while `playing`: the playhead runs on, by the clip's loop mode. */
+/**
+ * Plays the clip open while `playing`: the playhead runs on, by the clip's loop mode. It stops at
+ * the end of a clip played once, when a seek fails, and when the scene shown stops being the
+ * clip's (it has issues).
+ */
 function usePlayback(clip: Clip | null, time: number): void {
   const on = playing.value;
   useEffect(() => {
@@ -177,12 +221,22 @@ function usePlayback(clip: Clip | null, time: number): void {
       // The playhead stays within one round of the loop.
       const round = clip.loop === 'pingpong' ? 2 * clip.duration : clip.duration;
       if (round > 0) at %= round;
-      seek(at);
+      if (!seek(at) || state.peek().stale) {
+        playing.value = false;
+        return;
+      }
       frame = requestAnimationFrame(step);
     });
     return () => cancelAnimationFrame(frame);
     // The loop starts from the playhead as it is when playing starts, not on every seek.
   }, [on, clip]);
+  // Closed (another clip, or undone), the clip stops playing.
+  useEffect(
+    () => () => {
+      playing.value = false;
+    },
+    [],
+  );
 }
 
 /** A name and a button that adds something by it (see `AddRow` in the assets panels). */
@@ -215,12 +269,17 @@ function NewName(props: { label: string; add: (name: string) => void }) {
   );
 }
 
-/** The selected key's time and easing, and its copy and removal. */
+/**
+ * The selected key's time and easing, and its copy and removal. Moved or copied onto another
+ * key's time, it replaces that key.
+ */
 function KeyEditor(props: { name: string; clip: Clip; time: number }) {
   const { name, clip, time } = props;
   const selected = selectedKey.value;
   const track = selected ? clip.tracks[selected.track] : undefined;
-  const key = selected && track ? track.keys[selected.key] : undefined;
+  const index =
+    selected && track ? track.keys.findIndex((each) => each.time === selected.time) : -1;
+  const key = track?.keys[index];
   if (!selected || !track || !key) return null;
   const names = Object.keys(easing.named);
   const current = key.easing;
@@ -244,14 +303,8 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
               input.value = String(key.time);
               return;
             }
-            const moved = retimed(clip, selected.track, selected.key, next);
-            selectedKey.value = {
-              track: selected.track,
-              key: moved.tracks[selected.track]?.keys.findIndex(
-                (each) => each.time === clipTimeOf(clip, next),
-              ) as number,
-            };
-            store(name, moved);
+            store(name, () => retimed(clip, selected.track, index, next));
+            selectedKey.value = { track: selected.track, time: clipTimeOf(clip, next) };
           }}
         />
       </label>
@@ -262,11 +315,15 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
           value={named}
           onChange={(event) => {
             const value = (event.currentTarget as HTMLSelectElement).value;
+            if (value === 'custom') return;
             const next = value === 'linear' ? undefined : (value as EasingSpec);
-            store(name, eased(clip, selected.track, selected.key, next));
+            store(name, () => eased(clip, selected.track, index, next));
           }}
         >
-          {named === 'custom' ? <option value="custom">custom</option> : null}
+          {/* One the editor has no name for (a curve, or a name it does not know) stays listed. */}
+          {named === 'custom' || !names.includes(named) ? (
+            <option value={named}>{named}</option>
+          ) : null}
           {names.map((each) => (
             <option key={each} value={each}>
               {each}
@@ -276,7 +333,7 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
       </label>
       <button
         type="button"
-        onClick={() => store(name, copiedKey(clip, selected.track, selected.key, time))}
+        onClick={() => store(name, () => copiedKey(clip, selected.track, index, time))}
       >
         Copy to playhead
       </button>
@@ -284,7 +341,7 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
         type="button"
         onClick={() => {
           selectedKey.value = null;
-          store(name, unkeyed(clip, selected.track, selected.key));
+          store(name, () => unkeyed(clip, selected.track, index));
         }}
       >
         Delete key
@@ -294,16 +351,15 @@ function KeyEditor(props: { name: string; clip: Clip; time: number }) {
 }
 
 /** A clip on the timeline: its duration and loop, the playhead, and its tracks with their keys. */
-function ClipEditor(props: { name: string; clip: Clip; time: number }) {
-  const { name, clip, time } = props;
+function ClipEditor(props: { name: string; clip: Clip; time: number; local: number }) {
+  const { name, clip, time, local } = props;
   const { document, selection } = state.value;
   usePlayback(clip, time);
-  const local = clipTime(clip.duration, clip.loop, time);
   const at = (t: number) => (clip.duration > 0 ? `${(t / clip.duration) * 100}%` : '0%');
-  const slots = document.rig?.slots ?? {};
+  const slots = slotsOf(document);
   // What the selected node can be keyed by: its animatable properties.
   const node = selection === null ? null : nodeAt(document, selection);
-  const live = selection === null ? null : liveNode(state.value.scene, selection);
+  const live = selection === null ? null : liveNode(selection);
   const keyable = live ? propertiesOf(live).filter((property) => property.animatable) : [];
   return (
     <div class="clip-editor">
@@ -346,7 +402,9 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
                 input.value = String(clip.duration);
                 return;
               }
-              store(name, lasting(clip, next));
+              // A shorter clip drops the keys past its end, and tracks may go with them.
+              selectedKey.value = null;
+              store(name, () => lasting(clip, next));
             }}
           />
         </label>
@@ -356,10 +414,10 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
             aria-label="Loop"
             value={clip.loop}
             onChange={(event) =>
-              store(name, {
+              store(name, () => ({
                 ...clip,
                 loop: (event.currentTarget as HTMLSelectElement).value as Clip['loop'],
-              })
+              }))
             }
           >
             {LOOP_MODES.map((mode) => (
@@ -383,7 +441,12 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
       </div>
       <ul class="tracks" aria-label="Tracks">
         {clip.tracks.map((track, t) => {
-          const id = typeof track.target === 'string' ? track.target : slots[track.target.slot];
+          const id =
+            typeof track.target === 'string'
+              ? track.target
+              : Object.hasOwn(slots, track.target.slot)
+                ? slots[track.target.slot]
+                : undefined;
           const slot = Object.entries(slots).find(([, bound]) => bound === track.target)?.[0];
           return (
             <li key={t} class="track" aria-label={`${targetLabel(track.target)} ${track.property}`}>
@@ -393,7 +456,7 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
                   <button
                     type="button"
                     title={`Target the node ${id} rather than the slot`}
-                    onClick={() => store(name, retargeted(clip, t, id))}
+                    onClick={() => store(name, () => retargeted(clip, t, id))}
                   >
                     by id
                   </button>
@@ -402,7 +465,7 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
                   <button
                     type="button"
                     title={`Target the slot ${slot} rather than the node`}
-                    onClick={() => store(name, retargeted(clip, t, { slot }))}
+                    onClick={() => store(name, () => retargeted(clip, t, { slot }))}
                   >
                     by slot
                   </button>
@@ -412,7 +475,7 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
                   aria-label={`Remove track ${targetLabel(track.target)} ${track.property}`}
                   onClick={() => {
                     selectedKey.value = null;
-                    store(name, untracked(clip, t));
+                    store(name, () => untracked(clip, t));
                   }}
                 >
                   ×
@@ -420,18 +483,19 @@ function ClipEditor(props: { name: string; clip: Clip; time: number }) {
               </span>
               <span class="track-lane">
                 <span class="playhead" style={{ left: at(local) }} />
-                {track.keys.map((key, k) => {
-                  const chosen = selectedKey.value?.track === t && selectedKey.value.key === k;
+                {track.keys.map((key) => {
+                  const chosen =
+                    selectedKey.value?.track === t && selectedKey.value.time === key.time;
                   return (
                     <button
-                      key={k}
+                      key={key.time}
                       type="button"
                       class={chosen ? 'key selected' : 'key'}
                       style={{ left: at(key.time) }}
                       aria-label={`Key ${key.time} s`}
                       aria-pressed={chosen}
                       onClick={() => {
-                        selectedKey.value = { track: t, key: k };
+                        selectedKey.value = { track: t, time: key.time };
                         seek(key.time);
                       }}
                     />
@@ -480,9 +544,29 @@ function KeySelected(props: { path: DocPath; label: string; keyable: readonly Pr
 /** The document's layers, in blend order: each one's mode, weight, mask and what it plays. */
 function Layers() {
   const { document } = state.value;
-  const layers: readonly LayerDocument[] = Array.isArray(document.layers) ? document.layers : [];
+  // Layers that are no list, or a layer that is no object, are reported by the format; they can
+  // only go, as a whole, until they are fixed in the file.
+  const stored: unknown = document.layers;
+  const malformed =
+    (stored !== undefined && !Array.isArray(stored)) ||
+    (Array.isArray(stored) &&
+      stored.some(
+        (layer) => typeof layer !== 'object' || layer === null || typeof layer.name !== 'string',
+      ));
+  if (malformed) {
+    return (
+      <fieldset class="layers">
+        <legend>Layers</legend>
+        <p class="empty">The layers are malformed (see the issues).</p>
+        <button type="button" onClick={() => run(setDocumentField(['layers'], undefined))}>
+          Remove the layers
+        </button>
+      </fieldset>
+    );
+  }
+  const layers: readonly LayerDocument[] = (stored as readonly LayerDocument[] | undefined) ?? [];
   const motions = Object.keys(document.motions ?? {});
-  const slots = Object.keys(document.rig?.slots ?? {});
+  const slots = Object.keys(slotsOf(document));
   const set = (next: readonly LayerDocument[]) =>
     run(setDocumentField(['layers'], next.length === 0 ? undefined : next));
   const change = (i: number, layer: LayerDocument) =>
@@ -503,9 +587,12 @@ function Layers() {
     <fieldset class="layers">
       <legend>Layers</legend>
       {layers.map((layer, i) => {
-        const play = typeof layer.play === 'string' ? layer.play : layer.play ? 'inline' : '';
+        // Option values carry a kind, so a motion named like the others cannot be taken for them.
+        const play =
+          typeof layer.play === 'string' ? `motion:${layer.play}` : layer.play ? 'inline' : '';
+        const mask = maskValue(layer.mask);
         return (
-          <fieldset key={layer.name} class="field-row" aria-label={`Layer ${layer.name}`}>
+          <fieldset key={`${i} ${layer.name}`} class="field-row" aria-label={`Layer ${layer.name}`}>
             <span class="track-name">{layer.name}</span>
             <select
               aria-label={`${layer.name} mode`}
@@ -542,7 +629,7 @@ function Layers() {
             />
             <select
               aria-label={`${layer.name} mask`}
-              value={maskValue(layer.mask)}
+              value={mask}
               onChange={(event) => {
                 const value = (event.currentTarget as HTMLSelectElement).value;
                 const { mask: _, ...rest } = layer;
@@ -558,8 +645,9 @@ function Layers() {
                   {`slot ${slot}`}
                 </option>
               ))}
-              {typeof layer.mask === 'string' ? (
-                <option value={maskValue(layer.mask)}>{layer.mask}</option>
+              {/* A mask the rig's slots do not list (an id, a slot it lacks) stays listed. */}
+              {mask !== '' && !slots.some((slot) => `slot:${slot}` === mask) ? (
+                <option value={mask}>{mask.replace(':', ' ')}</option>
               ) : null}
             </select>
             <select
@@ -568,13 +656,18 @@ function Layers() {
               onChange={(event) => {
                 const value = (event.currentTarget as HTMLSelectElement).value;
                 const { play: _, ...rest } = layer;
-                change(i, value === '' ? rest : { ...rest, play: value });
+                if (value === '') change(i, rest);
+                else if (value.startsWith('motion:')) change(i, { ...rest, play: value.slice(7) });
               }}
             >
               <option value="">nothing</option>
               {play === 'inline' ? <option value="inline">its own motion</option> : null}
+              {/* A motion the document lacks stays listed (the format reports it). */}
+              {play.startsWith('motion:') && !motions.includes(play.slice(7)) ? (
+                <option value={play}>{play.slice(7)}</option>
+              ) : null}
               {motions.map((motion) => (
-                <option key={motion} value={motion}>
+                <option key={motion} value={`motion:${motion}`}>
                   {motion}
                 </option>
               ))}
@@ -670,7 +763,7 @@ export function Timeline() {
         ) : null}
       </div>
       {open ? (
-        <ClipEditor name={open.name} clip={open.clip} time={open.time} />
+        <ClipEditor name={open.name} clip={open.clip} time={open.time} local={open.local} />
       ) : shownName ? null : (
         <p class="empty">
           Open a clip to edit it here; behaviors, blends and library motions are edited in their

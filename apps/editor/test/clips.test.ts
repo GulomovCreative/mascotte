@@ -1,6 +1,6 @@
 import type { Clip } from '@mascotte/engine';
 import { readDocument } from '@mascotte/format';
-import { pipDocument } from '@mascotte/reference';
+import { misoDocument, pipDocument } from '@mascotte/reference';
 import { describe, expect, it } from 'vitest';
 import {
   clipTimeOf,
@@ -14,7 +14,7 @@ import {
   untracked,
 } from '../src/model/clips.ts';
 import { setDocumentField } from '../src/model/commands.ts';
-import { EditorDocument } from '../src/model/editor-document.ts';
+import { EditorDocument, isClip } from '../src/model/editor-document.ts';
 
 const empty: Clip = { duration: 1, loop: 'once', tracks: [] };
 const slot = { slot: 'head' };
@@ -61,6 +61,22 @@ describe('clip edits', () => {
     clip = unkeyed(unkeyed(unkeyed(clip, 0, 0), 0, 0), 0, 0);
     expect(clip.tracks).toEqual([]);
     expect(() => unkeyed(clip, 0, 0)).toThrow(/no track/);
+  });
+
+  it('keys the track of a node however it names it, and refuses a twin track', () => {
+    const slots = { head: 'skull' };
+    const byId = keyed(empty, 'skull', 'opacity', 0, 1);
+    const both = keyed(byId, slot, 'opacity', 0.5, 0, slots);
+    expect(both.tracks).toHaveLength(1);
+    expect(both.tracks[0]?.target).toBe('skull');
+    const twin = keyed(byId, slot, 'scale', 0, { x: 1, y: 1, z: 1 });
+    expect(() => retargeted(keyed(twin, slot, 'opacity', 0, 1), 1, slot)).not.toThrow();
+    const clash = keyed(keyed(empty, 'skull', 'opacity', 0, 1), slot, 'opacity', 0, 1);
+    expect(clash.tracks).toHaveLength(2);
+    expect(() => retargeted(clash, 0, slot)).toThrow(/Another track/);
+    expect(() => lasting(empty, Number.NaN)).toThrow(RangeError);
+    // A time rounded up past a short clip's end stays within it.
+    expect(clipTimeOf({ ...empty, duration: 0.0015 }, 1)).toBe(0.0015);
   });
 
   it('retargets and removes tracks, and shortens a clip with its keys', () => {
@@ -116,5 +132,78 @@ describe('solo preview', () => {
     expect(editor.state.issues[0]?.path).toBe('motions.broken');
     // The scene shown before stays.
     expect(editor.state.scene?.solo).toBeNull();
+  });
+
+  it('seeks without a step, to the same pose however it is reached', () => {
+    const editor = new EditorDocument(readDocument(pipDocument()));
+    const wing = () => {
+      const { x, y, z, w } = editor.state.scene?.built.root.findById('wing-left')?.rotation ?? {};
+      return { x, y, z, w };
+    };
+    editor.setPreview({ solo: { motion: 'happy', time: 0.2 } });
+    const direct = wing();
+    editor.seek(0.05);
+    editor.seek(0.2);
+    expect(wing()).toEqual(direct);
+    expect(editor.state.canUndo).toBe(false);
+    expect(() => editor.seek(Number.NaN)).toThrow(RangeError);
+    expect(() => editor.seek(-1)).toThrow(RangeError);
+    expect(editor.state.preview.solo?.time).toBe(0.2);
+  });
+
+  it('keeps the palette previewed with a clip, and leaves what the clip does not set at rest', () => {
+    const miso = readDocument(misoDocument);
+    const editor = new EditorDocument(miso);
+    editor.execute(
+      setDocumentField(['motions', 'fade'], {
+        duration: 1,
+        loop: 'once',
+        tracks: [{ target: 'tail', property: 'opacity', keys: [{ time: 0, value: 0.5 }] }],
+      }),
+    );
+    const node = (id: string) => editor.state.scene?.built.root.findById(id);
+    const style = (id: string) => (node(id) as unknown as { style: { color: string } }).style.color;
+    editor.setPreview({ palette: 'smoke', solo: { motion: 'fade', time: 0 } });
+    expect(editor.state.preview).toEqual({ palette: 'smoke', solo: { motion: 'fade', time: 0 } });
+    expect(style('skull')).toBe(miso.palettes?.smoke?.fur);
+    expect(node('tail')?.opacity).toBe(0.5);
+    // Miso's idle layers breathe and sway it: solo, its body is at rest.
+    const body = node('body');
+    expect([body?.scale.x, body?.scale.y, body?.scale.z]).toEqual([1, 1, 1]);
+  });
+
+  it('marks the last scene stale when the clip previewed is refused, and does not play it', () => {
+    const editor = new EditorDocument(readDocument(pipDocument()));
+    editor.execute(
+      setDocumentField(['motions', 'broken'], {
+        duration: 1,
+        loop: 'once',
+        tracks: [{ target: 'nobody', property: 'opacity', keys: [{ time: 0, value: 1 }] }],
+      }),
+    );
+    editor.setPreview({ solo: { motion: 'happy', time: 0 } });
+    const happy = editor.state.scene;
+    editor.setPreview({ solo: { motion: 'broken', time: 0 } });
+    expect(editor.state.issues[0]?.path).toBe('motions.broken');
+    expect(editor.state.scene).toBe(happy);
+    expect(editor.state.stale).toBe(true);
+    // Seeking tries the clip again rather than drive the happy one.
+    const time = happy?.solo?.time;
+    editor.seek(0.1);
+    expect(happy?.solo?.time).toBe(time);
+  });
+
+  it('tells a clip the editor can open from a malformed one', () => {
+    expect(isClip({ duration: 1, loop: 'once', tracks: [] })).toBe(true);
+    for (const bad of [
+      { duration: 1, loop: 'bounce', tracks: [] },
+      { duration: -1, loop: 'once', tracks: [] },
+      { duration: 1, loop: 'once', tracks: [null] },
+      { duration: 1, loop: 'once', tracks: [{ target: null, property: 'x', keys: [] }] },
+      { duration: 1, loop: 'once', tracks: [{ target: 'a', property: 'x', keys: {} }] },
+      { duration: 1, loop: 'once', tracks: [{ target: 'a', property: 'x', keys: [null] }] },
+    ]) {
+      expect(isClip(bad), JSON.stringify(bad)).toBe(false);
+    }
   });
 });

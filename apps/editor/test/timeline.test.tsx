@@ -1,4 +1,4 @@
-import { bindClip, type Clip, Scene } from '@mascotte/engine';
+import { bindClip, type Clip, type Node, Scene } from '@mascotte/engine';
 import {
   buildDocument,
   type MascotDocument,
@@ -104,7 +104,7 @@ function expectClose(actual: unknown, expected: unknown, at = 'value'): void {
 
 const EMOTIONS = ['calm', 'happy', 'surprised'] as const;
 
-/** Pip without its emotion clips and the machine that plays them: what the test makes again. */
+/** Pip without its emotion clips and its machines (which play them): what the test makes again. */
 function pipWithout(): MascotDocument {
   const pip = readDocument(pipDocument());
   const motions = Object.fromEntries(
@@ -164,6 +164,8 @@ describe('timeline', () => {
       await click('Auto-key');
     }
     expect(state.value.issues).toEqual([]);
+    // Auto-key keyed the clips; the rest pose is as it was.
+    expectClose(state.value.document.root, pipWithout().root, 'root');
 
     // Played: the happy wings, sought anywhere, are where Pip's own clip puts them.
     await change('Motion', 'happy');
@@ -171,15 +173,25 @@ describe('timeline', () => {
     const binding = bindClip(pip.motions?.happy as Clip, new Scene(reference.root), {
       rig: reference.rig,
     });
-    for (const time of [0, 0.05, 0.13, 0.3]) {
+    const wing = slots['wing.L'] as string;
+    // A rotation's fields are getters: copied one by one, not spread.
+    const turn = (root: Node) => {
+      const node = root.findById(wing);
+      if (!node) throw new Error(`no node ${wing}`);
+      const { x, y, z, w } = node.rotation;
+      return { x, y, z, w };
+    };
+    const rest = turn(buildDocument(pipWithout()).root);
+    for (const time of [0, 0.05, 0.13, 0.2]) {
       const range = control('Playhead');
       range.value = String(time);
       range.dispatchEvent(new Event('input', { bubbles: true }));
       await settle();
       binding.apply(time);
-      const shown = state.value.scene?.built.root.findById(slots['wing.L'] as string);
-      const wanted = reference.root.findById(slots['wing.L'] as string);
-      expectClose({ ...shown?.rotation }, { ...wanted?.rotation }, `wing at ${time}`);
+      const shown = state.value.scene?.built.root;
+      if (!shown) throw new Error('no scene');
+      expect(turn(shown), `wing at ${time}`).not.toEqual(rest);
+      expectClose(turn(shown), turn(reference.root), `wing at ${time}`);
     }
     // And it plays on: the playhead moves while playing, and stays once paused.
     await click('Play');
@@ -267,5 +279,128 @@ describe('timeline', () => {
     expect(state.value.issues).toEqual([]);
     await click('Remove layer extra');
     expect(state.value.document.layers).toHaveLength(5);
+  });
+
+  it('plays a clip once to its end, and again from the start', async () => {
+    await mount(readDocument(pipDocument()));
+    await change('Motion', 'surprised');
+    editor.value.seek(0.85);
+    await settle();
+    await click('Play');
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    expect(state.value.preview.solo?.time).toBe(0.9);
+    expect(control('Play').getAttribute('aria-label')).toBe('Play');
+    await click('Play');
+    await settle();
+    expect(state.value.preview.solo?.time ?? 1).toBeLessThan(0.9);
+    await click('Pause');
+  });
+
+  it('keeps the key selected through edits that move the others', async () => {
+    await mount(newDocument('blob'));
+    await addNamed('New clip', 'bob');
+    editor.value.select(pathOf('body'));
+    await settle();
+    await change('Property to key', 'opacity');
+    const keyThis = () =>
+      [...document.querySelectorAll('button')]
+        .find((each) => each.textContent === 'Key this')
+        ?.click();
+    for (const time of [0, 0.5]) {
+      editor.value.seek(time);
+      await settle();
+      keyThis();
+      await settle();
+    }
+    const clip = () => state.value.document.motions?.bob as Clip;
+    // The first key moved past the second, then eased: the moved one gets the easing.
+    await click('Key 0 s');
+    await change('Key time', '0.8');
+    await change('Key easing', 'quadIn');
+    expect(clip().tracks[0]?.keys.map((key) => [key.time, key.easing])).toEqual([
+      [0.5, undefined],
+      [0.8, 'quadIn'],
+    ]);
+    // A key added before it leaves it selected.
+    editor.value.seek(0.1);
+    await settle();
+    keyThis();
+    await settle();
+    await change('Key easing', 'quadOut');
+    expect(clip().tracks[0]?.keys.map((key) => [key.time, key.easing])).toEqual([
+      [0.1, undefined],
+      [0.5, undefined],
+      [0.8, 'quadOut'],
+    ]);
+  });
+
+  it('keys a track that names the node by id rather than add one by its slot', async () => {
+    await mount(newDocument('blob'));
+    await addNamed('New clip', 'bob');
+    editor.value.select(pathOf('body'));
+    await settle();
+    await change('Property to key', 'opacity');
+    const keyThis = () =>
+      [...document.querySelectorAll('button')]
+        .find((each) => each.textContent === 'Key this')
+        ?.click();
+    keyThis();
+    await settle();
+    [...document.querySelectorAll('button')].find((each) => each.textContent === 'by id')?.click();
+    await settle();
+    editor.value.seek(0.5);
+    await settle();
+    keyThis();
+    await settle();
+    const clip = state.value.document.motions?.bob as Clip;
+    expect(clip.tracks).toHaveLength(1);
+    expect(clip.tracks[0]?.target).toBe('body');
+    expect(clip.tracks[0]?.keys.map((key) => key.time)).toEqual([0, 0.5]);
+  });
+
+  it('refuses what auto-key cannot key, and leaves the rest values', async () => {
+    const base = newDocument('blob');
+    await mount({
+      ...base,
+      root: { ...base.root, children: [...(base.root.children ?? []), { type: 'Sphere' }] },
+    });
+    await addNamed('New clip', 'bob');
+    await click('Auto-key');
+    const rest = state.value.document.root;
+    // A node with no id cannot be keyed.
+    editor.value.select([base.root.children?.length ?? 0]);
+    await settle();
+    await change('opacity', '0.5');
+    expect(problem.value).toMatch(/id/);
+    // Clearing or binding with auto-key on is refused; reset is off.
+    problem.value = null;
+    editor.value.select(pathOf('body'));
+    await settle();
+    await change('opacity', '');
+    expect(problem.value).toMatch(/Auto-key/);
+    expect(control<HTMLButtonElement>('Reset opacity').disabled).toBe(true);
+    expect(state.value.document.root).toBe(rest);
+    expect(state.value.document.motions?.bob).toEqual({ duration: 1, loop: 'once', tracks: [] });
+  });
+
+  it('shows a malformed clip and malformed layers without breaking', async () => {
+    const base = newDocument('blob');
+    await mount({
+      ...base,
+      motions: { broken: { duration: 1, loop: 'bounce', tracks: [{ target: null, keys: {} }] } },
+      layers: [null],
+    } as unknown as MascotDocument);
+    const option = [...control<HTMLSelectElement>('Motion').options].find(
+      (each) => each.value === 'broken',
+    );
+    expect(option?.textContent).toMatch(/clip with issues/);
+    expect(option?.disabled).toBe(true);
+    expect(document.body.textContent).toMatch(/The layers are malformed/);
+    const remove = [...document.querySelectorAll('button')].find(
+      (each) => each.textContent === 'Remove the layers',
+    );
+    remove?.click();
+    await settle();
+    expect(state.value.document.layers).toBeUndefined();
   });
 });
