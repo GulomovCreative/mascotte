@@ -3,6 +3,7 @@ import type { ComponentChildren } from 'preact';
 import { DraftBanner, MenuBar, PrefabBanner } from './menu.tsx';
 import { DocumentPanel } from './panels/document-panel.tsx';
 import { Inspector } from './panels/inspector.tsx';
+import { Machines } from './panels/machines.tsx';
 import { SceneTree } from './panels/scene-tree.tsx';
 import { Timeline } from './panels/timeline.tsx';
 import { state } from './store.ts';
@@ -80,7 +81,7 @@ function BottomPanel() {
         ))}
       </div>
       <div class="panel-body" id="bottom-panel" role="tabpanel" aria-labelledby={tabId(open)}>
-        {open === 'Timeline' ? <Timeline /> : <p class="empty">No machine open.</p>}
+        {open === 'Timeline' ? <Timeline /> : <Machines />}
       </div>
     </section>
   );

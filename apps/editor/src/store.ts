@@ -18,6 +18,11 @@ export const fileName = signal<string | null>(null);
  * open document is unsaved while it differs.
  */
 export const savedDocument = signal<MascotDocument | null>(editor.value.state.document);
+/**
+ * Bumped when the scene shown changes without a new state: the machines' preview steps its
+ * animator. The viewport draws again on it.
+ */
+export const frame = signal(0);
 /** What went wrong last (opening, saving), shown until dismissed. */
 export const problem = signal<string | null>(null);
 /**

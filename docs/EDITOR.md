@@ -193,6 +193,13 @@ the player reads it as is, and nothing the editor stores is needed to play it.
 - A transition's **conditions**, duration and exit time in a form beside the graph.
 - **Inputs**: declared per machine (bool, number, trigger), and driven from an inputs panel while
   previewing, so a transition can be tried at once; the active state is lit.
+- **In the editor** (the State machines tab): the machine open drawn as a graph (the any-state
+  first, then its states in a row, transitions as arrows; the one selected and the active state
+  lit); forms for its name, layer and first state, its inputs, its states (renaming one renames
+  it in every transition; removing one removes its transitions) and the transition selected (its
+  ends, conditions on the machine's inputs, duration and exit time). "Play" steps the document's
+  animator every frame (its layers, machines, constraints and springs) and drives the inputs
+  from the panel; "Stop" builds the scene again at rest.
 
 ### 3.7. Constraints and springs
 

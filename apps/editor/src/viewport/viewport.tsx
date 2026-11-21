@@ -14,7 +14,7 @@ import { useEffect, useRef } from 'preact/hooks';
 import { setProp } from '../model/commands.ts';
 import type { EditorDocument } from '../model/editor-document.ts';
 import { nodeAt, samePath } from '../model/paths.ts';
-import { attempt, editor, problem, state } from '../store.ts';
+import { attempt, editor, frame, problem, state } from '../store.ts';
 import {
   dragged,
   drawGizmo,
@@ -343,6 +343,8 @@ export function Viewport() {
         if (target.height !== pixelHeight) target.height = pixelHeight;
       }
       const built = state.value.scene;
+      // A scene stepped in place (the machines' preview) is drawn again on each step.
+      frame.value;
       const documentCamera = built?.built.camera ?? fallback;
       // The built scene's view: validated, unlike the document while it has issues.
       const view = built?.built.view;
