@@ -1,4 +1,4 @@
-import { Animator, type Node, Scene } from '@mascotte/engine';
+import { type AnimationLayer, Animator, type Clip, type Node, Scene } from '@mascotte/engine';
 import {
   type BuiltMascot,
   buildDocument,
@@ -22,6 +22,8 @@ export interface BuiltScene {
   readonly scene: Scene;
   readonly animator: Animator;
   readonly sources: ReadonlyMap<Node, DocPath>;
+  /** The layer that plays the clip previewed solo (see `Preview.solo`), or `null`. */
+  readonly solo: AnimationLayer | null;
 }
 
 /** The result of `check`: a scene for a document that builds, its issues for one that does not. */
@@ -37,6 +39,21 @@ export type Checked =
 export interface Preview {
   readonly palette?: string;
   readonly params?: Readonly<Record<string, number>>;
+  /**
+   * A clip of the document's `motions` shown solo at `time` (seconds): on a layer of its own,
+   * without the document's layers, machines and springs, so a frame is the same however it is
+   * reached (docs/EDITOR.md, Timeline).
+   */
+  readonly solo?: { readonly motion: string; readonly time: number };
+}
+
+/** The clip `name` of the document's motions, or `undefined` for none or another kind of motion. */
+export function clipOf(document: MascotDocument, name: string): Clip | undefined {
+  const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
+  const motion = Object.hasOwn(motions, name) ? motions[name] : undefined;
+  return typeof motion === 'object' && motion !== null && Array.isArray((motion as Clip).tracks)
+    ? (motion as Clip)
+    : undefined;
 }
 
 /** `preview` without the palette and parameters `document` does not have. */
@@ -59,9 +76,16 @@ function previewOf(document: MascotDocument, preview: Preview): Preview {
       );
     }),
   );
+  const solo =
+    preview.solo !== undefined &&
+    clipOf(document, preview.solo.motion) !== undefined &&
+    preview.solo.time >= 0
+      ? preview.solo
+      : undefined;
   return {
     ...(palette === undefined ? {} : { palette }),
     ...(Object.keys(params).length === 0 ? {} : { params }),
+    ...(solo === undefined ? {} : { solo }),
   };
 }
 
@@ -75,8 +99,11 @@ export function check(document: MascotDocument, preview: Preview = {}): Checked 
   let built: BuiltMascot;
   let scene: Scene;
   let animator: Animator;
+  let solo: AnimationLayer | null = null;
+  const { palette, params, solo: shown } = previewOf(document, preview);
+  const options = { ...(palette === undefined ? {} : { palette }), ...(params ? { params } : {}) };
   try {
-    built = buildDocument(document, previewOf(document, preview));
+    built = buildDocument(document, options);
     scene = new Scene(built.root);
     animator = new Animator(scene, { rig: built.rig });
     built.animate(animator);
@@ -87,9 +114,26 @@ export function check(document: MascotDocument, preview: Preview = {}): Checked 
     }
     throw error;
   }
+  if (shown) {
+    // Checked with its layers above; shown on a scene of its own, at rest but for the clip.
+    scene.destroy();
+    built = buildDocument(document, options);
+    scene = new Scene(built.root);
+    animator = new Animator(scene, { rig: built.rig });
+    solo = animator.addLayer({ name: 'solo' });
+    try {
+      solo.play(clipOf(document, shown.motion) as Clip, { time: shown.time });
+    } catch (error) {
+      // A clip no layer plays is checked only here: what the engine refuses is the clip's issue.
+      scene.destroy();
+      if (!(error instanceof Error)) throw error;
+      return { issues: [{ path: `motions.${shown.motion}`, message: error.message }], scene: null };
+    }
+    animator.evaluate();
+  }
   return {
     issues: [],
-    scene: { document, built, scene, animator, sources: sourceMap(built.root, document) },
+    scene: { document, built, scene, animator, sources: sourceMap(built.root, document), solo },
   };
 }
 
@@ -190,6 +234,22 @@ export class EditorDocument {
     const checked = check(document, preview);
     this.#preview = preview;
     this.#apply(document, selection, checked);
+  }
+
+  /**
+   * Moves the clip previewed solo to `time`: the same scene, its layer sought and evaluated (no
+   * rebuild, no step). Without a clip previewed, nothing happens.
+   */
+  seek(time: number): void {
+    const solo = this.#preview.solo;
+    if (!solo) return;
+    this.#preview = { ...this.#preview, solo: { ...solo, time } };
+    const { document, selection, issues, scene } = this.#state;
+    if (scene?.solo && scene.document === document) {
+      scene.solo.time = time;
+      scene.animator.evaluate();
+      this.#changed(document, selection, issues, scene);
+    } else this.setPreview(this.#preview);
   }
 
   /** Ends a gesture: the next command starts a new step even with the same merge key. */

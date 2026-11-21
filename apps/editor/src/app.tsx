@@ -4,6 +4,7 @@ import { DraftBanner, MenuBar, PrefabBanner } from './menu.tsx';
 import { DocumentPanel } from './panels/document-panel.tsx';
 import { Inspector } from './panels/inspector.tsx';
 import { SceneTree } from './panels/scene-tree.tsx';
+import { Timeline } from './panels/timeline.tsx';
 import { state } from './store.ts';
 import { Viewport } from './viewport/viewport.tsx';
 
@@ -79,7 +80,7 @@ function BottomPanel() {
         ))}
       </div>
       <div class="panel-body" id="bottom-panel" role="tabpanel" aria-labelledby={tabId(open)}>
-        <p class="empty">{open === 'Timeline' ? 'No motion open.' : 'No machine open.'}</p>
+        {open === 'Timeline' ? <Timeline /> : <p class="empty">No machine open.</p>}
       </div>
     </section>
   );

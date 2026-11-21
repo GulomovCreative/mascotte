@@ -492,3 +492,90 @@ body {
 .prefab-mode {
   border-bottom-color: var(--accent);
 }
+
+.timeline {
+  display: grid;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.timeline-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.timeline-bar input[type="range"] {
+  flex: 1;
+  min-width: 120px;
+}
+
+.tracks {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 2px;
+}
+
+.track {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  align-items: center;
+  gap: 6px;
+}
+
+.track-name {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.track-lane {
+  position: relative;
+  height: 16px;
+  margin-right: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+
+.track-lane .playhead {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--accent);
+}
+
+.track-lane .key {
+  position: absolute;
+  top: 2px;
+  width: 10px;
+  height: 10px;
+  margin-left: -5px;
+  padding: 0;
+  border: 1px solid var(--text);
+  background: var(--panel);
+  transform: rotate(45deg);
+  cursor: pointer;
+}
+
+.track-lane .key.selected {
+  background: var(--accent);
+}
+
+.key-editor,
+.layers {
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.layers .field-row {
+  border: 0;
+  margin: 0;
+  padding: 0;
+}

@@ -1,5 +1,7 @@
 import type {
+  LayerDocument,
   MascotDocument,
+  MotionDocument,
   NodeDocument,
   PlainValue,
   PrefabDocument,
@@ -295,9 +297,14 @@ export type DocumentField =
   | readonly ['palettes', string]
   | readonly ['palettes', string, string]
   | readonly ['prefabs', string]
-  | readonly ['rig', 'slots', string];
+  | readonly ['rig', 'slots', string]
+  | readonly ['motions', string]
+  | readonly ['layers'];
 
-/** The value `setDocumentField` sets at `F`: a shape parameter, a palette, a prefab, a number or text. */
+/**
+ * The value `setDocumentField` sets at `F`: a shape parameter, a palette, a prefab, a motion, the
+ * layers, a number or text.
+ */
 export type FieldValue<F extends DocumentField = DocumentField> = F extends readonly [
   'params',
   string,
@@ -307,11 +314,15 @@ export type FieldValue<F extends DocumentField = DocumentField> = F extends read
     ? Readonly<Record<string, string>>
     : F extends readonly ['prefabs', string]
       ? PrefabDocument
-      : F extends readonly ['view', 'width' | 'height']
-        ? number
-        : F extends readonly ['camera', 'props', string]
-          ? PlainValue
-          : string;
+      : F extends readonly ['motions', string]
+        ? MotionDocument
+        : F extends readonly ['layers']
+          ? readonly LayerDocument[]
+          : F extends readonly ['view', 'width' | 'height']
+            ? number
+            : F extends readonly ['camera', 'props', string]
+              ? PlainValue
+              : string;
 
 /**
  * Sets the document's field at `field` (`['view', 'width']`, `['camera', 'props', 'zoom']`), or
