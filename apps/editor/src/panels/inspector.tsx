@@ -27,6 +27,7 @@ import { type DocPath, nodeAt, pathString } from '../model/paths.ts';
 import { prefabDefinition } from '../model/prefabs.ts';
 import { attempt, editor, prefabMode, problem, state } from '../store.ts';
 import { numberOf } from './document-panel.tsx';
+import { autoKey, keyNode, liveNode, liveValue, openClip } from './timeline.tsx';
 
 type Faces = NonNullable<NodeDocument['faces']>;
 type FaceSettings = NonNullable<Faces[BoxFace]>;
@@ -648,9 +649,18 @@ function PropertyField(props: {
   context: Context;
   invalid: boolean;
 }) {
-  const { path, property, value, inherited, context } = props;
+  const { path, property, inherited, context } = props;
   const name = property.name;
-  const set = (next: PropertyValue | undefined) => run(setProp(path, name, next));
+  // With auto-key on and a clip open, an edit keys the clip at the playhead, and the field shows
+  // the value the node has there, so an edit of one axis keeps the others.
+  const live = liveNode(state.value.scene, path);
+  const keying = autoKey.value && property.animatable && openClip() !== null && live !== null;
+  const value = keying && live ? (liveValue(property, live) as PropertyValue) : props.value;
+  const set = (next: PropertyValue | undefined) => {
+    if (keying && next !== undefined && !isRef(next) && !isColorRef(next))
+      keyNode(path, property, next);
+    else run(setProp(path, name, next));
+  };
   let source: ComponentChildren = null;
   let body: ComponentChildren;
   switch (property.type) {

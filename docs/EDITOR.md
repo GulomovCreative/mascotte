@@ -165,6 +165,13 @@ the player reads it as is, and nothing the editor stores is needed to play it.
   `evaluate`), so a frame is the same however it is reached. Fades, springs and machine states
   cannot be sought; they play only in the preview.
 - **Layers**: their order, mode, weight and mask, and what each plays.
+- **In the editor** (the Timeline tab): a clip opened is previewed solo at the playhead, on a scene
+  of its own (`Preview.solo`; seeking sets the layer's time and evaluates, with no rebuild).
+  "Key this" keys a property of the selected node with the value it shows at the playhead; with
+  auto-key on, an inspector edit of an animatable property keys it there instead of setting its
+  rest value, and the inspector shows the value at the playhead. A key is moved by its time,
+  given an easing by name, copied to the playhead or deleted; a track names a slot or the node's
+  id, switched either way. A key's value is set by keying again.
 
 ### 3.6. State machine editor
 
