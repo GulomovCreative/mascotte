@@ -305,7 +305,7 @@ export type DocumentField =
 
 /**
  * The value `setDocumentField` sets at `F`: a shape parameter, a palette, a prefab, a motion, the
- * layers, a number or text.
+ * layers, the machines, a number or text.
  */
 export type FieldValue<F extends DocumentField = DocumentField> = F extends readonly [
   'params',

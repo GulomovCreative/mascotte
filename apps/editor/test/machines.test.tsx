@@ -69,7 +69,10 @@ async function addNamed(label: string, name: string): Promise<void> {
   await press(label);
 }
 
-/** Makes `original` through the editor: its name, layer, inputs, states and transitions. */
+/**
+ * Makes `original` through the editor: its name, layer, inputs, states and transitions (bool and
+ * trigger conditions; not its first state, nor number conditions).
+ */
 async function make(original: MachineDocument): Promise<void> {
   await addNamed('New machine', original.name as string);
   await change('Layer', original.layer);
@@ -90,8 +93,11 @@ async function make(original: MachineDocument): Promise<void> {
     await change('To', transition.to);
     if (transition.duration != null) await change('Duration', String(transition.duration));
     if (transition.exitTime != null) await change('Exit time', String(transition.exitTime));
-    for (const [c, condition] of (transition.conditions ?? []).entries()) {
-      await press('Add condition');
+    // A new transition starts with a condition on the first input.
+    const conditions = transition.conditions ?? [];
+    if (conditions.length === 0) await press('Remove Condition 1');
+    for (const [c, condition] of conditions.entries()) {
+      if (c > 0) await press('Add condition');
       await change(`Condition ${c + 1} input`, condition.input);
       if (condition.value === false) {
         control(`Condition ${c + 1} value`).click();
@@ -128,8 +134,12 @@ describe('state machine editor', () => {
     await expect.poll(active, { timeout: 3000 }).toBe('emotion: surprised');
     // The graph lights the state the machine is in.
     expect(document.querySelector('.machine-state.active text')?.textContent).toBe('surprised');
+    // Stopped, the scene is built again at rest.
+    const played = state.value.scene;
     await press('Stop');
     expect(previewing.value).toBe(false);
+    expect(state.value.scene).not.toBe(played);
+    expect(document.querySelector('.machine-state.active')).toBeNull();
   });
 
   for (const [title, read] of [
@@ -162,12 +172,50 @@ describe('state machine editor', () => {
       ['hop', 'idle'],
     ]);
     // A name another state has, or the any-state's, is refused.
-    await change('State 1 name', 'hop');
-    expect(problem.value).toMatch(/name of its own/);
-    expect(control('State 1 name').value).toBe('idle');
-    await press('Remove state hop');
+    for (const taken of ['hop', '*']) {
+      problem.value = null;
+      await change('State 1 name', taken);
+      expect(problem.value).toMatch(/name of its own/);
+      expect(control('State 1 name').value).toBe('idle');
+    }
+    // The first state follows a rename, and goes with its state.
+    await change('First state', 'hop');
+    await change('State 2 name', 'leap');
+    expect(machine().initial).toBe('leap');
+    await press('Remove state leap');
     expect(machine().states).toEqual([{ name: 'idle' }]);
     expect(machine().transitions).toBeUndefined();
+    expect(machine().initial).toBeUndefined();
+    expect(state.value.issues).toEqual([]);
+    // A machine keeps one state.
+    expect(control<HTMLButtonElement>('Remove state idle').disabled).toBe(true);
+  });
+
+  it("rewrites an input's conditions when its type changes, and removes them with it", async () => {
+    const pip = readDocument(pipDocument());
+    await mount(pip);
+    const transitions = () => state.value.document.machines?.[0]?.transitions ?? [];
+    await change('hover type', 'number');
+    expect(transitions().find((each) => each.from === 'calm')?.conditions).toEqual([
+      { input: 'hover', op: '>', value: 0 },
+    ]);
+    expect(state.value.issues).toEqual([]);
+    await press('Remove input hover');
+    expect(transitions().find((each) => each.from === 'calm')?.conditions).toBeUndefined();
+    expect(transitions().find((each) => each.from === '*')?.conditions).toEqual([
+      { input: 'poke' },
+    ]);
+  });
+
+  it('stops the preview when the panel closes, at rest', async () => {
+    await mount(readDocument(gloopDocument));
+    await press('Play');
+    expect(previewing.value).toBe(true);
+    const played = state.value.scene;
+    bottomTab.value = 'Timeline';
+    // Effects are cleaned up after the next paint.
+    await expect.poll(() => previewing.value).toBe(false);
+    expect(state.value.scene).not.toBe(played);
   });
 
   it('compares a number input, and shows malformed machines without breaking', async () => {

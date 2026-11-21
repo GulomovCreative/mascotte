@@ -20,7 +20,7 @@ export const fileName = signal<string | null>(null);
 export const savedDocument = signal<MascotDocument | null>(editor.value.state.document);
 /**
  * Bumped when the scene shown changes without a new state: the machines' preview steps its
- * animator. The viewport draws again on it.
+ * animator. The viewport draws again on it, and what shows the machines' states renders again.
  */
 export const frame = signal(0);
 /** What went wrong last (opening, saving), shown until dismissed. */

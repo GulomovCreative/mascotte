@@ -322,6 +322,8 @@ export function Viewport() {
       // Read first, so the effect keeps watching them even when this frame draws nothing.
       void [
         state.value,
+        // A scene stepped in place (the machines' preview) is drawn again on each step.
+        frame.value,
         viewCamera.value,
         orbit.value,
         debugView.value,
@@ -343,8 +345,6 @@ export function Viewport() {
         if (target.height !== pixelHeight) target.height = pixelHeight;
       }
       const built = state.value.scene;
-      // A scene stepped in place (the machines' preview) is drawn again on each step.
-      frame.value;
       const documentCamera = built?.built.camera ?? fallback;
       // The built scene's view: validated, unlike the document while it has issues.
       const view = built?.built.view;
