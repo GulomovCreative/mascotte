@@ -16,6 +16,7 @@ import {
   clipTimeOf,
   copiedKey,
   eased,
+  idOf,
   keyed,
   lasting,
   retargeted,
@@ -47,21 +48,28 @@ function run(command: Command): void {
   });
 }
 
+/** Runs `task`; whether it could (what went wrong is said in the menu bar, after `what`). */
+function tried(what: string, task: () => void): boolean {
+  try {
+    task();
+    return true;
+  } catch (error) {
+    console.error(error);
+    problem.value = `${what}: ${error instanceof Error ? error.message : String(error)}`;
+    return false;
+  }
+}
+
 /**
  * Stores the clip `edit` makes as the motion `name`, as a step; whether it could (an edit that
  * throws is said in the menu bar).
  */
 function store(name: string, edit: () => Clip): boolean {
-  try {
+  return tried('Could not change the clip', () => {
     const current = editor.value;
     current.execute(setDocumentField(['motions', name], edit()));
     current.commit();
-    return true;
-  } catch (error) {
-    console.error(error);
-    problem.value = `Could not change the clip: ${error instanceof Error ? error.message : String(error)}`;
-    return false;
-  }
+  });
 }
 
 /**
@@ -176,14 +184,7 @@ function show(name: string | null, time = 0): void {
 
 /** Seeks the clip open to `time`; whether it could (what went wrong is said in the menu bar). */
 function seek(time: number): boolean {
-  try {
-    editor.value.seek(Math.max(0, time));
-    return true;
-  } catch (error) {
-    console.error(error);
-    problem.value = `Could not seek the clip: ${error instanceof Error ? error.message : String(error)}`;
-    return false;
-  }
+  return tried('Could not seek the clip', () => editor.value.seek(Math.max(0, time)));
 }
 
 /** What kind of motion a stored motion is, for the list (`clip` only for one the editor can open). */
@@ -461,12 +462,7 @@ function ClipEditor(props: { name: string; clip: Clip; time: number; local: numb
       </div>
       <ul class="tracks" aria-label="Tracks">
         {clip.tracks.map((track, t) => {
-          const id =
-            typeof track.target === 'string'
-              ? track.target
-              : Object.hasOwn(slots, track.target.slot)
-                ? slots[track.target.slot]
-                : undefined;
+          const id = idOf(track.target, slots);
           const slot = Object.entries(slots).find(([, bound]) => bound === track.target)?.[0];
           return (
             <li key={t} class="track" aria-label={`${targetLabel(track.target)} ${track.property}`}>
@@ -591,7 +587,7 @@ function Layers() {
       </fieldset>
     );
   }
-  const layers: readonly LayerDocument[] = (stored as readonly LayerDocument[] | undefined) ?? [];
+  const layers = document.layers ?? [];
   const motions = Object.keys(document.motions ?? {});
   const slots = Object.keys(slotsOf(document));
   const set = (next: readonly LayerDocument[]) =>
@@ -753,7 +749,6 @@ export function Timeline() {
   const { document } = state.value;
   const motions: Readonly<Record<string, unknown>> = document.motions ?? {};
   const open = openClip();
-  const shownName = state.value.preview.solo?.motion ?? '';
   return (
     <div class="timeline">
       <div class="field-row timeline-bar">
@@ -799,7 +794,7 @@ export function Timeline() {
       </div>
       {open ? (
         <ClipEditor name={open.name} clip={open.clip} time={open.time} local={open.local} />
-      ) : shownName ? null : (
+      ) : (
         <p class="empty">
           Open a clip to edit it here; behaviors, blends and library motions are edited in their
           forms.
